@@ -2,6 +2,7 @@ from typing import List, Dict
 from difflib import SequenceMatcher
 from datetime import datetime
 from supplier_aliases import normalize_supplier_name
+from matching_config import MATCH_WEIGHTS
 
 def fuzzy_supplier_name_match(a: str, b: str) -> float:
     if not a or not b:
@@ -66,8 +67,13 @@ def score_invoice_delivery_match(invoice_data: dict, delivery_data: dict) -> dic
         invoice_data.get('invoice_date', ''),
         delivery_data.get('delivery_date', '')
     )
-    # Weighted sum (tune as needed)
-    match_score = 0.4 * supplier_score + 0.2 * item_overlap + 0.2 * value_score + 0.2 * date_score
+    # Weighted sum using config
+    match_score = (
+        MATCH_WEIGHTS["supplier"] * supplier_score +
+        MATCH_WEIGHTS["items"] * item_overlap +
+        MATCH_WEIGHTS["value"] * value_score +
+        MATCH_WEIGHTS["date"] * date_score
+    )
     return {
         "match_score": round(match_score, 2),
         "breakdown": {
