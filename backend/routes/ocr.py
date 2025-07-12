@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 import pytesseract
 from PIL import Image
 import io
+import numpy as np
+import cv2
 from .ocr_utils import detect_document_type
 
 router = APIRouter()
@@ -76,10 +78,33 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
         'items': items
     }
 
+def preprocess_image(image: np.ndarray) -> np.ndarray:
+    # Convert to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Denoise
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    # Adaptive thresholding
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
+    )
+    # Optional: Invert if background is dark
+    mean_intensity = np.mean(thresh)
+    if mean_intensity < 127:
+        thresh = cv2.bitwise_not(thresh)
+    # Optional: Contrast boost
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    final = clahe.apply(thresh)
+    return final
+
 async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
     contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert("RGB")
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+    pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
+    # Convert PIL image to OpenCV format
+    cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    preprocessed = preprocess_image(cv_image)
+    # Convert back to PIL for pytesseract
+    pil_for_ocr = Image.fromarray(preprocessed)
+    data = pytesseract.image_to_data(pil_for_ocr, output_type=pytesseract.Output.DICT)
     lines = []
     current_line = ''
     last_line_num = -1
