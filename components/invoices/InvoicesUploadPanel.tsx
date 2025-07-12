@@ -69,9 +69,10 @@ const LoadingSpinner = ({ className = 'w-4 h-4' }) => (
 interface UploadedFile {
   name: string;
   timestamp: string;
-  status: 'uploading' | 'success' | 'error';
+  status: 'uploading' | 'success' | 'error' | 'parsing' | 'parsed' | 'parse_error';
   error?: string;
   serverFilename?: string;
+  parsedData?: any;
 }
 
 const InvoicesUploadPanel: React.FC = () => {
@@ -108,6 +109,23 @@ const InvoicesUploadPanel: React.FC = () => {
     return await response.json();
   };
 
+  const parseFileWithOCR = async (file: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch(`${API_BASE_URL}/ocr/parse`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || 'OCR parsing failed');
+    }
+
+    return await response.json();
+  };
+
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
     target: 'invoices' | 'delivery'
@@ -131,21 +149,51 @@ const InvoicesUploadPanel: React.FC = () => {
         }
 
         try {
-          // Upload file to backend
-          const result = await uploadFile(file, target);
+          // Step 1: Upload file to backend
+          const uploadResult = await uploadFile(file, target);
           
-          // Update file status to success
-          const updateFile = (files: UploadedFile[]) => 
+          // Update file status to success after upload
+          const updateFileAfterUpload = (files: UploadedFile[]) => 
             files.map(f => 
               f.name === file.name 
-                ? { ...f, status: 'success' as const, serverFilename: result.filename }
+                ? { ...f, status: 'success' as const, serverFilename: uploadResult.filename }
                 : f
             );
 
           if (target === 'invoices') {
-            setInvoiceFiles(updateFile);
+            setInvoiceFiles(updateFileAfterUpload);
           } else {
-            setDeliveryFiles(updateFile);
+            setDeliveryFiles(updateFileAfterUpload);
+          }
+
+          // Step 2: Parse file with OCR
+          const updateFileToParsing = (files: UploadedFile[]) => 
+            files.map(f => 
+              f.name === file.name 
+                ? { ...f, status: 'parsing' as const }
+                : f
+            );
+
+          if (target === 'invoices') {
+            setInvoiceFiles(updateFileToParsing);
+          } else {
+            setDeliveryFiles(updateFileToParsing);
+          }
+
+          const parseResult = await parseFileWithOCR(file);
+          
+          // Update file status to parsed with OCR data
+          const updateFileAfterParse = (files: UploadedFile[]) => 
+            files.map(f => 
+              f.name === file.name 
+                ? { ...f, status: 'parsed' as const, parsedData: parseResult.parsed_data }
+                : f
+            );
+
+          if (target === 'invoices') {
+            setInvoiceFiles(updateFileAfterParse);
+          } else {
+            setDeliveryFiles(updateFileAfterParse);
           }
 
         } catch (error) {
@@ -153,7 +201,11 @@ const InvoicesUploadPanel: React.FC = () => {
           const updateFile = (files: UploadedFile[]) => 
             files.map(f => 
               f.name === file.name 
-                ? { ...f, status: 'error' as const, error: error instanceof Error ? error.message : 'Upload failed' }
+                ? { 
+                    ...f, 
+                    status: f.status === 'parsing' ? 'parse_error' : 'error', 
+                    error: error instanceof Error ? error.message : 'Processing failed' 
+                  }
                 : f
             );
 
@@ -348,6 +400,12 @@ const InvoicesUploadPanel: React.FC = () => {
         return <LoadingSpinner className="w-4 h-4 text-blue-600" />;
       case 'success':
         return <span className="text-green-600">✓</span>;
+      case 'parsing':
+        return <LoadingSpinner className="w-4 h-4 text-yellow-600" />;
+      case 'parsed':
+        return <span className="text-green-600">🔍</span>;
+      case 'parse_error':
+        return <span className="text-orange-600">⚠</span>;
       case 'error':
         return <span className="text-red-600">✗</span>;
       default:
@@ -407,6 +465,26 @@ const InvoicesUploadPanel: React.FC = () => {
                   </li>
                 ))}
               </ul>
+              
+              {/* Show parsed data for successfully parsed files */}
+              {invoiceFiles.some(f => f.status === 'parsed' && f.parsedData) && (
+                <div className="mt-4 p-3 bg-green-50 rounded border border-green-200">
+                  <h4 className="text-sm font-medium text-green-800 mb-2">📊 Parsed Invoice Data:</h4>
+                  {invoiceFiles
+                    .filter(f => f.status === 'parsed' && f.parsedData)
+                    .map((file, index) => (
+                      <div key={`parsed-invoice-${index}`} className="text-xs text-green-700 mb-2 last:mb-0">
+                        <div className="font-medium">{file.name}:</div>
+                        <div className="ml-2">
+                          <div>Supplier: {file.parsedData.supplier_name}</div>
+                          <div>Invoice #: {file.parsedData.invoice_number}</div>
+                          <div>Amount: ${file.parsedData.total_amount} {file.parsedData.currency}</div>
+                          <div>Date: {file.parsedData.invoice_date}</div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -429,6 +507,26 @@ const InvoicesUploadPanel: React.FC = () => {
                   </li>
                 ))}
               </ul>
+              
+              {/* Show parsed data for successfully parsed files */}
+              {deliveryFiles.some(f => f.status === 'parsed' && f.parsedData) && (
+                <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">📊 Parsed Delivery Data:</h4>
+                  {deliveryFiles
+                    .filter(f => f.status === 'parsed' && f.parsedData)
+                    .map((file, index) => (
+                      <div key={`parsed-delivery-${index}`} className="text-xs text-blue-700 mb-2 last:mb-0">
+                        <div className="font-medium">{file.name}:</div>
+                        <div className="ml-2">
+                          <div>Supplier: {file.parsedData.supplier_name}</div>
+                          <div>Delivery #: {file.parsedData.delivery_note_number}</div>
+                          <div>Items: {file.parsedData.total_items}</div>
+                          <div>Date: {file.parsedData.delivery_date}</div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           )}
         </div>

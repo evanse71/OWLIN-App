@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routes import upload, invoices, flagged_issues, suppliers, analytics
+from backend.routes import upload, invoices, flagged_issues, suppliers, analytics, ocr
 
 app = FastAPI(title="Owlin API", version="1.0.0")
 
@@ -19,6 +19,7 @@ app.include_router(invoices.router, prefix="/api")
 app.include_router(flagged_issues.router, prefix="/api")
 app.include_router(suppliers.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
+app.include_router(ocr.router, prefix="/api")
 
 @app.get("/")
 async def root():
