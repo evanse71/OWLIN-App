@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+import pytesseract
+from PIL import Image
+import io
 
 router = APIRouter()
 
@@ -19,44 +22,71 @@ def is_valid_file(filename: str) -> bool:
     """Check if file has allowed extension"""
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
-def parse_invoice_dummy(file: UploadFile) -> Dict[str, Any]:
-    """Dummy OCR parsing function - returns mock data for now"""
-    # This will be replaced with real OCR logic later
+def extract_invoice_fields(text_lines: list[str]) -> dict:
+    # Basic keyword-driven heuristics
+    supplier_name = text_lines[0] if text_lines else ''
+    invoice_number = ''
+    invoice_date = ''
+    total_amount = ''
+    currency = ''
+
+    for line in text_lines:
+        l = line.lower()
+        if 'invoice' in l and any(char.isdigit() for char in l) and not invoice_number:
+            invoice_number = line
+        if 'date' in l and any(char.isdigit() for char in l) and not invoice_date:
+            invoice_date = line
+        if any(s in l for s in ['total', 'amount', 'balance']) and any(char.isdigit() for char in l) and not total_amount:
+            total_amount = line
+        if any(sym in l for sym in ['£', '$', '€']):
+            currency = sym = next((s for s in ['£', '$', '€'] if s in l), '')
+
     return {
-        "document_type": "invoice",
-        "supplier_name": "Sample Supplier Ltd",
-        "invoice_number": "INV-2024-001",
-        "invoice_date": "2024-01-15",
-        "due_date": "2024-02-15",
-        "total_amount": 1250.00,
-        "currency": "USD",
-        "line_items": [
-            {"description": "Product A", "quantity": 2, "unit_price": 500.00, "total": 1000.00},
-            {"description": "Service B", "quantity": 1, "unit_price": 250.00, "total": 250.00}
-        ],
-        "confidence_score": 0.95,
-        "processing_time_ms": 1500
+        'supplier_name': supplier_name.strip(),
+        'invoice_number': invoice_number.strip(),
+        'invoice_date': invoice_date.strip(),
+        'total_amount': total_amount.strip(),
+        'currency': currency.strip()
     }
 
-def parse_delivery_note_dummy(file: UploadFile) -> Dict[str, Any]:
-    """Dummy OCR parsing function for delivery notes"""
+async def parse_invoice_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+
+    lines = []
+    current_line = ''
+    last_line_num = -1
+
+    for i in range(len(data['text'])):
+        try:
+            conf = int(data['conf'][i])
+        except Exception:
+            conf = 0
+        word = data['text'][i].strip()
+        line_num = data['line_num'][i]
+
+        if conf < threshold or not word:
+            continue
+
+        if line_num != last_line_num and current_line:
+            lines.append(current_line.strip())
+            current_line = word
+            last_line_num = line_num
+        else:
+            current_line += ' ' + word
+
+    if current_line:
+        lines.append(current_line.strip())
+
+    parsed_fields = extract_invoice_fields(lines)
     return {
-        "document_type": "delivery_note",
-        "supplier_name": "Sample Supplier Ltd",
-        "delivery_note_number": "DN-2024-001",
-        "delivery_date": "2024-01-15",
-        "order_number": "PO-2024-001",
-        "items": [
-            {"description": "Product A", "quantity": 2, "received": 2},
-            {"description": "Product B", "quantity": 1, "received": 1}
-        ],
-        "total_items": 3,
-        "confidence_score": 0.92,
-        "processing_time_ms": 1200
+        'parsed_data': parsed_fields,
+        'raw_lines': lines
     }
 
 @router.post("/ocr/parse")
-async def parse_document(file: UploadFile = File(...)):
+async def parse_document(file: UploadFile = File(...), confidence_threshold: int = 70):
     """Parse uploaded document using OCR"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -68,29 +98,21 @@ async def parse_document(file: UploadFile = File(...)):
         )
     
     try:
-        # Determine document type based on filename or content
-        # For now, we'll use a simple heuristic
         filename_lower = file.filename.lower()
-        
         if any(keyword in filename_lower for keyword in ['invoice', 'inv', 'bill']):
-            parsed_data = parse_invoice_dummy(file)
-        elif any(keyword in filename_lower for keyword in ['delivery', 'dn', 'receipt']):
-            parsed_data = parse_delivery_note_dummy(file)
+            parsed_data = await parse_invoice_with_ocr(file, threshold=confidence_threshold)
         else:
-            # Default to invoice parsing
-            parsed_data = parse_invoice_dummy(file)
-        
-        # Add metadata
+            # For now, only implement invoice OCR
+            parsed_data = {'parsed_data': {}, 'raw_lines': []}
         result = {
             "success": True,
             "original_filename": file.filename,
             "file_size": file.size,
             "processed_at": datetime.now().isoformat(),
-            "parsed_data": parsed_data
+            "parsed_data": parsed_data['parsed_data'],
+            "raw_lines": parsed_data['raw_lines']
         }
-        
         return JSONResponse(result)
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR parsing failed: {str(e)}")
 
@@ -119,18 +141,17 @@ async def parse_documents_batch(files: List[UploadFile] = File(...)):
             filename_lower = file.filename.lower()
             
             if any(keyword in filename_lower for keyword in ['invoice', 'inv', 'bill']):
-                parsed_data = parse_invoice_dummy(file)
-            elif any(keyword in filename_lower for keyword in ['delivery', 'dn', 'receipt']):
-                parsed_data = parse_delivery_note_dummy(file)
+                parsed_data = await parse_invoice_with_ocr(file) # No threshold parameter for batch
             else:
-                parsed_data = parse_invoice_dummy(file)
+                parsed_data = {'parsed_data': {}, 'raw_lines': []}
             
             results.append({
                 "filename": file.filename,
                 "success": True,
                 "file_size": file.size,
                 "processed_at": datetime.now().isoformat(),
-                "parsed_data": parsed_data
+                "parsed_data": parsed_data['parsed_data'],
+                "raw_lines": parsed_data['raw_lines']
             })
             
         except Exception as e:
