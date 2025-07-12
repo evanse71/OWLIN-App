@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routes import upload, invoices, flagged_issues, suppliers, analytics, ocr
+from routes import upload, invoices, flagged_issues, suppliers, analytics, ocr
 
 app = FastAPI(title="Owlin API", version="1.0.0")
 
 # Configure CORS for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # React dev servers
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,4 +27,8 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"} 
+    return {"status": "healthy"}
+
+@app.get("/api/health")
+def api_health_check():
+    return {"status": "ok"} 

@@ -203,7 +203,7 @@ const InvoicesUploadPanel: React.FC = () => {
               f.name === file.name 
                 ? { 
                     ...f, 
-                    status: f.status === 'parsing' ? 'parse_error' : 'error', 
+                    status: (f.status === 'parsing' ? 'parse_error' : 'error') as 'parse_error' | 'error', 
                     error: error instanceof Error ? error.message : 'Processing failed' 
                   }
                 : f
