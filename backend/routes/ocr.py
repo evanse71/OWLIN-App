@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 import pytesseract
 from PIL import Image
 import io
+from .ocr_utils import detect_document_type
 
 router = APIRouter()
 
@@ -80,9 +81,13 @@ async def parse_invoice_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         lines.append(current_line.strip())
 
     parsed_fields = extract_invoice_fields(lines)
+    # Join all lines for document type detection
+    full_text = '\n'.join(lines)
+    doc_type = detect_document_type(full_text)
     return {
         'parsed_data': parsed_fields,
-        'raw_lines': lines
+        'raw_lines': lines,
+        'document_type': doc_type
     }
 
 @router.post("/ocr/parse")
@@ -99,18 +104,16 @@ async def parse_document(file: UploadFile = File(...), confidence_threshold: int
     
     try:
         filename_lower = file.filename.lower()
-        if any(keyword in filename_lower for keyword in ['invoice', 'inv', 'bill']):
-            parsed_data = await parse_invoice_with_ocr(file, threshold=confidence_threshold)
-        else:
-            # For now, only implement invoice OCR
-            parsed_data = {'parsed_data': {}, 'raw_lines': []}
+        # Always run OCR and detect type
+        parsed_data = await parse_invoice_with_ocr(file, threshold=confidence_threshold)
         result = {
             "success": True,
             "original_filename": file.filename,
             "file_size": file.size,
             "processed_at": datetime.now().isoformat(),
             "parsed_data": parsed_data['parsed_data'],
-            "raw_lines": parsed_data['raw_lines']
+            "raw_lines": parsed_data['raw_lines'],
+            "document_type": parsed_data['document_type']
         }
         return JSONResponse(result)
     except Exception as e:
