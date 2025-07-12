@@ -106,6 +106,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
     pil_for_ocr = Image.fromarray(preprocessed)
     data = pytesseract.image_to_data(pil_for_ocr, output_type=pytesseract.Output.DICT)
     lines = []
+    confidences = []
     current_line = ''
     last_line_num = -1
     for i in range(len(data['text'])):
@@ -117,6 +118,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         line_num = data['line_num'][i]
         if conf < threshold or not word:
             continue
+        confidences.append(conf)
         if line_num != last_line_num and current_line:
             lines.append(current_line.strip())
             current_line = word
@@ -133,10 +135,12 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         parsed_fields = extract_delivery_note_fields(lines)
     else:
         parsed_fields = {}
+    avg_conf = int(np.mean(confidences)) if confidences else 0
     return {
         'parsed_data': parsed_fields,
         'raw_lines': lines,
-        'document_type': doc_type
+        'document_type': doc_type,
+        'confidence_score': avg_conf
     }
 
 @router.post("/ocr/parse")
@@ -152,13 +156,14 @@ async def parse_document(file: UploadFile = File(...), confidence_threshold: int
     try:
         parsed_data = await parse_with_ocr(file, threshold=confidence_threshold)
         result = {
+            "document_type": parsed_data['document_type'],
+            "parsed_data": parsed_data['parsed_data'],
+            "confidence_score": parsed_data['confidence_score'],
+            "raw_lines": parsed_data['raw_lines'],
             "success": True,
             "original_filename": file.filename,
             "file_size": file.size,
-            "processed_at": datetime.now().isoformat(),
-            "parsed_data": parsed_data['parsed_data'],
-            "raw_lines": parsed_data['raw_lines'],
-            "document_type": parsed_data['document_type']
+            "processed_at": datetime.now().isoformat()
         }
         return JSONResponse(result)
     except Exception as e:

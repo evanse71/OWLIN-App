@@ -57,13 +57,17 @@ async def upload_invoice(file: UploadFile = File(...)):
         file.file.seek(0)
         parsed = await parse_with_ocr(file)
         invoice_data = parsed['parsed_data']
+        document_type = parsed.get('document_type')
+        confidence_score = parsed.get('confidence_score')
         status = 'unmatched'
         matched_delivery = None
+        matched_delivery_data = None
         # Try to match with existing delivery notes
         for d in doc_store['delivery_notes']:
             if match_documents(invoice_data, d['parsed_data']):
                 status = 'matched'
                 matched_delivery = d['filename']
+                matched_delivery_data = d['parsed_data']
                 d['status'] = 'matched'
                 d['matched_invoice'] = filename
                 break
@@ -80,7 +84,13 @@ async def upload_invoice(file: UploadFile = File(...)):
             "uploaded_at": datetime.now().isoformat(),
             "file_size": file.size,
             "status": status,
-            "matched_delivery": matched_delivery
+            "document_type": document_type,
+            "confidence_score": confidence_score,
+            "parsed_data": invoice_data,
+            "matched_delivery": {
+                "filename": matched_delivery,
+                "parsed_data": matched_delivery_data
+            } if matched_delivery else None
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
@@ -101,13 +111,17 @@ async def upload_delivery(file: UploadFile = File(...)):
         file.file.seek(0)
         parsed = await parse_with_ocr(file)
         delivery_data = parsed['parsed_data']
+        document_type = parsed.get('document_type')
+        confidence_score = parsed.get('confidence_score')
         status = 'unmatched'
         matched_invoice = None
+        matched_invoice_data = None
         # Try to match with existing invoices
         for inv in doc_store['invoices']:
             if match_documents(inv['parsed_data'], delivery_data):
                 status = 'matched'
                 matched_invoice = inv['filename']
+                matched_invoice_data = inv['parsed_data']
                 inv['status'] = 'matched'
                 inv['matched_delivery'] = filename
                 break
@@ -124,7 +138,13 @@ async def upload_delivery(file: UploadFile = File(...)):
             "uploaded_at": datetime.now().isoformat(),
             "file_size": file.size,
             "status": status,
-            "matched_invoice": matched_invoice
+            "document_type": document_type,
+            "confidence_score": confidence_score,
+            "parsed_data": delivery_data,
+            "matched_invoice": {
+                "filename": matched_invoice,
+                "parsed_data": matched_invoice_data
+            } if matched_invoice else None
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
