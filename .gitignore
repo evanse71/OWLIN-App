@@ -58,6 +58,9 @@ uploads/
 *.sqlite
 *.sqlite3
 
+# Legacy code archive
+_archive/
+
 # Logs
 logs/
 *.log
