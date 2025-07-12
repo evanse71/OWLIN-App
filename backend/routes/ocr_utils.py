@@ -1,4 +1,6 @@
 from typing import Literal
+import cv2
+import numpy as np
 
 def detect_document_type(text: str) -> Literal["invoice", "delivery_note", "unknown"]:
     """
@@ -18,4 +20,31 @@ def detect_document_type(text: str) -> Literal["invoice", "delivery_note", "unkn
     elif invoice_score == delivery_score and invoice_score > 0:
         return "unknown"
     else:
-        return "unknown" 
+        return "unknown"
+
+
+def preprocess_image(image_path: str) -> np.ndarray:
+    """
+    Applies grayscale, thresholding, and de-noising to improve OCR accuracy.
+    Returns a cleaned OpenCV image ready for OCR.
+    """
+    # Read image
+    image = cv2.imread(image_path)
+    if image is None:
+        raise ValueError(f"Could not read image at {image_path}")
+    # Convert to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Denoise
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    # Adaptive thresholding
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
+    )
+    # Optional: Invert if background is dark
+    mean_intensity = np.mean(thresh)
+    if mean_intensity < 127:
+        thresh = cv2.bitwise_not(thresh)
+    # Optional: Contrast boost
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    final = clahe.apply(thresh)
+    return final 
