@@ -15,10 +15,12 @@ router = APIRouter()
 UPLOAD_BASE = Path("data/uploads")
 INVOICE_DIR = UPLOAD_BASE / "invoices"
 DELIVERY_DIR = UPLOAD_BASE / "delivery_notes"
+RECEIPT_DIR = UPLOAD_BASE / "receipts"
 
 # Create directories if they don't exist
 INVOICE_DIR.mkdir(parents=True, exist_ok=True)
 DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+RECEIPT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Allowed file types
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
@@ -154,6 +156,26 @@ async def upload_delivery(file: UploadFile = File(...)):
             } if matched_invoice else None,
             "match_score": match_result['match_score'] if match_result else None,
             "match_breakdown": match_result['breakdown'] if match_result else None
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.post("/upload/receipt")
+async def upload_receipt(file: UploadFile = File(...)):
+    """Upload receipt file"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    if not is_valid_file(file.filename):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+    try:
+        filename = save_file_with_timestamp(file, RECEIPT_DIR)
+        return JSONResponse({
+            "success": True,
+            "filename": filename,
+            "uploaded_at": datetime.now().isoformat()
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
