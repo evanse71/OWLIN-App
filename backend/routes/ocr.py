@@ -282,6 +282,34 @@ async def parse_receipt_document(file: UploadFile = File(...), confidence_thresh
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Receipt parsing failed: {str(e)}")
 
+@router.post("/ocr/parse-receipt")
+async def parse_receipt_document_alias(file: UploadFile = File(...), confidence_threshold: int = 70):
+    """Parse uploaded receipt using OCR (alias endpoint)"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    if not is_valid_file(file.filename):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+    try:
+        parsed_data = await parse_receipt(file, threshold=confidence_threshold)
+        result = {
+            "total_amount": parsed_data['total_amount'],
+            "purchase_date": parsed_data['purchase_date'],
+            "store_name": parsed_data['store_name'],
+            "items": parsed_data['items'],
+            "raw_text": parsed_data['raw_text'],
+            "confidence_score": parsed_data['confidence_score'],
+            "success": True,
+            "original_filename": file.filename,
+            "file_size": file.size,
+            "processed_at": datetime.now().isoformat()
+        }
+        return JSONResponse(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Receipt parsing failed: {str(e)}")
+
 @router.get("/ocr/status")
 async def get_ocr_status():
     """Get OCR service status"""
