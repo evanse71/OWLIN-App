@@ -142,10 +142,24 @@ const classifyAndParseFile = async (file: File): Promise<any> => {
   console.log('OCR result', result);
 
   if (!response.ok) {
-    throw new Error(result.detail || result.error || 'OCR failed');
+    throw new Error(result.error || result.detail || 'OCR failed');
   }
 
-  return result;
+  // Handle the new response format
+  if (!result.success) {
+    throw new Error(result.error || 'OCR processing failed');
+  }
+
+  // Transform the response to match the expected format
+  return {
+    document_type: result.document_type,
+    confidence: result.confidence_score || 85, // Use confidence_score from backend or default
+    supplier_name: result.data.supplier_name,
+    invoice_number: result.data.invoice_number,
+    invoice_date: result.data.invoice_date,
+    total_amount: result.data.total_amount,
+    currency: result.data.currency
+  };
 };
 
 const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNotesUpdate, onInvoicesUpdate }) => {
@@ -705,6 +719,12 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
           isOpen={duplicateModalOpen}
           onClose={() => setDuplicateModalOpen(false)}
           duplicateInfo={duplicateInfo}
+          newDocument={{
+            filename: pendingFile?.name || 'Unknown',
+            parsed_data: {},
+            document_type: 'unknown',
+            confidence_score: 0
+          }}
           onConfirm={() => {
             setDuplicateModalOpen(false);
             setDuplicateInfo(null);

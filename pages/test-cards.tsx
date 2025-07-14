@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import InvoiceCard from '../components/invoices/InvoiceCard';
-import DeliveryNoteCard from '../components/DeliveryNoteCard';
+import DeliveryNoteCard from '../components/invoices/DeliveryNoteCard';
 
 const TestCardsPage: React.FC = () => {
   const [testInvoices, setTestInvoices] = useState([

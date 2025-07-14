@@ -1775,7 +1775,7 @@ def calculate_text_similarity(text1: str, text2: str) -> float:
 
 @router.post("/ocr/parse")
 async def parse_document(file: UploadFile = File(...), confidence_threshold: int = 70, debug: bool = False):
-    """Parse uploaded document using OCR with enhanced error handling and structured results"""
+    """Parse uploaded document using OCR with real-time parsing and structured results"""
     logger.info(f"Received OCR parse request for file: {file.filename} (debug: {debug})")
     
     # Validate file
@@ -1784,63 +1784,83 @@ async def parse_document(file: UploadFile = File(...), confidence_threshold: int
     except HTTPException as e:
         logger.error(f"File validation failed: {e.detail}")
         return JSONResponse({
+            "success": False,
+            "error": e.detail,
             "document_type": "unknown",
-            "parsed_data": {
+            "data": {
                 "supplier_name": "OCR Processing Failed",
                 "invoice_number": "Unknown",
                 "invoice_date": "Unknown", 
-                "total_amount": 0.0,
+                "total_amount": "0.00",
                 "currency": "GBP"
-            },
-            "confidence_score": 0,
-            "raw_lines": [],
-            "success": False,
-            "error": e.detail,
-            "original_filename": file.filename,
-            "file_size": file.size,
-            "processed_at": datetime.now().isoformat()
+            }
         }, status_code=400)
     
     try:
-        parsed_data = await parse_with_ocr(file, threshold=confidence_threshold, debug=debug)
+        # Read file contents
+        contents = await file.read()
+        
+        # Validate file contents
+        if not contents or len(contents) == 0:
+            logger.error(f"❌ Empty file received: {file.filename}")
+            return JSONResponse({
+                "success": False,
+                "error": "Empty file - no content to process",
+                "document_type": "unknown",
+                "data": {
+                    "supplier_name": "OCR Processing Failed",
+                    "invoice_number": "Unknown",
+                    "invoice_date": "Unknown", 
+                    "total_amount": "0.00",
+                    "currency": "GBP"
+                }
+            }, status_code=400)
+        
+        logger.info(f"File size: {len(contents)} bytes")
+        
+        # Reset file stream for potential reuse
+        try:
+            await file.seek(0)
+        except Exception as seek_error:
+            logger.warning(f"⚠️ Could not reset file stream: {seek_error}")
+        
+        # Process based on file type
+        if file.filename and is_pdf_file(file.filename):
+            logger.info(f"Processing PDF file: {file.filename}")
+            result = await process_pdf_with_ocr(contents, file.filename, confidence_threshold, debug)
+        else:
+            logger.info(f"Processing image file: {file.filename}")
+            result = await process_image_with_ocr(contents, file.filename or "unknown", confidence_threshold, debug)
         
         # Extract key information
-        doc_type = parsed_data.get('document_type', 'unknown')
-        confidence = parsed_data.get('confidence_score', 0)
-        parsed_fields = parsed_data.get('parsed_data', {})
+        doc_type = result.get('document_type', 'unknown')
+        confidence = result.get('confidence_score', 0)
+        parsed_fields = result.get('parsed_data', {})
         
-        # Log classification confidence
-        if confidence < 50:
-            logger.warning(f"⚠️ Low OCR confidence ({confidence}%) for {file.filename}")
-        elif confidence < 70:
-            logger.info(f"⚠️ Medium OCR confidence ({confidence}%) for {file.filename}")
-        else:
-            logger.info(f"✅ High OCR confidence ({confidence}%) for {file.filename}")
+        # Log the full OCR output for debugging
+        logger.info(f"📄 Full OCR output for {file.filename}:")
+        logger.info(f"Document type: {doc_type}")
+        logger.info(f"Confidence: {confidence}%")
+        logger.info(f"Parsed fields: {parsed_fields}")
+        if 'raw_lines' in result:
+            logger.info(f"Raw OCR lines: {result['raw_lines']}")
         
-        # Validate and sanitize parsed data to prevent validation errors
-        sanitized_parsed_data = {
-            "supplier_name": str(parsed_fields.get('supplier_name', 'Unknown Supplier'))[:200],
-            "invoice_number": str(parsed_fields.get('invoice_number', 'Unknown'))[:100],
-            "invoice_date": str(parsed_fields.get('invoice_date', 'Unknown'))[:50],
-            "total_amount": float(parsed_fields.get('total_amount', 0.0)),
-            "currency": str(parsed_fields.get('currency', 'GBP'))[:10]
-        }
-        
-        # Ensure we always return a consistent response format
-        result = {
-            "document_type": doc_type,
-            "parsed_data": sanitized_parsed_data,
-            "confidence_score": confidence,
-            "raw_lines": parsed_data.get('raw_lines', []),
+        # Format response according to specification
+        response = {
             "success": True,
-            "original_filename": file.filename,
-            "file_size": file.size,
-            "processed_at": datetime.now().isoformat(),
-            "classification_notes": get_classification_notes(doc_type, confidence, parsed_fields)
+            "document_type": doc_type,
+            "confidence_score": confidence,  # Add confidence score to response
+            "data": {
+                "supplier_name": str(parsed_fields.get('supplier_name', 'Unknown Supplier')),
+                "invoice_number": str(parsed_fields.get('invoice_number', 'Unknown')),
+                "invoice_date": str(parsed_fields.get('invoice_date', 'Unknown')),
+                "total_amount": str(parsed_fields.get('total_amount', '0.00')),
+                "currency": str(parsed_fields.get('currency', 'GBP'))
+            }
         }
         
-        logger.info(f"OCR parse completed successfully for {file.filename} - Type: {doc_type}, Confidence: {confidence}%")
-        return JSONResponse(result)
+        logger.info(f"✅ OCR parse completed successfully for {file.filename}")
+        return JSONResponse(response)
         
     except ValueError as e:
         # Handle validation errors (empty file, corrupt file, etc.)
@@ -1858,50 +1878,45 @@ async def parse_document(file: UploadFile = File(...), confidence_threshold: int
             error_msg = "No readable text was detected in the uploaded document"
         
         return JSONResponse({
+            "success": False,
+            "error": error_msg,
             "document_type": "unknown",
-            "parsed_data": {
+            "data": {
                 "supplier_name": "OCR Processing Failed",
                 "invoice_number": "Unknown",
                 "invoice_date": "Unknown", 
-                "total_amount": 0.0,
+                "total_amount": "0.00",
                 "currency": "GBP"
-            },
-            "confidence_score": 0,
-            "raw_lines": [],
-            "success": False,
-            "error": error_msg,
-            "original_filename": file.filename,
-            "file_size": file.size,
-            "processed_at": datetime.now().isoformat()
+            }
         }, status_code=400)
+        
     except Exception as e:
         # Handle unexpected errors
         error_msg = str(e)
         logger.error(f"Unexpected error in OCR parsing: {error_msg}")
         logger.error(f"Unexpected error traceback: {traceback.format_exc()}")
         
-        # Provide generic error message for unexpected errors
-        error_msg = "An unexpected error occurred during OCR processing. Please try again or contact support if the problem persists."
+        # Check for specific error types
+        if "poppler" in error_msg.lower():
+            error_msg = "Unable to process PDF: Poppler missing"
+        elif "tesseract" in error_msg.lower():
+            error_msg = "OCR processing failed: Tesseract error"
+        else:
+            error_msg = "An unexpected error occurred during OCR processing"
         
-        # Return a safe error response instead of crashing
-        error_result = {
+        return JSONResponse({
+            "success": False,
+            "error": error_msg,
             "document_type": "unknown",
-            "parsed_data": {
+            "confidence_score": 0,  # Add confidence score to error response
+            "data": {
                 "supplier_name": "OCR Processing Failed",
                 "invoice_number": "Unknown",
                 "invoice_date": "Unknown", 
-                "total_amount": 0.0,
+                "total_amount": "0.00",
                 "currency": "GBP"
-            },
-            "confidence_score": 0,
-            "raw_lines": [],
-            "success": False,
-            "error": error_msg,
-            "original_filename": file.filename,
-            "file_size": file.size,
-            "processed_at": datetime.now().isoformat()
-        }
-        return JSONResponse(error_result, status_code=500)
+            }
+        }, status_code=500)
 
 def get_classification_notes(doc_type: str, confidence: int, parsed_fields: dict) -> str:
     """Generate helpful notes about the classification result"""

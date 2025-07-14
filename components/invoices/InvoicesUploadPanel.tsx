@@ -300,7 +300,7 @@ async function processFilesWithConcurrency(
       // Update file with classification results
       updateFileStatus(file.name, { 
         status: 'parsed', 
-        parsedData: classificationResult.parsed_data,
+        parsedData: classificationResult.data || classificationResult.parsed_data, // Handle both old and new formats
         documentType: docType,
         confidence: confidence
       });
@@ -313,7 +313,7 @@ async function processFilesWithConcurrency(
           name: file.name,
           timestamp: new Date().toLocaleString(),
           status: 'parsed',
-          parsedData: classificationResult.parsed_data,
+          parsedData: classificationResult.data || classificationResult.parsed_data, // Handle both old and new formats
           documentType: docType,
           confidence: confidence,
           serverFilename: uploadResult.filename
@@ -327,7 +327,7 @@ async function processFilesWithConcurrency(
           name: file.name,
           timestamp: new Date().toLocaleString(),
           status: 'parsed',
-          parsedData: classificationResult.parsed_data,
+          parsedData: classificationResult.data || classificationResult.parsed_data, // Handle both old and new formats
           documentType: docType,
           confidence: confidence,
           serverFilename: uploadResult.filename
