@@ -450,7 +450,9 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     // Determine status for DocumentCard
     let cardStatus: Document['status'];
     if (file.status === 'parsed') {
-      cardStatus = 'Scanned'; // Use 'Scanned' instead of 'Complete'
+      // Check if this invoice has been matched with a delivery note
+      // For now, we'll set all parsed invoices as 'Unmatched' since they need to be paired
+      cardStatus = 'Unmatched';
     } else if (file.status === 'error' || file.status === 'parse_error') {
       cardStatus = 'Error';
     } else if (file.status === 'uploading' || file.status === 'parsing') {

@@ -51,6 +51,12 @@ const InvoicesPage: React.FC = () => {
     // This would typically open a modal or side-panel where the user can select a delivery note to pair
   };
 
+  // Filter for unmatched invoices
+  const unmatchedInvoices = invoices.filter(invoice => 
+    invoice.status === 'Unmatched' && 
+    invoice.type === 'Invoice'
+  );
+
   return (
     <Layout>
       <div className="container mx-auto py-8">
@@ -58,7 +64,7 @@ const InvoicesPage: React.FC = () => {
           Owlin - Invoices
         </h1>
         
-        {/* 3-column layout for large screens, 2-column for medium, 1-column for small */}
+        {/* Responsive grid layout */}
         <div className="grid grid-cols-1 md:grid-cols-[1fr,320px] lg:grid-cols-[1fr,320px,320px] gap-8">
           {/* Main content - invoices and upload panel */}
           <div className="min-w-0">
@@ -68,16 +74,18 @@ const InvoicesPage: React.FC = () => {
             />
           </div>
           
-          {/* Sidebar - unpaired invoices (hidden on medium screens, shown on large) */}
-          <div className="hidden lg:block">
+          {/* Sidebar - unpaired invoices (shown on medium and large screens) */}
+          <div className="hidden md:block">
             <UnpairedInvoicesPanel 
               invoices={invoices} 
               onManualPair={handleManualPair}
             />
           </div>
           
-          {/* Sidebar - unmatched delivery notes */}
-          <UnmatchedDeliveryNotesSidebar deliveryNotes={deliveryNotes} />
+          {/* Sidebar - unmatched delivery notes (shown on large screens only) */}
+          <div className="hidden lg:block">
+            <UnmatchedDeliveryNotesSidebar deliveryNotes={deliveryNotes} />
+          </div>
         </div>
 
         {/* Mobile message for sidebar */}
@@ -88,6 +96,18 @@ const InvoicesPage: React.FC = () => {
             </p>
             <p className="text-xs text-blue-600">
               Switch to a larger screen to view unpaired invoices and unmatched delivery notes in the sidebar
+            </p>
+          </div>
+        </div>
+
+        {/* Medium screen message for delivery notes sidebar */}
+        <div className="hidden md:block lg:hidden mt-8 p-4 bg-amber-50 rounded-lg border border-amber-200">
+          <div className="text-center">
+            <p className="text-sm text-amber-800 mb-2">
+              💻 <span className="font-medium">Large screen recommended</span>
+            </p>
+            <p className="text-xs text-amber-600">
+              Switch to a larger screen to also view unmatched delivery notes in the third column
             </p>
           </div>
         </div>
