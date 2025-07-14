@@ -18,10 +18,14 @@ def start_backend():
         # Start the backend server
         backend_process = subprocess.Popen([
             sys.executable, "-m", "uvicorn", "backend.main:app", 
-            "--host", "0.0.0.0", "--port", "8000", "--reload"
+            "--host", "0.0.0.0", "--port", "8001", "--reload",
+            "--reload-exclude", "node_modules",
+            "--reload-exclude", ".next",
+            "--reload-exclude", "data/uploads",
+            "--reload-exclude", "venv"
         ], cwd=os.getcwd())
         
-        print("✅ Backend server started on http://localhost:8000")
+        print("✅ Backend server started on http://localhost:8001")
         return backend_process
     except Exception as e:
         print(f"❌ Failed to start backend server: {e}")
@@ -70,8 +74,8 @@ def main():
     
     print("\n🎉 Both servers are running!")
     print("📱 Frontend: http://localhost:3000")
-    print("🔧 Backend API: http://localhost:8000")
-    print("📚 API Docs: http://localhost:8000/docs")
+    print("🔧 Backend API: http://localhost:8001")
+    print("📚 API Docs: http://localhost:8001/docs")
     print("\nPress Ctrl+C to stop both servers...")
     
     try:

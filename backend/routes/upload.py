@@ -7,7 +7,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from .pairing import match_documents
 from .ocr import parse_with_ocr
-from matching import score_match
+from backend.matching import score_invoice_delivery_match as score_match
 
 router = APIRouter()
 
@@ -16,14 +16,19 @@ UPLOAD_BASE = Path("data/uploads")
 INVOICE_DIR = UPLOAD_BASE / "invoices"
 DELIVERY_DIR = UPLOAD_BASE / "delivery_notes"
 RECEIPT_DIR = UPLOAD_BASE / "receipts"
+DOCUMENTS_DIR = UPLOAD_BASE / "documents"  # General documents directory
 
 # Create directories if they don't exist
 INVOICE_DIR.mkdir(parents=True, exist_ok=True)
 DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
 RECEIPT_DIR.mkdir(parents=True, exist_ok=True)
+DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Allowed file types
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+
+# File size limits (10MB)
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 
 # In-memory store for parsed metadata (for demo; use DB in production)
 doc_store = {
@@ -34,6 +39,30 @@ doc_store = {
 def is_valid_file(filename: str) -> bool:
     """Check if file has allowed extension"""
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
+
+def validate_file_size(file_size: int) -> bool:
+    """Check if file size is within limits"""
+    return file_size <= MAX_FILE_SIZE
+
+def validate_file(file: UploadFile) -> None:
+    """Validate file type and size"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    
+    if not is_valid_file(file.filename):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+    
+    if file.size is None:
+        raise HTTPException(status_code=400, detail="Unable to determine file size")
+    
+    if not validate_file_size(file.size):
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"
+        )
 
 def save_file_with_timestamp(file: UploadFile, directory: Path) -> str:
     """Save file with timestamp prefix to avoid conflicts"""
@@ -47,13 +76,9 @@ def save_file_with_timestamp(file: UploadFile, directory: Path) -> str:
 @router.post("/upload/invoice")
 async def upload_invoice(file: UploadFile = File(...)):
     """Upload invoice file, parse, and try to match with delivery notes"""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
-    if not is_valid_file(file.filename):
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
-        )
+    # Validate file
+    validate_file(file)
+
     try:
         filename = save_file_with_timestamp(file, INVOICE_DIR)
         # Rewind file for parsing
@@ -105,13 +130,9 @@ async def upload_invoice(file: UploadFile = File(...)):
 @router.post("/upload/delivery")
 async def upload_delivery(file: UploadFile = File(...)):
     """Upload delivery note file, parse, and try to match with invoices"""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
-    if not is_valid_file(file.filename):
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
-        )
+    # Validate file
+    validate_file(file)
+
     try:
         filename = save_file_with_timestamp(file, DELIVERY_DIR)
         # Rewind file for parsing
@@ -163,19 +184,33 @@ async def upload_delivery(file: UploadFile = File(...)):
 @router.post("/upload/receipt")
 async def upload_receipt(file: UploadFile = File(...)):
     """Upload receipt file"""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
-    if not is_valid_file(file.filename):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
-        )
+    # Validate file
+    validate_file(file)
+
     try:
         filename = save_file_with_timestamp(file, RECEIPT_DIR)
         return JSONResponse({
             "success": True,
             "filename": filename,
             "uploaded_at": datetime.now().isoformat()
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.post("/upload/document")
+async def upload_document(file: UploadFile = File(...)):
+    """Upload any document file (classification will be done separately)"""
+    # Validate file
+    validate_file(file)
+    
+    try:
+        filename = save_file_with_timestamp(file, DOCUMENTS_DIR)
+        return JSONResponse({
+            "success": True,
+            "filename": filename,
+            "original_name": file.filename,
+            "uploaded_at": datetime.now().isoformat(),
+            "file_size": file.size
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

@@ -1,8 +1,8 @@
 from typing import List, Dict
 from difflib import SequenceMatcher
 from datetime import datetime
-from supplier_aliases import normalize_supplier_name
-from matching_config import MATCH_WEIGHTS
+from backend.supplier_aliases import normalize_supplier_name
+from backend.matching_config import MATCH_WEIGHTS
 
 def fuzzy_supplier_name_match(a: str, b: str) -> float:
     if not a or not b:

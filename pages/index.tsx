@@ -48,7 +48,7 @@ const DashboardPage: React.FC = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/analytics/dashboard');
+      const response = await fetch('http://localhost:8001/api/analytics/dashboard');
       if (!response.ok) {
         throw new Error('Failed to fetch dashboard data');
       }

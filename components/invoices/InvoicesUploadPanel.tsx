@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import ProgressCircle from '@/components/ui/ProgressCircle';
+import { DocumentCard } from './DocumentCard';
 
 // SVG Icons
 const FileTextIcon = ({ className = 'w-10 h-10' }) => (
@@ -43,29 +45,6 @@ const ClipboardListIcon = ({ className = 'w-10 h-10' }) => (
   </svg>
 );
 
-const LoadingSpinner = ({ className = 'w-4 h-4' }) => (
-  <svg
-    className={`animate-spin ${className}`}
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-  >
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    ></circle>
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-    ></path>
-  </svg>
-);
-
 interface UploadedFile {
   name: string;
   timestamp: string;
@@ -73,152 +52,457 @@ interface UploadedFile {
   error?: string;
   serverFilename?: string;
   parsedData?: any;
+  documentType?: 'invoice' | 'delivery_note' | 'unknown';
+  confidence?: number;
 }
 
-const InvoicesUploadPanel: React.FC = () => {
+interface Document {
+  id: string;
+  filename: string;
+  supplier: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  totalAmount: string;
+  type: 'Invoice' | 'Delivery Note' | 'Unknown';
+  status: 'Processing' | 'Complete' | 'Error' | 'Matched' | 'Unmatched' | 'Unknown' | 'Scanned';
+  confidence?: number;
+  numIssues?: number;
+  parsedData?: any; // Added for DocumentCard
+  matchedDocument?: any; // Changed from string to any to match the object structure
+}
+
+interface DeliveryNote {
+  id: string;
+  filename: string;
+  supplier: string;
+  deliveryNumber: string;
+  deliveryDate: string;
+  status: 'Unmatched' | 'Processing' | 'Error' | 'Unknown';
+  confidence?: number;
+  parsedData?: any;
+}
+
+interface InvoicesUploadPanelProps {
+  onDeliveryNotesUpdate?: (notes: DeliveryNote[]) => void;
+}
+
+// Upload limits and validation
+const MAX_FILES_PER_UPLOAD = 5; // Limit files per upload
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+// Validate file before upload
+function validateFile(file: File): string | null {
+  // Check file size
+  if (file.size > MAX_FILE_SIZE) {
+    return `File "${file.name}" is too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`;
+  }
+  
+  // Check file type
+  const allowedTypes = ['.pdf', '.jpg', '.jpeg', '.png'];
+  const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+  if (!allowedTypes.includes(fileExtension)) {
+    return `File "${file.name}" has unsupported format. Allowed: PDF, JPG, JPEG, PNG`;
+  }
+  
+  return null; // File is valid
+}
+
+// Utility: Resize/optimize image files before upload (JPEG/PNG only)
+async function optimizeImageFile(file: File, maxWidth = 1600, maxHeight = 1600, quality = 0.8): Promise<File> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) return resolve(file); // Only process images
+    const img = new window.Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      let newWidth = width;
+      let newHeight = height;
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        newWidth = Math.round(width * ratio);
+        newHeight = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(file);
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const optimized = new File([blob], file.name, { type: file.type });
+            resolve(optimized);
+          } else {
+            resolve(file);
+          }
+        },
+        file.type,
+        quality
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file); // fallback to original
+    };
+    img.src = url;
+  });
+}
+
+// API base URL - adjust if your FastAPI server runs on a different port
+const API_BASE_URL = 'http://localhost:8001/api';
+
+const uploadFile = async (file: File): Promise<any> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE_URL}/upload/document`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || 'Upload failed');
+  }
+
+  return await response.json();
+};
+
+const classifyAndParseFile = async (file: File): Promise<any> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await fetch('/api/ocr/parse', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json();
+  console.log('OCR result', result);
+
+  if (!response.ok) {
+    throw new Error(result.detail || 'OCR failed');
+  }
+
+  return result;
+};
+
+// Concurrency queue for file processing
+const MAX_CONCURRENT = 2;
+const BATCH_DELAY = 200; // ms delay between batches
+
+// Utility to process promises in batches
+async function processInBatches<T>(
+  tasks: (() => Promise<T>)[],
+  batchSize: number
+): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < tasks.length; i += batchSize) {
+    const batch = tasks.slice(i, i + batchSize).map(task => task());
+    const batchResults = await Promise.all(batch);
+    results.push(...batchResults);
+    
+    // Add delay between batches (except for the last batch)
+    if (i + batchSize < tasks.length) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+    }
+  }
+  return results;
+}
+
+async function processFilesWithConcurrency(
+  files: File[],
+  addFileToState: (file: UploadedFile, type: 'invoices' | 'delivery' | 'unknown') => void,
+  updateFileStatus: (name: string, status: Partial<UploadedFile>) => void,
+  onError: (message: string) => void
+) {
+  async function uploadAndClassifyFile(file: File) {
+    // Add file to state as uploading
+    addFileToState({
+      name: file.name,
+      timestamp: new Date().toLocaleString(),
+      status: 'uploading',
+    }, 'unknown');
+    
+    try {
+      // Step 0: Optimize image if needed
+      let fileToUpload = file;
+      if (file.type.startsWith('image/')) {
+        try {
+          fileToUpload = await optimizeImageFile(file);
+        } catch (optimizeError) {
+          console.warn(`Image optimization failed for ${file.name}:`, optimizeError);
+          // Continue with original file
+        }
+      }
+      
+      // Step 1: Upload file
+      const uploadResult = await uploadFile(fileToUpload);
+      updateFileStatus(file.name, { status: 'success', serverFilename: uploadResult.filename });
+      
+      // Step 2: Classify and parse with OCR
+      updateFileStatus(file.name, { status: 'parsing' });
+      const classificationResult = await classifyAndParseFile(fileToUpload);
+      
+      // Determine document type and confidence
+      const docType = classificationResult.type || 'unknown';
+      const confidence = classificationResult.confidence || 0;
+      
+      // Update file with classification results
+      updateFileStatus(file.name, { 
+        status: 'parsed', 
+        parsedData: classificationResult.parsed_data,
+        documentType: docType,
+        confidence: confidence
+      });
+      
+      // Move file to appropriate list based on classification
+      if (docType === 'invoice') {
+        addFileToState({
+          name: file.name,
+          timestamp: new Date().toLocaleString(),
+          status: 'parsed',
+          parsedData: classificationResult.parsed_data,
+          documentType: docType,
+          confidence: confidence,
+          serverFilename: uploadResult.filename
+        }, 'invoices');
+      } else if (docType === 'delivery_note') {
+        addFileToState({
+          name: file.name,
+          timestamp: new Date().toLocaleString(),
+          status: 'parsed',
+          parsedData: classificationResult.parsed_data,
+          documentType: docType,
+          confidence: confidence,
+          serverFilename: uploadResult.filename
+        }, 'delivery');
+      } else {
+        // Unknown type - keep in current list but mark as unknown
+        updateFileStatus(file.name, { 
+          documentType: 'unknown',
+          confidence: confidence
+        });
+      }
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Processing failed';
+      updateFileStatus(file.name, {
+        status: errorMessage.includes('OCR') || errorMessage.includes('Classification') ? 'parse_error' : 'error',
+        error: errorMessage,
+      });
+      
+      // Show error notification
+      onError(`Failed to process "${file.name}": ${errorMessage}`);
+    }
+  }
+
+  // Create upload tasks
+  const uploadTasks = files.map(file => async () => {
+    await uploadAndClassifyFile(file);
+  });
+
+  // Process in batches of MAX_CONCURRENT
+  await processInBatches(uploadTasks, MAX_CONCURRENT);
+}
+
+const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNotesUpdate }) => {
   const [invoiceFiles, setInvoiceFiles] = useState<UploadedFile[]>([]);
   const [deliveryFiles, setDeliveryFiles] = useState<UploadedFile[]>([]);
+  const [unknownFiles, setUnknownFiles] = useState<UploadedFile[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragTargetArea, setDragTargetArea] = useState<'invoices' | 'delivery' | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const invoiceInputRef = useRef<HTMLInputElement>(null);
   const deliveryInputRef = useRef<HTMLInputElement>(null);
   const invoiceBoxRef = useRef<HTMLDivElement>(null);
   const deliveryBoxRef = useRef<HTMLDivElement>(null);
 
-  // API base URL - adjust if your FastAPI server runs on a different port
-  const API_BASE_URL = 'http://localhost:8000/api';
-
-  const uploadFile = async (file: File, type: 'invoices' | 'delivery'): Promise<any> => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const endpoint = type === 'invoices' ? '/upload/invoice' : '/upload/delivery';
-    
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'Upload failed');
-    }
-
-    return await response.json();
+  // Show error notification
+  const showError = (message: string) => {
+    setErrorMessage(message);
+    // Auto-hide after 5 seconds
+    setTimeout(() => setErrorMessage(null), 5000);
   };
 
-  const parseFileWithOCR = async (file: File): Promise<any> => {
-    const formData = new FormData();
-    formData.append('file', file);
+  // Cancel document handler
+  const handleCancelDocument = (documentId: string) => {
+    // Remove from documents state
+    setDocuments(prev => prev.filter(doc => doc.id !== documentId));
     
-    const response = await fetch(`${API_BASE_URL}/ocr/parse`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'OCR parsing failed');
-    }
-
-    return await response.json();
+    // Remove from invoice files state (match by timestamp)
+    setInvoiceFiles(prev => prev.filter(file => {
+      const fileTimestamp = new Date(file.timestamp).getTime().toString();
+      return fileTimestamp !== documentId;
+    }));
+    
+    // Remove from delivery files state (match by timestamp)
+    setDeliveryFiles(prev => prev.filter(file => {
+      const fileTimestamp = new Date(file.timestamp).getTime().toString();
+      return fileTimestamp !== documentId;
+    }));
+    
+    // Remove from unknown files state (match by timestamp)
+    setUnknownFiles(prev => prev.filter(file => {
+      const fileTimestamp = new Date(file.timestamp).getTime().toString();
+      return fileTimestamp !== documentId;
+    }));
   };
 
-  const handleFileChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-    target: 'invoices' | 'delivery'
-  ) => {
+  // Helper function to create delivery note from OCR result
+  const createDeliveryNoteFromOCR = (file: UploadedFile): DeliveryNote => {
+    const parsedData = file.parsedData || {};
+    const timestamp = new Date().getTime().toString();
+    
+    // Determine status for delivery note
+    let noteStatus: DeliveryNote['status'];
+    if (file.status === 'parsed') {
+      noteStatus = 'Unmatched'; // All parsed delivery notes start as unmatched
+    } else if (file.status === 'error' || file.status === 'parse_error') {
+      noteStatus = 'Error';
+    } else if (file.status === 'uploading' || file.status === 'parsing') {
+      noteStatus = 'Processing';
+    } else {
+      noteStatus = 'Unknown';
+    }
+    
+    return {
+      id: timestamp,
+      filename: file.name,
+      supplier: parsedData.supplier_name || 'Unknown Supplier',
+      deliveryNumber: parsedData.delivery_note_number || 'N/A',
+      deliveryDate: parsedData.delivery_date || 'N/A',
+      status: noteStatus,
+      confidence: file.confidence,
+      parsedData: file.parsedData,
+    };
+  };
+
+  // Update delivery notes when delivery files change
+  useEffect(() => {
+    const deliveryNotes = deliveryFiles
+      .filter(file => file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'uploading' || file.status === 'parsing')
+      .map(createDeliveryNoteFromOCR);
+    
+    if (onDeliveryNotesUpdate) {
+      onDeliveryNotesUpdate(deliveryNotes);
+    }
+  }, [deliveryFiles, onDeliveryNotesUpdate]);
+
+  // Helper function to create document from OCR result (for invoices only)
+  const createDocumentFromOCR = (file: UploadedFile): Document => {
+    const parsedData = file.parsedData || {};
+    const timestamp = new Date().getTime().toString();
+    
+    // Determine status for DocumentCard
+    let cardStatus: Document['status'];
+    if (file.status === 'parsed') {
+      cardStatus = 'Scanned'; // Use 'Scanned' instead of 'Complete'
+    } else if (file.status === 'error' || file.status === 'parse_error') {
+      cardStatus = 'Error';
+    } else if (file.status === 'uploading' || file.status === 'parsing') {
+      cardStatus = 'Processing';
+    } else {
+      cardStatus = 'Unknown';
+    }
+    
+    // Mock matched document for demo purposes
+    const mockMatchedDocument = file.documentType === 'invoice' ? {
+      filename: 'delivery_note_2024_001.pdf',
+      parsedData: {
+        supplier_name: parsedData.supplier_name,
+        delivery_note_number: 'DN-2024-001',
+        delivery_date: parsedData.invoice_date,
+        total_items: '3 items'
+      }
+    } : undefined;
+    
+    return {
+      id: timestamp,
+      filename: file.name,
+      supplier: parsedData.supplier_name || 'Unknown Supplier',
+      invoiceNumber: parsedData.invoice_number || parsedData.delivery_note_number || 'N/A',
+      invoiceDate: parsedData.invoice_date || parsedData.delivery_date || 'N/A',
+      totalAmount: parsedData.total_amount || '0.00',
+      type: file.documentType === 'invoice' ? 'Invoice' : 
+            file.documentType === 'delivery_note' ? 'Delivery Note' : 'Unknown',
+      status: cardStatus,
+      confidence: file.confidence,
+      numIssues: file.confidence && file.confidence < 60 ? 1 : 0,
+      parsedData: file.parsedData, // Pass parsedData to Document
+      matchedDocument: mockMatchedDocument // Add mock matched document
+    };
+  };
+
+  // Update documents when invoice files change (only show invoices in main area)
+  useEffect(() => {
+    const invoiceDocuments = invoiceFiles
+      .filter(file => file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'uploading' || file.status === 'parsing')
+      .map(createDocumentFromOCR);
+    
+    setDocuments(invoiceDocuments);
+  }, [invoiceFiles]);
+
+  // Unified upload handler for both invoice and delivery note uploads
+  const handleUpload = async (files: File[]) => {
+    // Validate number of files
+    if (files.length > MAX_FILES_PER_UPLOAD) {
+      showError(`Too many files. Maximum ${MAX_FILES_PER_UPLOAD} files allowed per upload.`);
+      return;
+    }
+
+    // Validate each file
+    const validationErrors: string[] = [];
+    files.forEach(file => {
+      const error = validateFile(file);
+      if (error) {
+        validationErrors.push(error);
+      }
+    });
+
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(error => showError(error));
+      return;
+    }
+
+    setIsUploading(true);
+    
+    // Helper to add file to state based on classification
+    const addFileToState = (file: UploadedFile, type: 'invoices' | 'delivery' | 'unknown') => {
+      if (type === 'invoices') {
+        setInvoiceFiles(prev => [...prev, file]);
+      } else if (type === 'delivery') {
+        setDeliveryFiles(prev => [...prev, file]);
+      } else {
+        setUnknownFiles(prev => [...prev, file]);
+      }
+    };
+    
+    // Helper to update file status (searches in all lists)
+    const updateFileStatus = (name: string, status: Partial<UploadedFile>) => {
+      setInvoiceFiles(prev => prev.map(f => f.name === name ? { ...f, ...status } : f));
+      setDeliveryFiles(prev => prev.map(f => f.name === name ? { ...f, ...status } : f));
+      setUnknownFiles(prev => prev.map(f => f.name === name ? { ...f, ...status } : f));
+    };
+    
+    try {
+      await processFilesWithConcurrency(files, addFileToState, updateFileStatus, showError);
+    } catch (error) {
+      showError(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Unified file change handler
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const files = Array.from(event.target.files);
-      setIsUploading(true);
-
-      for (const file of files) {
-        // Add file to state with uploading status
-        const newFile: UploadedFile = {
-          name: file.name,
-          timestamp: new Date().toLocaleString(),
-          status: 'uploading'
-        };
-
-        if (target === 'invoices') {
-          setInvoiceFiles(prev => [...prev, newFile]);
-        } else {
-          setDeliveryFiles(prev => [...prev, newFile]);
-        }
-
-        try {
-          // Step 1: Upload file to backend
-          const uploadResult = await uploadFile(file, target);
-          
-          // Update file status to success after upload
-          const updateFileAfterUpload = (files: UploadedFile[]) => 
-            files.map(f => 
-              f.name === file.name 
-                ? { ...f, status: 'success' as const, serverFilename: uploadResult.filename }
-                : f
-            );
-
-          if (target === 'invoices') {
-            setInvoiceFiles(updateFileAfterUpload);
-          } else {
-            setDeliveryFiles(updateFileAfterUpload);
-          }
-
-          // Step 2: Parse file with OCR
-          const updateFileToParsing = (files: UploadedFile[]) => 
-            files.map(f => 
-              f.name === file.name 
-                ? { ...f, status: 'parsing' as const }
-                : f
-            );
-
-          if (target === 'invoices') {
-            setInvoiceFiles(updateFileToParsing);
-          } else {
-            setDeliveryFiles(updateFileToParsing);
-          }
-
-          const parseResult = await parseFileWithOCR(file);
-          
-          // Update file status to parsed with OCR data
-          const updateFileAfterParse = (files: UploadedFile[]) => 
-            files.map(f => 
-              f.name === file.name 
-                ? { ...f, status: 'parsed' as const, parsedData: parseResult.parsed_data }
-                : f
-            );
-
-          if (target === 'invoices') {
-            setInvoiceFiles(updateFileAfterParse);
-          } else {
-            setDeliveryFiles(updateFileAfterParse);
-          }
-
-        } catch (error) {
-          // Update file status to error
-          const updateFile = (files: UploadedFile[]) => 
-            files.map(f => 
-              f.name === file.name 
-                ? { 
-                    ...f, 
-                    status: (f.status === 'parsing' ? 'parse_error' : 'error') as 'parse_error' | 'error', 
-                    error: error instanceof Error ? error.message : 'Processing failed' 
-                  }
-                : f
-            );
-
-          if (target === 'invoices') {
-            setInvoiceFiles(updateFile);
-          } else {
-            setDeliveryFiles(updateFile);
-          }
-        }
-      }
-
-      setIsUploading(false);
-      // Clear the input value to allow re-uploading the same file
+      await handleUpload(files);
       event.target.value = '';
     }
   };
@@ -282,34 +566,8 @@ const InvoicesUploadPanel: React.FC = () => {
       dragCounter = 0;
 
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        const files = e.dataTransfer.files;
-        const x = e.clientX;
-
-        let targetInputRef: React.RefObject<HTMLInputElement> | null = null;
-        const invoiceRect = invoiceBoxRef.current?.getBoundingClientRect();
-        const deliveryRect = deliveryBoxRef.current?.getBoundingClientRect();
-
-        if (invoiceRect && x >= invoiceRect.left && x <= invoiceRect.right && e.clientY >= invoiceRect.top && e.clientY <= invoiceRect.bottom) {
-          targetInputRef = invoiceInputRef;
-        } else if (deliveryRect && x >= deliveryRect.left && x <= deliveryRect.right && e.clientY >= deliveryRect.top && e.clientY <= deliveryRect.bottom) {
-          targetInputRef = deliveryInputRef;
-        } else if (window.innerWidth >= 768) { // Fallback to horizontal split for global drop
-          if (x < window.innerWidth / 2) {
-            targetInputRef = invoiceInputRef;
-          } else {
-            targetInputRef = deliveryInputRef;
-          }
-        } else { // On mobile, if dropped anywhere, assume invoices
-            targetInputRef = invoiceInputRef;
-        }
-
-
-        if (targetInputRef?.current) {
-          const dataTransfer = new DataTransfer();
-          Array.from(files).forEach(file => dataTransfer.items.add(file));
-          targetInputRef.current.files = dataTransfer.files;
-          targetInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+        const files = Array.from(e.dataTransfer.files);
+        handleUpload(files);
       }
     };
 
@@ -336,7 +594,8 @@ const InvoicesUploadPanel: React.FC = () => {
     accept: string;
     multiple: boolean;
     isUploading?: boolean;
-  }> = ({ title, icon, inputRef, boxRef, onFileChange, ariaLabel, accept, multiple, isUploading = false }) => (
+    tooltip?: string;
+  }> = ({ title, icon, inputRef, boxRef, onFileChange, ariaLabel, accept, multiple, isUploading = false, tooltip }) => (
     <div
       ref={boxRef}
       className={`
@@ -355,10 +614,12 @@ const InvoicesUploadPanel: React.FC = () => {
       tabIndex={0}
       onClick={() => !isUploading && triggerFileInput(inputRef)}
       onKeyDown={(e) => !isUploading && e.key === 'Enter' && triggerFileInput(inputRef)}
+      title={tooltip}
     >
       {icon}
       <h3 className="text-xl font-semibold text-slate-900 mb-2 mt-2">{title}</h3>
       <p className="text-sm text-slate-600 mb-6">PDF, PNG, JPG, JPEG — Max 10MB per file</p>
+      <p className="text-xs text-slate-500 mb-4 italic">Owlin will auto-classify documents</p>
       <button
         className={`
           owlin-browse-btn
@@ -377,7 +638,7 @@ const InvoicesUploadPanel: React.FC = () => {
         aria-label={ariaLabel}
         disabled={isUploading}
       >
-        {isUploading && <LoadingSpinner className="w-4 h-4" />}
+        {isUploading && <ProgressCircle duration={5000} color="#2563eb" size={16} />}
         {isUploading ? 'Uploading...' : 'Browse Files'}
       </button>
       <input
@@ -394,16 +655,20 @@ const InvoicesUploadPanel: React.FC = () => {
     </div>
   );
 
-  const FileStatusIcon = ({ status }: { status: UploadedFile['status'] }) => {
+  const FileStatusIcon = ({ status, confidence }: { status: UploadedFile['status'], confidence?: number }) => {
     switch (status) {
       case 'uploading':
-        return <LoadingSpinner className="w-4 h-4 text-blue-600" />;
+        return <ProgressCircle duration={3000} size={20} color="#2563eb" />;
       case 'success':
         return <span className="text-green-600">✓</span>;
       case 'parsing':
-        return <LoadingSpinner className="w-4 h-4 text-yellow-600" />;
+        return <ProgressCircle duration={5000} size={20} color="#f59e42" />;
       case 'parsed':
-        return <span className="text-green-600">🔍</span>;
+        return confidence && confidence < 60 ? (
+          <span className="text-orange-600" title={`Low confidence: ${confidence}%`}>⚠</span>
+        ) : (
+          <span className="text-green-600">✓</span>
+        );
       case 'parse_error':
         return <span className="text-orange-600">⚠</span>;
       case 'error':
@@ -415,6 +680,24 @@ const InvoicesUploadPanel: React.FC = () => {
 
   return (
     <div className="p-8"> {/* Overall page padding */}
+      {/* Error Notification */}
+      {errorMessage && (
+        <div className="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg max-w-md">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <span className="text-red-500 mr-2">⚠</span>
+              <span className="text-sm">{errorMessage}</span>
+            </div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-red-500 hover:text-red-700 ml-4"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Upload Boxes */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <GlassBox
@@ -422,42 +705,86 @@ const InvoicesUploadPanel: React.FC = () => {
           icon={<FileTextIcon className="w-8 h-8 sm:w-10 sm:h-10 text-slate-600 mb-4" />}
           inputRef={invoiceInputRef}
           boxRef={invoiceBoxRef}
-          onFileChange={(e) => handleFileChange(e, 'invoices')}
-          ariaLabel="Browse files to upload invoices"
+          onFileChange={handleFileChange}
+          ariaLabel="Browse files to upload documents"
           accept=".pdf,.jpg,.jpeg,.png"
           multiple={true}
           isUploading={isUploading}
+          tooltip="Drop documents here - Owlin will auto-classify them as invoices or delivery notes"
         />
         <GlassBox
           title="Upload Delivery Notes"
           icon={<ClipboardListIcon className="w-8 h-8 sm:w-10 sm:h-10 text-slate-600 mb-4" />}
           inputRef={deliveryInputRef}
           boxRef={deliveryBoxRef}
-          onFileChange={(e) => handleFileChange(e, 'delivery')}
-          ariaLabel="Browse files to upload delivery notes"
+          onFileChange={handleFileChange}
+          ariaLabel="Browse files to upload documents"
           accept=".pdf,.jpg,.jpeg,.png"
           multiple={true}
           isUploading={isUploading}
+          tooltip="Drop documents here - Owlin will auto-classify them as invoices or delivery notes"
         />
       </div>
 
+      {/* File Upload Limits Info */}
+      <div className="mt-4 text-center">
+        <p className="text-xs text-slate-500">
+          📁 Upload limits: Max {MAX_FILES_PER_UPLOAD} files per upload • Max {MAX_FILE_SIZE / (1024 * 1024)}MB per file
+        </p>
+      </div>
+
+      {/* Document Cards */}
+      {documents.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold text-slate-900 mb-4">📄 Processed Invoices ({documents.length})</h2>
+          <div className="max-h-96 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            <div className="space-y-3">
+              {documents.map((doc) => (
+                <DocumentCard
+                  key={doc.id}
+                  supplier={doc.supplier}
+                  invoiceId={doc.invoiceNumber}
+                  invoiceDate={doc.invoiceDate}
+                  totalAmount={doc.totalAmount}
+                  status={doc.status}
+                  numIssues={doc.numIssues}
+                  loadingPercent={doc.status === 'Processing' ? 75 : 100}
+                  parsedData={doc.parsedData}
+                  documentType={doc.type === 'Invoice' ? 'invoice' : 
+                               doc.type === 'Delivery Note' ? 'delivery_note' : 'unknown'}
+                  confidence={doc.confidence}
+                  matchedDocument={doc.matchedDocument}
+                  onCancel={handleCancelDocument}
+                  documentId={doc.id}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Uploaded Files Summary */}
-      {(invoiceFiles.length > 0 || deliveryFiles.length > 0) && (
+      {(invoiceFiles.length > 0 || deliveryFiles.length > 0 || unknownFiles.length > 0) && (
         <div className="mt-8">
           <h2 className="text-xl font-semibold text-slate-900 mb-4">📁 Uploaded Files</h2>
 
           {invoiceFiles.length > 0 && (
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <h3 className="text-lg font-medium text-slate-800 mb-2">📄 Invoices:</h3>
+              <h3 className="text-lg font-medium text-slate-800 mb-2">📄 Invoices ({invoiceFiles.length}):</h3>
               <ul className="list-none p-0 m-0">
                 {invoiceFiles.map((file, index) => (
                   <li key={`invoice-${index}`} className="flex justify-between items-center text-sm text-slate-700 py-1 border-b border-gray-200 last:border-b-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <FileStatusIcon status={file.status} />
+                      <FileStatusIcon status={file.status} confidence={file.confidence} />
                       <span className="truncate">{file.name}</span>
                       {file.error && (
                         <span className="text-xs text-red-600 ml-2" title={file.error}>
                           Error: {file.error}
+                        </span>
+                      )}
+                      {file.confidence && file.confidence < 60 && (
+                        <span className="text-xs text-orange-600 ml-2" title={`Low confidence: ${file.confidence}%`}>
+                          ⚠ Low confidence
                         </span>
                       )}
                     </div>
@@ -480,6 +807,9 @@ const InvoicesUploadPanel: React.FC = () => {
                           <div>Invoice #: {file.parsedData.invoice_number}</div>
                           <div>Amount: ${file.parsedData.total_amount} {file.parsedData.currency}</div>
                           <div>Date: {file.parsedData.invoice_date}</div>
+                          {file.confidence && (
+                            <div>Confidence: {file.confidence}%</div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -489,17 +819,22 @@ const InvoicesUploadPanel: React.FC = () => {
           )}
 
           {deliveryFiles.length > 0 && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-lg font-medium text-slate-800 mb-2">📋 Delivery Notes:</h3>
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <h3 className="text-lg font-medium text-slate-800 mb-2">📋 Delivery Notes ({deliveryFiles.length}):</h3>
               <ul className="list-none p-0 m-0">
                 {deliveryFiles.map((file, index) => (
                   <li key={`delivery-${index}`} className="flex justify-between items-center text-sm text-slate-700 py-1 border-b border-gray-200 last:border-b-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <FileStatusIcon status={file.status} />
+                      <FileStatusIcon status={file.status} confidence={file.confidence} />
                       <span className="truncate">{file.name}</span>
                       {file.error && (
                         <span className="text-xs text-red-600 ml-2" title={file.error}>
                           Error: {file.error}
+                        </span>
+                      )}
+                      {file.confidence && file.confidence < 60 && (
+                        <span className="text-xs text-orange-600 ml-2" title={`Low confidence: ${file.confidence}%`}>
+                          ⚠ Low confidence
                         </span>
                       )}
                     </div>
@@ -522,11 +857,42 @@ const InvoicesUploadPanel: React.FC = () => {
                           <div>Delivery #: {file.parsedData.delivery_note_number}</div>
                           <div>Items: {file.parsedData.total_items}</div>
                           <div>Date: {file.parsedData.delivery_date}</div>
+                          {file.confidence && (
+                            <div>Confidence: {file.confidence}%</div>
+                          )}
                         </div>
                       </div>
                     ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {unknownFiles.length > 0 && (
+            <div className="bg-yellow-50 rounded-lg p-4 mb-4">
+              <h3 className="text-lg font-medium text-slate-800 mb-2">❓ Unknown Documents ({unknownFiles.length}):</h3>
+              <p className="text-sm text-slate-600 mb-2">These documents couldn't be automatically classified. Please review them manually.</p>
+              <ul className="list-none p-0 m-0">
+                {unknownFiles.map((file, index) => (
+                  <li key={`unknown-${index}`} className="flex justify-between items-center text-sm text-slate-700 py-1 border-b border-gray-200 last:border-b-0">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <FileStatusIcon status={file.status} confidence={file.confidence} />
+                      <span className="truncate">{file.name}</span>
+                      {file.error && (
+                        <span className="text-xs text-red-600 ml-2" title={file.error}>
+                          Error: {file.error}
+                        </span>
+                      )}
+                      {file.confidence && (
+                        <span className="text-xs text-orange-600 ml-2" title={`Classification confidence: ${file.confidence}%`}>
+                          ⚠ {file.confidence}% confidence
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-500 ml-4">{file.timestamp}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

@@ -107,8 +107,8 @@ npm run dev
 
 ### **5. Access the Application**
 - **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
+- **Backend API**: http://localhost:8001
+- **API Documentation**: http://localhost:8001/docs
 
 ## 📱 Usage Guide
 
@@ -285,7 +285,7 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ## 📞 Support
 
 ### **Documentation**
-- **API Docs**: http://localhost:8000/docs
+- **API Docs**: http://localhost:8001/docs
 - **Component Library**: Inline documentation
 - **Code Comments**: Comprehensive inline documentation
 

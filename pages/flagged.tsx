@@ -42,7 +42,7 @@ const FlaggedIssuesPage: React.FC = () => {
 
   const fetchFlaggedIssues = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/flagged-issues/');
+      const response = await fetch('http://localhost:8001/api/flagged-issues/');
       if (!response.ok) {
         throw new Error('Failed to fetch flagged issues');
       }
@@ -57,7 +57,7 @@ const FlaggedIssuesPage: React.FC = () => {
 
   const fetchSummary = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/flagged-issues/summary');
+      const response = await fetch('http://localhost:8001/api/flagged-issues/summary');
       if (!response.ok) {
         throw new Error('Failed to fetch summary');
       }
@@ -71,7 +71,7 @@ const FlaggedIssuesPage: React.FC = () => {
   const handleResolveIssue = async (issueId: number) => {
     try {
       setResolvingIssue(issueId);
-      const response = await fetch(`http://localhost:8000/api/flagged-issues/${issueId}/resolve`, {
+      const response = await fetch(`http://localhost:8001/api/flagged-issues/${issueId}/resolve`, {
         method: 'POST',
       });
       
@@ -95,7 +95,7 @@ const FlaggedIssuesPage: React.FC = () => {
   const handleEscalateIssue = async (issueId: number) => {
     try {
       setResolvingIssue(issueId);
-      const response = await fetch(`http://localhost:8000/api/flagged-issues/${issueId}/escalate`, {
+      const response = await fetch(`http://localhost:8001/api/flagged-issues/${issueId}/escalate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

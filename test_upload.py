@@ -70,7 +70,7 @@ startxref
 
 def test_upload():
     """Test the upload endpoints"""
-    base_url = "http://localhost:8000/api"
+    base_url = "http://localhost:8001/api"
     
     # Create test files with valid extensions
     test_invoice = create_test_pdf("test_invoice.pdf", "This is a test invoice")

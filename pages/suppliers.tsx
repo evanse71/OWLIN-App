@@ -48,7 +48,7 @@ const SuppliersPage: React.FC = () => {
 
   const fetchSuppliers = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/suppliers/');
+      const response = await fetch('http://localhost:8001/api/suppliers/');
       if (!response.ok) {
         throw new Error('Failed to fetch suppliers');
       }
@@ -63,7 +63,7 @@ const SuppliersPage: React.FC = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/suppliers/analytics');
+      const response = await fetch('http://localhost:8001/api/suppliers/analytics');
       if (!response.ok) {
         throw new Error('Failed to fetch analytics');
       }
@@ -76,7 +76,7 @@ const SuppliersPage: React.FC = () => {
 
   const fetchOverview = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/suppliers/summary/overview');
+      const response = await fetch('http://localhost:8001/api/suppliers/summary/overview');
       if (!response.ok) {
         throw new Error('Failed to fetch overview');
       }
