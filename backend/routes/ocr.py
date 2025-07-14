@@ -39,6 +39,7 @@ import tempfile
 import re
 from pdf2image import convert_from_bytes, convert_from_path
 from difflib import get_close_matches
+import traceback  # Add this import for detailed error logging
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -145,13 +146,27 @@ def convert_pdf_to_images(file_content: bytes, filename: str) -> List[Image.Imag
     try:
         logger.info(f"Converting PDF to images: {filename}")
         
+        # Validate PDF content
+        if not file_content or len(file_content) == 0:
+            raise ValueError("PDF file is empty")
+        
+        # Check if content looks like a PDF (starts with %PDF)
+        if not file_content.startswith(b'%PDF'):
+            raise ValueError("File does not appear to be a valid PDF")
+        
         # Convert PDF bytes to images
         images = convert_from_bytes(file_content, dpi=300)
+        
+        # Validate conversion results
+        if not images or len(images) == 0:
+            raise ValueError("PDF conversion produced no images")
+        
         logger.info(f"✅ Successfully converted PDF to {len(images)} images")
         
         return images
     except Exception as e:
         logger.error(f"❌ Failed to convert PDF to images: {e}")
+        logger.error(f"❌ PDF conversion traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=f"Failed to process PDF: {str(e)}")
 
 def is_pdf_file(filename: str) -> bool:
@@ -243,11 +258,18 @@ def scan_for_fuzzy_keywords(text_lines: List[str], keyword_mapping: Dict[str, Li
 def classify_document_type(text: str) -> str:
     """Classify document type using a robust scoring system with enhanced keyword lists and fuzzy matching"""
     try:
+        # Handle empty or invalid input
         if not text or not isinstance(text, str):
             logger.warning("⚠️ Invalid text provided for document classification")
             return 'unknown'
         
-        text_lower = text.lower()
+        # Clean and normalize text
+        text_cleaned = re.sub(r'\s+', ' ', text.strip())
+        if len(text_cleaned) < 10:
+            logger.warning(f"⚠️ Text too short for classification ({len(text_cleaned)} chars): '{text_cleaned}'")
+            return 'unknown'
+        
+        text_lower = text_cleaned.lower()
         text_words = set(text_lower.split())
         
         # Enhanced keyword lists with variations and common misspellings
@@ -256,7 +278,8 @@ def classify_document_type(text: str) -> str:
             "supplier", "vendor", "company", "business", "from", "issued by", "invoice number", 
             "invoice no", "invoice #", "inv number", "inv no", "inv #", "bill number", "bill no",
             "amount due", "balance due", "total due", "grand total", "final amount", "payment",
-            "terms", "due date", "billing date", "issue date", "created date", "invoice date"
+            "terms", "due date", "billing date", "issue date", "created date", "invoice date",
+            "tax invoice", "commercial invoice", "pro forma invoice"
         ]
         
         delivery_note_keywords = [
@@ -264,7 +287,8 @@ def classify_document_type(text: str) -> str:
             "received", "receipt", "qty", "quantity", "items", "signature", "signed", 
             "goods", "products", "materials", "date of delivery", "delivery date",
             "packing list", "packing slip", "shipping", "shipped", "carrier", "driver",
-            "delivery to", "delivered to", "received by", "signed by", "authorized by"
+            "delivery to", "delivered to", "received by", "signed by", "authorized by",
+            "dn", "packing", "dispatch note", "goods receipt"
         ]
         
         # Count keyword matches for each type with fuzzy matching
@@ -283,15 +307,15 @@ def classify_document_type(text: str) -> str:
                 delivery_matches.append(keyword)
                 logger.debug(f"🔍 Found delivery keyword: '{keyword}'")
         
-        # Additional scoring based on word presence
+        # Additional scoring based on word presence (fallback checks)
         invoice_word_score = 0
         delivery_word_score = 0
         
         # Check for word-level matches (more flexible)
         for word in text_words:
-            if any(inv_word in word for inv_word in ["inv", "bill", "vat", "tax", "total"]):
+            if any(inv_word in word for inv_word in ["inv", "bill", "vat", "tax", "total", "supplier", "vendor"]):
                 invoice_word_score += 1
-            if any(del_word in word for del_word in ["deliv", "receiv", "goods", "qty", "sign"]):
+            if any(del_word in word for del_word in ["deliv", "receiv", "goods", "qty", "sign", "pack", "dispatch"]):
                 delivery_word_score += 1
         
         # Calculate normalized scores (0-1 scale)
@@ -313,8 +337,9 @@ def classify_document_type(text: str) -> str:
         logger.info(f"   Delivery matches: {delivery_matches}")
         
         # Determine document type based on scores with confidence threshold
-        confidence_threshold = 0.1  # Very low threshold to be inclusive
+        confidence_threshold = 0.05  # Very low threshold to be inclusive
         
+        # If either type has any keywords, prefer that type over unknown
         if invoice_score == 0 and delivery_score == 0:
             logger.warning("⚠️ No keywords found - document cannot be classified")
             return 'unknown'
@@ -330,6 +355,16 @@ def classify_document_type(text: str) -> str:
             logger.warning(f"⚠️ Equal scores - ambiguous classification (invoice: {invoice_score:.3f}, delivery: {delivery_score:.3f})")
             # Default to invoice if scores are equal and above threshold
             return 'invoice'
+        elif invoice_score > 0 or delivery_score > 0:
+            # If we have any keywords but scores are below threshold, still classify
+            if invoice_score > delivery_score:
+                confidence_percent = int(invoice_score * 100)
+                logger.warning(f"⚠️ Low confidence but classifying as INVOICE (score: {invoice_score:.3f}, confidence: {confidence_percent}%)")
+                return 'invoice'
+            else:
+                confidence_percent = int(delivery_score * 100)
+                logger.warning(f"⚠️ Low confidence but classifying as DELIVERY NOTE (score: {delivery_score:.3f}, confidence: {confidence_percent}%)")
+                return 'delivery_note'
         else:
             logger.warning(f"⚠️ Low confidence scores - marking as unknown (invoice: {invoice_score:.3f}, delivery: {delivery_score:.3f})")
             return 'unknown'
@@ -360,6 +395,9 @@ def validate_file(file: UploadFile) -> None:
     
     if file.size is None:
         raise HTTPException(status_code=400, detail="Unable to determine file size")
+    
+    if file.size == 0:
+        raise HTTPException(status_code=400, detail="File is empty")
     
     if not validate_file_size(file.size):
         raise HTTPException(
@@ -1030,13 +1068,22 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70, debug: bool = Fa
     logger.info(f"Starting OCR processing for file: {file.filename}")
     
     try:
+        # Read file contents and validate
         contents = await file.read()
         
         # Validate file contents
         if not contents or len(contents) == 0:
-            raise ValueError("Empty file")
+            logger.error(f"❌ Empty file received: {file.filename}")
+            raise ValueError("Empty file - no content to process")
         
         logger.info(f"File size: {len(contents)} bytes")
+        
+        # Reset file stream for potential reuse
+        try:
+            await file.seek(0)
+        except Exception as seek_error:
+            logger.warning(f"⚠️ Could not reset file stream: {seek_error}")
+            # Continue anyway, we have the contents
         
         # Check if file is PDF
         if file.filename and is_pdf_file(file.filename):
@@ -1046,8 +1093,15 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70, debug: bool = Fa
             logger.info(f"Processing image file: {file.filename}")
             return await process_image_with_ocr(contents, file.filename or "unknown", threshold, debug)
         
+    except ValueError as e:
+        # Handle validation errors (empty file, corrupt file, etc.)
+        logger.error(f"❌ Validation error for {file.filename}: {str(e)}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"File validation failed: {str(e)}")
     except Exception as e:
+        # Handle all other errors
         logger.error(f"❌ OCR processing error for {file.filename}: {str(e)}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
 async def process_pdf_with_ocr(file_content: bytes, filename: str, threshold: int = 70, debug: bool = False) -> dict:
@@ -1067,6 +1121,11 @@ async def process_pdf_with_ocr(file_content: bytes, filename: str, threshold: in
             try:
                 # Convert PIL image to numpy array for preprocessing
                 img_array = np.array(image)
+                
+                # Validate image array
+                if img_array.size == 0:
+                    logger.warning(f"Page {page_num + 1} has empty image array")
+                    continue
                 
                 # Preprocess image
                 try:
@@ -1175,11 +1234,16 @@ async def process_pdf_with_ocr(file_content: bytes, filename: str, threshold: in
         
     except Exception as e:
         logger.error(f"❌ PDF processing error: {str(e)}")
+        logger.error(f"❌ PDF processing traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
 
 async def process_image_with_ocr(file_content: bytes, filename: str, threshold: int = 70, debug: bool = False) -> dict:
     """Process image file with OCR (original implementation)"""
     try:
+        # Validate image content
+        if not file_content or len(file_content) == 0:
+            raise ValueError("Image file is empty")
+        
         # Save to a temp file for OpenCV
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
             tmp.write(file_content)
@@ -1187,17 +1251,29 @@ async def process_image_with_ocr(file_content: bytes, filename: str, threshold: 
         
         try:
             # Validate image can be opened
-            pil_image = Image.open(tmp_path)
-            pil_image.verify()  # Verify image integrity
+            try:
+                pil_image = Image.open(tmp_path)
+                pil_image.verify()  # Verify image integrity
+            except Exception as verify_error:
+                logger.error(f"❌ Image verification failed: {verify_error}")
+                raise ValueError(f"Image file is corrupt or unsupported: {str(verify_error)}")
             
             # Reopen for processing
-            pil_image = Image.open(tmp_path)
+            try:
+                pil_image = Image.open(tmp_path)
+            except Exception as open_error:
+                logger.error(f"❌ Failed to reopen image: {open_error}")
+                raise ValueError(f"Failed to open image file: {str(open_error)}")
             
             # Convert to RGB if needed
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
             
             logger.info(f"Image dimensions: {pil_image.size}")
+            
+            # Validate image dimensions
+            if pil_image.size[0] == 0 or pil_image.size[1] == 0:
+                raise ValueError("Image has invalid dimensions")
             
             # Preprocess image
             try:
@@ -1323,6 +1399,7 @@ async def process_image_with_ocr(file_content: bytes, filename: str, threshold: 
         
     except Exception as e:
         logger.error(f"❌ Image OCR processing error: {str(e)}")
+        logger.error(f"❌ Image processing traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Image OCR processing failed: {str(e)}")
 
 def process_ocr_data(data: dict, threshold: int) -> tuple[List[str], List[int]]:
@@ -1698,40 +1775,18 @@ def calculate_text_similarity(text1: str, text2: str) -> float:
 
 @router.post("/ocr/parse")
 async def parse_document(file: UploadFile = File(...), confidence_threshold: int = 70, debug: bool = False):
-    """Parse uploaded document using OCR"""
+    """Parse uploaded document using OCR with enhanced error handling and structured results"""
     logger.info(f"Received OCR parse request for file: {file.filename} (debug: {debug})")
     
     # Validate file
-    validate_file(file)
-    
     try:
-        parsed_data = await parse_with_ocr(file, threshold=confidence_threshold, debug=debug)
-        
-        # Ensure we always return a consistent response format
-        result = {
-            "document_type": parsed_data.get('document_type', 'unknown'),
-            "parsed_data": parsed_data.get('parsed_data', {}),
-            "confidence_score": parsed_data.get('confidence_score', 0),
-            "raw_lines": parsed_data.get('raw_lines', []),
-            "success": True,
-            "original_filename": file.filename,
-            "file_size": file.size,
-            "processed_at": datetime.now().isoformat()
-        }
-        
-        logger.info(f"OCR parse completed successfully for {file.filename}")
-        return JSONResponse(result)
-        
-    except ValueError as e:
-        logger.error(f"Validation error in OCR parsing: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Unexpected error in OCR parsing: {str(e)}")
-        # Return a safe error response instead of crashing
-        error_result = {
+        validate_file(file)
+    except HTTPException as e:
+        logger.error(f"File validation failed: {e.detail}")
+        return JSONResponse({
             "document_type": "unknown",
             "parsed_data": {
-                "supplier_name": "Unknown Supplier",
+                "supplier_name": "OCR Processing Failed",
                 "invoice_number": "Unknown",
                 "invoice_date": "Unknown", 
                 "total_amount": 0.0,
@@ -1740,12 +1795,124 @@ async def parse_document(file: UploadFile = File(...), confidence_threshold: int
             "confidence_score": 0,
             "raw_lines": [],
             "success": False,
-            "error": str(e),
+            "error": e.detail,
+            "original_filename": file.filename,
+            "file_size": file.size,
+            "processed_at": datetime.now().isoformat()
+        }, status_code=400)
+    
+    try:
+        parsed_data = await parse_with_ocr(file, threshold=confidence_threshold, debug=debug)
+        
+        # Extract key information
+        doc_type = parsed_data.get('document_type', 'unknown')
+        confidence = parsed_data.get('confidence_score', 0)
+        parsed_fields = parsed_data.get('parsed_data', {})
+        
+        # Log classification confidence
+        if confidence < 50:
+            logger.warning(f"⚠️ Low OCR confidence ({confidence}%) for {file.filename}")
+        elif confidence < 70:
+            logger.info(f"⚠️ Medium OCR confidence ({confidence}%) for {file.filename}")
+        else:
+            logger.info(f"✅ High OCR confidence ({confidence}%) for {file.filename}")
+        
+        # Validate and sanitize parsed data to prevent validation errors
+        sanitized_parsed_data = {
+            "supplier_name": str(parsed_fields.get('supplier_name', 'Unknown Supplier'))[:200],
+            "invoice_number": str(parsed_fields.get('invoice_number', 'Unknown'))[:100],
+            "invoice_date": str(parsed_fields.get('invoice_date', 'Unknown'))[:50],
+            "total_amount": float(parsed_fields.get('total_amount', 0.0)),
+            "currency": str(parsed_fields.get('currency', 'GBP'))[:10]
+        }
+        
+        # Ensure we always return a consistent response format
+        result = {
+            "document_type": doc_type,
+            "parsed_data": sanitized_parsed_data,
+            "confidence_score": confidence,
+            "raw_lines": parsed_data.get('raw_lines', []),
+            "success": True,
+            "original_filename": file.filename,
+            "file_size": file.size,
+            "processed_at": datetime.now().isoformat(),
+            "classification_notes": get_classification_notes(doc_type, confidence, parsed_fields)
+        }
+        
+        logger.info(f"OCR parse completed successfully for {file.filename} - Type: {doc_type}, Confidence: {confidence}%")
+        return JSONResponse(result)
+        
+    except ValueError as e:
+        # Handle validation errors (empty file, corrupt file, etc.)
+        error_msg = str(e)
+        logger.error(f"Validation error in OCR parsing: {error_msg}")
+        
+        # Provide more specific error messages
+        if "empty" in error_msg.lower():
+            error_msg = "The uploaded file appears to be empty or contains no data"
+        elif "corrupt" in error_msg.lower():
+            error_msg = "The uploaded file appears to be corrupt or in an unsupported format"
+        elif "pdf" in error_msg.lower() and "valid" in error_msg.lower():
+            error_msg = "The uploaded file does not appear to be a valid PDF document"
+        elif "text" in error_msg.lower() and "detected" in error_msg.lower():
+            error_msg = "No readable text was detected in the uploaded document"
+        
+        return JSONResponse({
+            "document_type": "unknown",
+            "parsed_data": {
+                "supplier_name": "OCR Processing Failed",
+                "invoice_number": "Unknown",
+                "invoice_date": "Unknown", 
+                "total_amount": 0.0,
+                "currency": "GBP"
+            },
+            "confidence_score": 0,
+            "raw_lines": [],
+            "success": False,
+            "error": error_msg,
+            "original_filename": file.filename,
+            "file_size": file.size,
+            "processed_at": datetime.now().isoformat()
+        }, status_code=400)
+    except Exception as e:
+        # Handle unexpected errors
+        error_msg = str(e)
+        logger.error(f"Unexpected error in OCR parsing: {error_msg}")
+        logger.error(f"Unexpected error traceback: {traceback.format_exc()}")
+        
+        # Provide generic error message for unexpected errors
+        error_msg = "An unexpected error occurred during OCR processing. Please try again or contact support if the problem persists."
+        
+        # Return a safe error response instead of crashing
+        error_result = {
+            "document_type": "unknown",
+            "parsed_data": {
+                "supplier_name": "OCR Processing Failed",
+                "invoice_number": "Unknown",
+                "invoice_date": "Unknown", 
+                "total_amount": 0.0,
+                "currency": "GBP"
+            },
+            "confidence_score": 0,
+            "raw_lines": [],
+            "success": False,
+            "error": error_msg,
             "original_filename": file.filename,
             "file_size": file.size,
             "processed_at": datetime.now().isoformat()
         }
         return JSONResponse(error_result, status_code=500)
+
+def get_classification_notes(doc_type: str, confidence: int, parsed_fields: dict) -> str:
+    """Generate helpful notes about the classification result"""
+    if doc_type == 'unknown':
+        return "Document could not be classified automatically. Please review manually."
+    elif confidence < 50:
+        return f"Low confidence classification ({confidence}%). Some fields may be inaccurate."
+    elif confidence < 70:
+        return f"Medium confidence classification ({confidence}%). Please verify extracted data."
+    else:
+        return f"High confidence classification ({confidence}%). Data extraction appears reliable."
 
 @router.post("/ocr/parse_receipt")
 async def parse_receipt_document(file: UploadFile = File(...), confidence_threshold: int = 70):

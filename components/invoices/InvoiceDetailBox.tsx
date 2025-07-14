@@ -21,8 +21,8 @@ interface InvoiceDetailBoxProps {
 
 export default function InvoiceDetailBox({ invoice, onEdit, onComment }: InvoiceDetailBoxProps) {
   // Extract line items from parsed data or use defaults
-  const lineItems = invoice.lineItems || [];
   const parsedData = invoice.parsedData || {};
+  const lineItems: LineItem[] = (parsedData.items && Array.isArray(parsedData.items)) ? parsedData.items : (invoice.lineItems || []);
   const documentType = invoice.documentType || 'unknown';
   const confidence = invoice.confidence || 0;
 
@@ -32,7 +32,6 @@ export default function InvoiceDetailBox({ invoice, onEdit, onComment }: Invoice
     { name: 'Brake Fluid', quantity: 1, price: '12.50' },
     { name: 'Labor', quantity: 1, price: '85.00' },
   ];
-
   const displayItems = lineItems.length > 0 ? lineItems : mockLineItems;
 
   return (
@@ -77,6 +76,11 @@ export default function InvoiceDetailBox({ invoice, onEdit, onComment }: Invoice
                 <span className="ml-1 font-medium">£{parsedData.total_amount}</span>
               </div>
             )}
+            {/* Highlight missing fields */}
+            {!parsedData.supplier_name && <div className="text-red-500 col-span-2">Missing supplier name</div>}
+            {!parsedData.invoice_number && <div className="text-red-500 col-span-2">Missing invoice number</div>}
+            {!parsedData.invoice_date && <div className="text-red-500 col-span-2">Missing invoice date</div>}
+            {!parsedData.total_amount && <div className="text-red-500 col-span-2">Missing total amount</div>}
           </div>
         </div>
       )}
@@ -92,16 +96,19 @@ export default function InvoiceDetailBox({ invoice, onEdit, onComment }: Invoice
             <div className="col-span-2 text-right">Total</div>
           </div>
           <div className="max-h-32 overflow-y-auto">
-            {displayItems.map((item, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 p-2 text-xs border-b last:border-b-0 hover:bg-gray-50 transition-colors duration-150">
-                <div className="col-span-6 truncate">{item.name}</div>
-                <div className="col-span-2 text-center">{item.quantity}</div>
-                <div className="col-span-2 text-right">£{item.price}</div>
-                <div className="col-span-2 text-right font-medium">
-                  £{(parseFloat(item.price) * item.quantity).toFixed(2)}
+            {displayItems.map((item, i) => {
+              const missing = !item.name || !item.price || !item.quantity;
+              return (
+                <div key={i} className={`grid grid-cols-12 gap-2 p-2 text-xs border-b last:border-b-0 hover:bg-gray-50 transition-colors duration-150 ${missing ? 'bg-red-50' : ''}`}>
+                  <div className="col-span-6 truncate">{item.name || <span className="text-red-500">Missing</span>}</div>
+                  <div className="col-span-2 text-center">{item.quantity ?? <span className="text-red-500">?</span>}</div>
+                  <div className="col-span-2 text-right">£{item.price ?? <span className="text-red-500">?</span>}</div>
+                  <div className="col-span-2 text-right font-medium">
+                    £{item.price && item.quantity ? (parseFloat(item.price) * item.quantity).toFixed(2) : <span className="text-red-500">?</span>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
@@ -123,7 +130,7 @@ export default function InvoiceDetailBox({ invoice, onEdit, onComment }: Invoice
         </div>
       )}
 
-      {/* Action Buttons */}
+      {/* Action Buttons (role-based controls stub) */}
       <div className="flex gap-2 pt-2 border-t border-gray-200">
         <button
           onClick={onEdit}
@@ -140,6 +147,8 @@ export default function InvoiceDetailBox({ invoice, onEdit, onComment }: Invoice
         <button className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors duration-200">
           Approve
         </button>
+        {/* Role-based controls stub */}
+        <span className="ml-auto text-xs text-gray-400 italic">Role: Reviewer</span>
       </div>
     </div>
   );

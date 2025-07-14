@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressCircle from '@/components/ui/ProgressCircle';
 import { DocumentCard } from './DocumentCard';
 import DuplicateCheckModal from './DuplicateCheckModal';
+import InvoiceCard from './InvoiceCard';
+import DeliveryNoteCard from './DeliveryNoteCard';
 
 // SVG Icons
 const FileTextIcon = ({ className = 'w-10 h-10' }) => (
@@ -47,9 +49,10 @@ const ClipboardListIcon = ({ className = 'w-10 h-10' }) => (
 );
 
 interface UploadedFile {
+  id: string; // Add stable ID field
   name: string;
   timestamp: string;
-  status: 'uploading' | 'success' | 'error' | 'parsing' | 'parsed' | 'parse_error' | 'duplicate_detected';
+  status: 'uploading' | 'success' | 'error' | 'parsing' | 'parsed' | 'parse_error' | 'duplicate_detected' | 'removed';
   error?: string;
   serverFilename?: string;
   parsedData?: any;
@@ -70,6 +73,7 @@ interface Document {
   numIssues?: number;
   parsedData?: any; // Added for DocumentCard
   matchedDocument?: any; // Changed from string to any to match the object structure
+  loadingPercent?: number; // Added for progress animation
 }
 
 interface DeliveryNote {
@@ -175,7 +179,7 @@ const classifyAndParseFile = async (file: File): Promise<any> => {
   const formData = new FormData();
   formData.append('file', file);
   
-  const response = await fetch('/api/ocr/parse', {
+  const response = await fetch(`${API_BASE_URL}/ocr/parse`, {
     method: 'POST',
     body: formData,
   });
@@ -184,7 +188,7 @@ const classifyAndParseFile = async (file: File): Promise<any> => {
   console.log('OCR result', result);
 
   if (!response.ok) {
-    throw new Error(result.detail || 'OCR failed');
+    throw new Error(result.detail || result.error || 'OCR failed');
   }
 
   return result;
@@ -238,8 +242,12 @@ async function processFilesWithConcurrency(
   checkDuplicates: boolean = true
 ) {
   async function uploadAndClassifyFile(file: File) {
+    // Create a stable ID for this file
+    const fileId = `${file.name}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
     // Add file to state as uploading
     addFileToState({
+      id: fileId,
       name: file.name,
       timestamp: new Date().toLocaleString(),
       status: 'uploading',
@@ -285,9 +293,9 @@ async function processFilesWithConcurrency(
       updateFileStatus(file.name, { status: 'parsing' });
       const classificationResult = await classifyAndParseFile(fileToUpload);
       
-      // Determine document type and confidence
-      const docType = classificationResult.type || 'unknown';
-      const confidence = classificationResult.confidence || 0;
+      // Determine document type and confidence from the new response structure
+      const docType = classificationResult.document_type || 'unknown';
+      const confidence = classificationResult.confidence_score || 0;
       
       // Update file with classification results
       updateFileStatus(file.name, { 
@@ -299,7 +307,9 @@ async function processFilesWithConcurrency(
       
       // Move file to appropriate list based on classification
       if (docType === 'invoice') {
+        // Remove from unknown list and add to invoice list
         addFileToState({
+          id: fileId,
           name: file.name,
           timestamp: new Date().toLocaleString(),
           status: 'parsed',
@@ -308,8 +318,12 @@ async function processFilesWithConcurrency(
           confidence: confidence,
           serverFilename: uploadResult.filename
         }, 'invoices');
+        // Remove from unknown list
+        updateFileStatus(file.name, { status: 'removed' });
       } else if (docType === 'delivery_note') {
+        // Remove from unknown list and add to delivery list
         addFileToState({
+          id: fileId,
           name: file.name,
           timestamp: new Date().toLocaleString(),
           status: 'parsed',
@@ -318,6 +332,8 @@ async function processFilesWithConcurrency(
           confidence: confidence,
           serverFilename: uploadResult.filename
         }, 'delivery');
+        // Remove from unknown list
+        updateFileStatus(file.name, { status: 'removed' });
       } else {
         // Unknown type - keep in current list but mark as unknown
         updateFileStatus(file.name, { 
@@ -359,6 +375,12 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
   const [dragTargetArea, setDragTargetArea] = useState<'invoices' | 'delivery' | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Progress state: { [fileId]: percent }
+  const [progressMap, setProgressMap] = useState<{ [id: string]: number }>({});
+  // Timers for progress animation
+  const progressTimers = useRef<{ [id: string]: NodeJS.Timeout }>({});
+  // Add selectedInvoice state for detail panel
+  const [selectedInvoice, setSelectedInvoice] = useState<Document | null>(null);
   
   // Duplicate detection state
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
@@ -378,28 +400,32 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     setTimeout(() => setErrorMessage(null), 5000);
   };
 
-  // Cancel document handler
+  // Cancel document handler - updated to handle both cards and files
   const handleCancelDocument = (documentId: string) => {
     // Remove from documents state
     setDocuments(prev => prev.filter(doc => doc.id !== documentId));
     
-    // Remove from invoice files state (match by timestamp)
-    setInvoiceFiles(prev => prev.filter(file => {
-      const fileTimestamp = new Date(file.timestamp).getTime().toString();
-      return fileTimestamp !== documentId;
-    }));
+    // Remove from invoice files state (match by ID)
+    setInvoiceFiles(prev => prev.filter(file => file.id !== documentId));
     
-    // Remove from delivery files state (match by timestamp)
-    setDeliveryFiles(prev => prev.filter(file => {
-      const fileTimestamp = new Date(file.timestamp).getTime().toString();
-      return fileTimestamp !== documentId;
-    }));
+    // Remove from delivery files state (match by ID)
+    setDeliveryFiles(prev => prev.filter(file => file.id !== documentId));
     
-    // Remove from unknown files state (match by timestamp)
-    setUnknownFiles(prev => prev.filter(file => {
-      const fileTimestamp = new Date(file.timestamp).getTime().toString();
-      return fileTimestamp !== documentId;
-    }));
+    // Remove from unknown files state (match by ID)
+    setUnknownFiles(prev => prev.filter(file => file.id !== documentId));
+
+    // Clear progress for this file
+    setProgressMap(prev => {
+      const newMap = { ...prev };
+      delete newMap[documentId];
+      return newMap;
+    });
+
+    // Clear timer if exists
+    if (progressTimers.current[documentId]) {
+      clearInterval(progressTimers.current[documentId]);
+      delete progressTimers.current[documentId];
+    }
   };
 
   // Helper function to create delivery note from OCR result
@@ -420,7 +446,7 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     }
     
     return {
-      id: timestamp,
+      id: file.id, // Use the stable ID
       filename: file.name,
       supplier: parsedData.supplier_name || 'Unknown Supplier',
       deliveryNumber: parsedData.delivery_note_number || 'N/A',
@@ -434,7 +460,7 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
   // Update delivery notes when delivery files change
   useEffect(() => {
     const deliveryNotes = deliveryFiles
-      .filter(file => file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'uploading' || file.status === 'parsing')
+      .filter(file => file.status !== 'removed' && (file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'uploading' || file.status === 'parsing'))
       .map(createDeliveryNoteFromOCR);
     
     if (onDeliveryNotesUpdate) {
@@ -446,12 +472,9 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
   const createDocumentFromOCR = (file: UploadedFile): Document => {
     const parsedData = file.parsedData || {};
     const timestamp = new Date().getTime().toString();
-    
     // Determine status for DocumentCard
     let cardStatus: Document['status'];
     if (file.status === 'parsed') {
-      // Check if this invoice has been matched with a delivery note
-      // For now, we'll set all parsed invoices as 'Unmatched' since they need to be paired
       cardStatus = 'Unmatched';
     } else if (file.status === 'error' || file.status === 'parse_error') {
       cardStatus = 'Error';
@@ -460,20 +483,10 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     } else {
       cardStatus = 'Unknown';
     }
-    
-    // Mock matched document for demo purposes
-    const mockMatchedDocument = file.documentType === 'invoice' ? {
-      filename: 'delivery_note_2024_001.pdf',
-      parsedData: {
-        supplier_name: parsedData.supplier_name,
-        delivery_note_number: 'DN-2024-001',
-        delivery_date: parsedData.invoice_date,
-        total_items: '3 items'
-      }
-    } : undefined;
-    
+    // Get progress for this file
+    const loadingPercent = progressMap[file.id] ?? (cardStatus === 'Processing' ? 0 : 100);
     return {
-      id: timestamp,
+      id: file.id, // Use the stable ID
       filename: file.name,
       supplier: parsedData.supplier_name || 'Unknown Supplier',
       invoiceNumber: parsedData.invoice_number || parsedData.delivery_note_number || 'N/A',
@@ -485,14 +498,14 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
       confidence: file.confidence,
       numIssues: file.confidence && file.confidence < 60 ? 1 : 0,
       parsedData: file.parsedData, // Pass parsedData to Document
-      matchedDocument: mockMatchedDocument // Add mock matched document
+      loadingPercent
     };
   };
 
   // Update documents when invoice files change (only show invoices in main area)
   useEffect(() => {
     const invoiceDocuments = invoiceFiles
-      .filter(file => file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'uploading' || file.status === 'parsing')
+      .filter(file => file.status !== 'removed' && (file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'uploading' || file.status === 'parsing'))
       .map(createDocumentFromOCR);
     
     setDocuments(invoiceDocuments);
@@ -502,6 +515,53 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
       onInvoicesUpdate(invoiceDocuments);
     }
   }, [invoiceFiles, onInvoicesUpdate]);
+
+  // Progress animation effect for uploading/parsing files
+  useEffect(() => {
+    // Helper to start progress animation for a file
+    const startProgress = (fileId: string) => {
+      if (progressTimers.current[fileId]) return; // Already animating
+      setProgressMap(prev => ({ ...prev, [fileId]: 0 }));
+      let stages = [25, 60, 100];
+      let idx = 0;
+      progressTimers.current[fileId] = setInterval(() => {
+        setProgressMap(prev => {
+          const current = prev[fileId] || 0;
+          if (current >= 100) {
+            clearInterval(progressTimers.current[fileId]);
+            delete progressTimers.current[fileId];
+            return prev;
+          }
+          const next = stages[idx] || 100;
+          idx++;
+          return { ...prev, [fileId]: next };
+        });
+      }, 500);
+    };
+    // Helper to stop progress and set to 100%
+    const stopProgress = (fileId: string) => {
+      if (progressTimers.current[fileId]) {
+        clearInterval(progressTimers.current[fileId]);
+        delete progressTimers.current[fileId];
+      }
+      setProgressMap(prev => ({ ...prev, [fileId]: 100 }));
+    };
+    // For all uploading/parsing files, start progress
+    const allFiles = [...invoiceFiles, ...deliveryFiles, ...unknownFiles];
+    allFiles.forEach(file => {
+      if ((file.status === 'uploading' || file.status === 'parsing') && !progressTimers.current[file.id]) {
+        startProgress(file.id);
+      }
+      if ((file.status === 'parsed' || file.status === 'error' || file.status === 'parse_error' || file.status === 'removed') && progressMap[file.id] !== 100) {
+        stopProgress(file.id);
+      }
+    });
+    // Cleanup on unmount
+    return () => {
+      Object.values(progressTimers.current).forEach(timer => clearInterval(timer));
+      progressTimers.current = {};
+    };
+  }, [invoiceFiles, deliveryFiles, unknownFiles]);
 
   // Unified upload handler for both invoice and delivery note uploads
   const handleUpload = async (files: File[]) => {
@@ -530,11 +590,26 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     // Helper to add file to state based on classification
     const addFileToState = (file: UploadedFile, type: 'invoices' | 'delivery' | 'unknown') => {
       if (type === 'invoices') {
-        setInvoiceFiles(prev => [...prev, file]);
+        setInvoiceFiles(prev => {
+          // Check if file already exists (by ID or name)
+          const exists = prev.some(f => f.id === file.id || f.name === file.name);
+          if (exists) return prev;
+          return [...prev, file];
+        });
       } else if (type === 'delivery') {
-        setDeliveryFiles(prev => [...prev, file]);
+        setDeliveryFiles(prev => {
+          // Check if file already exists (by ID or name)
+          const exists = prev.some(f => f.id === file.id || f.name === file.name);
+          if (exists) return prev;
+          return [...prev, file];
+        });
       } else {
-        setUnknownFiles(prev => [...prev, file]);
+        setUnknownFiles(prev => {
+          // Check if file already exists (by ID or name)
+          const exists = prev.some(f => f.id === file.id || f.name === file.name);
+          if (exists) return prev;
+          return [...prev, file];
+        });
       }
     };
     
@@ -660,11 +735,26 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
       // Continue with upload - process the file normally without duplicate check
       const addFileToState = (file: UploadedFile, type: 'invoices' | 'delivery' | 'unknown') => {
         if (type === 'invoices') {
-          setInvoiceFiles(prev => [...prev, file]);
+          setInvoiceFiles(prev => {
+            // Check if file already exists (by ID or name)
+            const exists = prev.some(f => f.id === file.id || f.name === file.name);
+            if (exists) return prev;
+            return [...prev, file];
+          });
         } else if (type === 'delivery') {
-          setDeliveryFiles(prev => [...prev, file]);
+          setDeliveryFiles(prev => {
+            // Check if file already exists (by ID or name)
+            const exists = prev.some(f => f.id === file.id || f.name === file.name);
+            if (exists) return prev;
+            return [...prev, file];
+          });
         } else {
-          setUnknownFiles(prev => [...prev, file]);
+          setUnknownFiles(prev => {
+            // Check if file already exists (by ID or name)
+            const exists = prev.some(f => f.id === file.id || f.name === file.name);
+            if (exists) return prev;
+            return [...prev, file];
+          });
         }
       };
       
@@ -781,6 +871,8 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
         return <span className="text-red-600">✗</span>;
       case 'duplicate_detected':
         return <span className="text-yellow-600">⚠</span>; // Indicate duplicate
+      case 'removed':
+        return null; // Hide icon for removed files
       default:
         return null;
     }
@@ -873,7 +965,7 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                   totalAmount={doc.totalAmount}
                   status={doc.status}
                   numIssues={doc.numIssues}
-                  loadingPercent={doc.status === 'Processing' ? 75 : 100}
+                  loadingPercent={doc.loadingPercent ?? (doc.status === 'Processing' ? 0 : 100)}
                   parsedData={doc.parsedData}
                   documentType={doc.type === 'Invoice' ? 'invoice' : 
                                doc.type === 'Delivery Note' ? 'delivery_note' : 'unknown'}
@@ -881,6 +973,7 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                   matchedDocument={doc.matchedDocument}
                   onCancel={handleCancelDocument}
                   documentId={doc.id}
+                  onClick={() => setSelectedInvoice(doc)} // <-- Add this line
                 />
               ))}
             </div>
@@ -895,9 +988,9 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
 
           {invoiceFiles.length > 0 && (
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <h3 className="text-lg font-medium text-slate-800 mb-2">📄 Invoices ({invoiceFiles.length}):</h3>
+              <h3 className="text-lg font-medium text-slate-800 mb-2">📄 Invoices ({invoiceFiles.filter(f => f.status !== 'removed').length}):</h3>
               <ul className="list-none p-0 m-0">
-                {invoiceFiles.map((file, index) => (
+                {invoiceFiles.filter(f => f.status !== 'removed').map((file, index) => (
                   <li key={`invoice-${index}`} className="flex justify-between items-center text-sm text-slate-700 py-1 border-b border-gray-200 last:border-b-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <FileStatusIcon status={file.status} confidence={file.confidence} />
@@ -924,11 +1017,11 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
               </ul>
               
               {/* Show parsed data for successfully parsed files */}
-              {invoiceFiles.some(f => f.status === 'parsed' && f.parsedData) && (
+              {invoiceFiles.filter(f => f.status !== 'removed' && f.status === 'parsed' && f.parsedData).length > 0 && (
                 <div className="mt-4 p-3 bg-green-50 rounded border border-green-200">
                   <h4 className="text-sm font-medium text-green-800 mb-2">📊 Parsed Invoice Data:</h4>
                   {invoiceFiles
-                    .filter(f => f.status === 'parsed' && f.parsedData)
+                    .filter(f => f.status !== 'removed' && f.status === 'parsed' && f.parsedData)
                     .map((file, index) => (
                       <div key={`parsed-invoice-${index}`} className="text-xs text-green-700 mb-2 last:mb-0">
                         <div className="font-medium">{file.name}:</div>
@@ -950,9 +1043,9 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
 
           {deliveryFiles.length > 0 && (
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <h3 className="text-lg font-medium text-slate-800 mb-2">📋 Delivery Notes ({deliveryFiles.length}):</h3>
+              <h3 className="text-lg font-medium text-slate-800 mb-2">📋 Delivery Notes ({deliveryFiles.filter(f => f.status !== 'removed').length}):</h3>
               <ul className="list-none p-0 m-0">
-                {deliveryFiles.map((file, index) => (
+                {deliveryFiles.filter(f => f.status !== 'removed').map((file, index) => (
                   <li key={`delivery-${index}`} className="flex justify-between items-center text-sm text-slate-700 py-1 border-b border-gray-200 last:border-b-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <FileStatusIcon status={file.status} confidence={file.confidence} />
@@ -979,18 +1072,17 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
               </ul>
               
               {/* Show parsed data for successfully parsed files */}
-              {deliveryFiles.some(f => f.status === 'parsed' && f.parsedData) && (
-                <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">📊 Parsed Delivery Data:</h4>
+              {deliveryFiles.filter(f => f.status !== 'removed' && f.status === 'parsed' && f.parsedData).length > 0 && (
+                <div className="mt-4 p-3 bg-green-50 rounded border border-green-200">
+                  <h4 className="text-sm font-medium text-green-800 mb-2">📊 Parsed Delivery Note Data:</h4>
                   {deliveryFiles
-                    .filter(f => f.status === 'parsed' && f.parsedData)
+                    .filter(f => f.status !== 'removed' && f.status === 'parsed' && f.parsedData)
                     .map((file, index) => (
-                      <div key={`parsed-delivery-${index}`} className="text-xs text-blue-700 mb-2 last:mb-0">
+                      <div key={`parsed-delivery-${index}`} className="text-xs text-green-700 mb-2 last:mb-0">
                         <div className="font-medium">{file.name}:</div>
                         <div className="ml-2">
                           <div>Supplier: {file.parsedData.supplier_name}</div>
                           <div>Delivery #: {file.parsedData.delivery_note_number}</div>
-                          <div>Items: {file.parsedData.total_items}</div>
                           <div>Date: {file.parsedData.delivery_date}</div>
                           {file.confidence && (
                             <div>Confidence: {file.confidence}%</div>
@@ -1004,11 +1096,10 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
           )}
 
           {unknownFiles.length > 0 && (
-            <div className="bg-yellow-50 rounded-lg p-4 mb-4">
-              <h3 className="text-lg font-medium text-slate-800 mb-2">❓ Unknown Documents ({unknownFiles.length}):</h3>
-              <p className="text-sm text-slate-600 mb-2">These documents couldn't be automatically classified. Please review them manually.</p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <h3 className="text-lg font-medium text-slate-800 mb-2">❓ Unknown Documents ({unknownFiles.filter(f => f.status !== 'removed').length}):</h3>
               <ul className="list-none p-0 m-0">
-                {unknownFiles.map((file, index) => (
+                {unknownFiles.filter(f => f.status !== 'removed').map((file, index) => (
                   <li key={`unknown-${index}`} className="flex justify-between items-center text-sm text-slate-700 py-1 border-b border-gray-200 last:border-b-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <FileStatusIcon status={file.status} confidence={file.confidence} />
@@ -1018,9 +1109,9 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                           Error: {file.error}
                         </span>
                       )}
-                      {file.confidence && (
-                        <span className="text-xs text-orange-600 ml-2" title={`Classification confidence: ${file.confidence}%`}>
-                          ⚠ {file.confidence}% confidence
+                      {file.confidence && file.confidence < 60 && (
+                        <span className="text-xs text-orange-600 ml-2" title={`Low confidence: ${file.confidence}%`}>
+                          ⚠ Low confidence
                         </span>
                       )}
                       {file.status === 'duplicate_detected' && (

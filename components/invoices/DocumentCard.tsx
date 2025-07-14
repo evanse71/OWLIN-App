@@ -17,6 +17,7 @@ interface DocumentCardProps {
   // Add cancel functionality
   onCancel?: (id: string) => void;
   documentId?: string;
+  onClick?: () => void; // <-- Add this line
 }
 
 export const DocumentCard: React.FC<DocumentCardProps> = ({
@@ -33,6 +34,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
   matchedDocument,
   onCancel,
   documentId,
+  onClick,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -148,7 +150,10 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
       {/* Main card content - clickable */}
       <div 
         className="p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200"
-        onClick={toggleExpanded}
+        onClick={(e) => {
+          if (onClick) onClick();
+          else toggleExpanded();
+        }}
       >
         <div className="flex justify-between items-start mb-2">
           <span className="text-sm text-gray-500 truncate">#{invoiceId}</span>
