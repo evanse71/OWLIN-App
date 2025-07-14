@@ -241,60 +241,102 @@ def scan_for_fuzzy_keywords(text_lines: List[str], keyword_mapping: Dict[str, Li
         return {category: [] for category in keyword_mapping.keys()}
 
 def classify_document_type(text: str) -> str:
-    """Classify document type using a robust scoring system with keyword lists"""
+    """Classify document type using a robust scoring system with enhanced keyword lists and fuzzy matching"""
     try:
-        if not text:
-            logger.warning("⚠️ Empty text provided for document classification")
+        if not text or not isinstance(text, str):
+            logger.warning("⚠️ Invalid text provided for document classification")
             return 'unknown'
         
         text_lower = text.lower()
+        text_words = set(text_lower.split())
         
-        # Define keyword lists for each document type
-        invoice_keywords = ["invoice", "vat", "tax", "subtotal", "total", "net amount", "supplier"]
-        delivery_note_keywords = ["delivery", "delivered to", "qty", "signature", "received", "goods", "date of delivery"]
+        # Enhanced keyword lists with variations and common misspellings
+        invoice_keywords = [
+            "invoice", "inv", "bill", "billing", "vat", "tax", "subtotal", "total", "net amount", 
+            "supplier", "vendor", "company", "business", "from", "issued by", "invoice number", 
+            "invoice no", "invoice #", "inv number", "inv no", "inv #", "bill number", "bill no",
+            "amount due", "balance due", "total due", "grand total", "final amount", "payment",
+            "terms", "due date", "billing date", "issue date", "created date", "invoice date"
+        ]
         
-        # Count keyword matches for each type
+        delivery_note_keywords = [
+            "delivery", "delivered", "delivery note", "delivery slip", "goods received", 
+            "received", "receipt", "qty", "quantity", "items", "signature", "signed", 
+            "goods", "products", "materials", "date of delivery", "delivery date",
+            "packing list", "packing slip", "shipping", "shipped", "carrier", "driver",
+            "delivery to", "delivered to", "received by", "signed by", "authorized by"
+        ]
+        
+        # Count keyword matches for each type with fuzzy matching
         invoice_matches = []
         delivery_matches = []
         
-        # Check for invoice keywords
+        # Check for exact invoice keyword matches
         for keyword in invoice_keywords:
             if keyword in text_lower:
                 invoice_matches.append(keyword)
                 logger.debug(f"🔍 Found invoice keyword: '{keyword}'")
         
-        # Check for delivery note keywords
+        # Check for exact delivery note keyword matches
         for keyword in delivery_note_keywords:
             if keyword in text_lower:
                 delivery_matches.append(keyword)
                 logger.debug(f"🔍 Found delivery keyword: '{keyword}'")
         
+        # Additional scoring based on word presence
+        invoice_word_score = 0
+        delivery_word_score = 0
+        
+        # Check for word-level matches (more flexible)
+        for word in text_words:
+            if any(inv_word in word for inv_word in ["inv", "bill", "vat", "tax", "total"]):
+                invoice_word_score += 1
+            if any(del_word in word for del_word in ["deliv", "receiv", "goods", "qty", "sign"]):
+                delivery_word_score += 1
+        
         # Calculate normalized scores (0-1 scale)
         invoice_score = len(invoice_matches) / len(invoice_keywords) if invoice_keywords else 0
         delivery_score = len(delivery_matches) / len(delivery_note_keywords) if delivery_note_keywords else 0
         
+        # Add word-level scoring
+        invoice_score += (invoice_word_score / max(len(text_words), 1)) * 0.3
+        delivery_score += (delivery_word_score / max(len(text_words), 1)) * 0.3
+        
+        # Cap scores at 1.0
+        invoice_score = min(invoice_score, 1.0)
+        delivery_score = min(delivery_score, 1.0)
+        
         logger.info(f"📊 Document classification scores:")
-        logger.info(f"   Invoice: {invoice_score:.3f} ({len(invoice_matches)}/{len(invoice_keywords)} keywords)")
-        logger.info(f"   Delivery: {delivery_score:.3f} ({len(delivery_matches)}/{len(delivery_note_keywords)} keywords)")
+        logger.info(f"   Invoice: {invoice_score:.3f} ({len(invoice_matches)}/{len(invoice_keywords)} keywords + {invoice_word_score} word matches)")
+        logger.info(f"   Delivery: {delivery_score:.3f} ({len(delivery_matches)}/{len(delivery_note_keywords)} keywords + {delivery_word_score} word matches)")
         logger.info(f"   Invoice matches: {invoice_matches}")
         logger.info(f"   Delivery matches: {delivery_matches}")
         
-        # Determine document type based on scores
+        # Determine document type based on scores with confidence threshold
+        confidence_threshold = 0.1  # Very low threshold to be inclusive
+        
         if invoice_score == 0 and delivery_score == 0:
             logger.warning("⚠️ No keywords found - document cannot be classified")
             return 'unknown'
-        elif invoice_score > delivery_score:
-            logger.info(f"✅ Classified as INVOICE (score: {invoice_score:.3f})")
+        elif invoice_score > delivery_score and invoice_score >= confidence_threshold:
+            confidence_percent = int(invoice_score * 100)
+            logger.info(f"✅ Classified as INVOICE (score: {invoice_score:.3f}, confidence: {confidence_percent}%)")
             return 'invoice'
-        elif delivery_score > invoice_score:
-            logger.info(f"✅ Classified as DELIVERY NOTE (score: {delivery_score:.3f})")
+        elif delivery_score > invoice_score and delivery_score >= confidence_threshold:
+            confidence_percent = int(delivery_score * 100)
+            logger.info(f"✅ Classified as DELIVERY NOTE (score: {delivery_score:.3f}, confidence: {confidence_percent}%)")
             return 'delivery_note'
-        else:
+        elif invoice_score == delivery_score and invoice_score >= confidence_threshold:
             logger.warning(f"⚠️ Equal scores - ambiguous classification (invoice: {invoice_score:.3f}, delivery: {delivery_score:.3f})")
+            # Default to invoice if scores are equal and above threshold
+            return 'invoice'
+        else:
+            logger.warning(f"⚠️ Low confidence scores - marking as unknown (invoice: {invoice_score:.3f}, delivery: {delivery_score:.3f})")
             return 'unknown'
             
     except Exception as e:
         logger.error(f"❌ Document classification failed: {e}")
+        logger.error(f"❌ Text that caused error: {text[:200] if text else 'None'}...")
         return 'unknown'
 
 def is_valid_file(filename: str) -> bool:
@@ -1227,26 +1269,33 @@ async def process_image_with_ocr(file_content: bytes, filename: str, threshold: 
             elif doc_type == 'delivery_note':
                 parsed_fields = extract_delivery_note_fields(lines)
             else:
-                # Document could not be classified - return message instead of attempting field extraction
-                logger.warning("⚠️ Document classified as unknown - skipping field extraction")
+                # Document could not be classified - provide helpful message
+                logger.warning("⚠️ Document classified as unknown - providing guidance message")
+                
+                # Try to extract any recognizable information
+                supplier_hint = "Unknown Supplier"
+                for line in lines[:10]:  # Check first 10 lines
+                    if any(word in line.lower() for word in ['ltd', 'inc', 'corp', 'company', 'business']):
+                        supplier_hint = line.strip()
+                        break
+                
                 parsed_fields = {
-                    'supplier_name': "This document could not be classified. Please review manually.",
-                    'invoice_number': "Unknown",
-                    'invoice_date': "Unknown",
+                    'supplier_name': f"Document could not be automatically classified. Please review manually. Detected text suggests this might be from: {supplier_hint}",
+                    'invoice_number': "Unknown - requires manual review",
+                    'invoice_date': "Unknown - requires manual review",
                     'total_amount': 0.0,
-                    'currency': "GBP"
+                    'currency': "GBP",
+                    'classification_note': "This document did not contain clear invoice or delivery note indicators. Please manually classify it as an invoice or delivery note."
                 }
         except Exception as field_error:
             logger.error(f"❌ Field extraction failed: {field_error}")
-            logger.info("OCR output:")
-            logger.info(full_text)
-            # Return safe defaults instead of crashing
             parsed_fields = {
-                'supplier_name': "Unknown Supplier",
-                'invoice_number': "Unknown",
-                'invoice_date': "Unknown",
+                'supplier_name': "Unknown Supplier - extraction failed",
+                'invoice_number': "Unknown - extraction failed",
+                'invoice_date': "Unknown - extraction failed",
                 'total_amount': 0.0,
-                'currency': "GBP"
+                'currency': "GBP",
+                'classification_note': "Field extraction encountered an error. Please review the document manually."
             }
         
         # Bulletproof confidence calculation
