@@ -1,3 +1,27 @@
+"""
+OCR Processing Module for Document Analysis
+
+This module provides comprehensive OCR functionality for processing invoices, delivery notes,
+and other business documents. It includes:
+
+- PDF and image file support
+- Fuzzy keyword matching for improved field extraction
+- Document type classification (invoice vs delivery note)
+- Debug mode for troubleshooting
+- Bulletproof error handling
+
+Key Functions:
+- parse_with_ocr: Main OCR processing function
+- classify_document_type: Document type classification
+- extract_invoice_fields: Invoice field extraction with fuzzy matching
+- extract_delivery_note_fields: Delivery note field extraction
+- process_pdf_with_ocr: PDF-specific processing
+- process_image_with_ocr: Image-specific processing
+
+Author: OCR Team
+Version: 2.0.0
+"""
+
 import os
 import logging
 from datetime import datetime
@@ -13,6 +37,8 @@ import cv2
 from .ocr_utils import detect_document_type, preprocess_image
 import tempfile
 import re
+from pdf2image import convert_from_bytes, convert_from_path
+from difflib import get_close_matches
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +59,264 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 
 # Batch processing limits
 MAX_FILES_PER_REQUEST = 5
+
+def save_debug_data(ocr_data: dict, full_text: str, filename: str, debug: bool = False) -> None:
+    """Save OCR debug data to files if debug mode is enabled"""
+    if not debug:
+        return
+    
+    try:
+        # Create debug directory
+        debug_dir = Path("data/ocr_debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate safe filename
+        safe_filename = re.sub(r'[^\w\-_.]', '_', filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Save OCR data as JSON
+        ocr_file = debug_dir / f"ocr_data_{safe_filename}_{timestamp}.json"
+        import json
+        with open(ocr_file, 'w') as f:
+            json.dump(ocr_data, f, indent=2, default=str)
+        logger.info(f"💾 Saved OCR debug data to: {ocr_file}")
+        
+        # Save full text
+        text_file = debug_dir / f"ocr_text_{safe_filename}_{timestamp}.txt"
+        with open(text_file, 'w', encoding='utf-8') as f:
+            f.write(f"Filename: {filename}\n")
+            f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+            f.write(f"Text length: {len(full_text)} characters\n")
+            f.write("-" * 80 + "\n")
+            f.write(full_text)
+        logger.info(f"💾 Saved OCR text to: {text_file}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to save debug data: {e}")
+
+def create_safe_response(filename: str, file_size: int, success: bool = True, error: Optional[str] = None, **kwargs) -> dict:
+    """Create a standardized API response with safe defaults"""
+    response = {
+        "success": success,
+        "original_filename": filename,
+        "file_size": file_size,
+        "processed_at": datetime.now().isoformat()
+    }
+    
+    if not success and error:
+        response["error"] = error
+    
+    # Add any additional fields
+    response.update(kwargs)
+    
+    return response
+
+def extract_amount_from_line(line: str) -> Optional[float]:
+    """Extract amount from a text line using multiple patterns"""
+    try:
+        amount_patterns = [
+            r'[£$€]\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d*)\s*[£$€]',
+            r'total[^\d]*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d*)\s*total',
+            r'amount[^\d]*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d*)\s*amount',
+        ]
+        
+        for pattern in amount_patterns:
+            try:
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    amount_str = match.group(1)
+                    parsed_amount = safe_parse_float(amount_str, 0.0)
+                    if parsed_amount > 0:
+                        return parsed_amount
+            except Exception as e:
+                logger.debug(f"Pattern {pattern} failed on line '{line}': {e}")
+                continue
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Amount extraction failed for line '{line}': {e}")
+        return None
+
+def convert_pdf_to_images(file_content: bytes, filename: str) -> List[Image.Image]:
+    """Convert PDF file to list of PIL Images for OCR processing"""
+    try:
+        logger.info(f"Converting PDF to images: {filename}")
+        
+        # Convert PDF bytes to images
+        images = convert_from_bytes(file_content, dpi=300)
+        logger.info(f"✅ Successfully converted PDF to {len(images)} images")
+        
+        return images
+    except Exception as e:
+        logger.error(f"❌ Failed to convert PDF to images: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to process PDF: {str(e)}")
+
+def is_pdf_file(filename: str) -> bool:
+    """Check if file is a PDF based on extension"""
+    return Path(filename).suffix.lower() == '.pdf'
+
+def preprocess_numpy_image(image_array: np.ndarray) -> np.ndarray:
+    """Preprocess numpy array image for OCR"""
+    try:
+        # Convert to grayscale if needed
+        if len(image_array.shape) == 3:
+            gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = image_array
+        
+        # Denoise
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        
+        # Adaptive thresholding
+        thresh = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
+        )
+        
+        # Optional: Invert if background is dark
+        mean_intensity = np.mean(thresh)
+        if mean_intensity < 127:
+            thresh = cv2.bitwise_not(thresh)
+        
+        # Optional: Contrast boost
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        final = clahe.apply(thresh)
+        
+        return final
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed: {e}")
+        return image_array
+
+def find_fuzzy_keyword(text: str, keywords: List[str], threshold: float = 0.7) -> Optional[str]:
+    """Find the best matching keyword using fuzzy matching"""
+    try:
+        if not text or not keywords:
+            return None
+        
+        # Clean the text
+        cleaned_text = text.lower().strip()
+        
+        # Get close matches
+        matches = get_close_matches(cleaned_text, [k.lower() for k in keywords], n=1, cutoff=threshold)
+        
+        if matches:
+            matched_keyword = matches[0]
+            logger.debug(f"🔍 Fuzzy match found: '{text}' -> '{matched_keyword}' (threshold: {threshold})")
+            return matched_keyword
+        
+        return None
+    except Exception as e:
+        logger.warning(f"⚠️ Fuzzy keyword matching failed for '{text}': {e}")
+        return None
+
+def scan_for_fuzzy_keywords(text_lines: List[str], keyword_mapping: Dict[str, List[str]], threshold: float = 0.7) -> Dict[str, List[Dict[str, Any]]]:
+    """Scan text lines for fuzzy keyword matches and return categorized lines"""
+    try:
+        results = {category: [] for category in keyword_mapping.keys()}
+        
+        for line_num, line in enumerate(text_lines):
+            try:
+                line_lower = line.lower().strip()
+                
+                # Check each category of keywords
+                for category, keywords in keyword_mapping.items():
+                    if find_fuzzy_keyword(line_lower, keywords, threshold):
+                        results[category].append({
+                            'line': line,
+                            'line_number': line_num + 1,
+                            'category': category
+                        })
+                        logger.debug(f"🔍 Found {category} keyword in line {line_num + 1}: '{line}'")
+                        break  # Only match first category found
+                        
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to process line {line_num + 1} for fuzzy keywords: {e}")
+                continue
+        
+        return results
+    except Exception as e:
+        logger.error(f"❌ Fuzzy keyword scanning failed: {e}")
+        return {category: [] for category in keyword_mapping.keys()}
+
+def classify_document_type(text: str) -> str:
+    """Classify document type using fuzzy keyword matching and scoring system"""
+    try:
+        if not text:
+            logger.warning("⚠️ Empty text provided for document classification")
+            return 'unknown'
+        
+        text_lower = text.lower()
+        
+        # Define keyword categories with weights
+        invoice_keywords = {
+            'invoice': ['invoice', 'inv', 'bill', 'billing'],
+            'financial': ['total', 'amount', 'balance', 'sum', 'due', 'payment', 'paid'],
+            'tax': ['vat', 'tax', 'gst', 'hst', 'sales tax'],
+            'business': ['supplier', 'vendor', 'company', 'business', 'from', 'issued by'],
+            'numbers': ['invoice number', 'invoice no', 'invoice #', 'inv number', 'inv no', 'inv #']
+        }
+        
+        delivery_keywords = {
+            'delivery': ['delivery', 'delivered', 'delivery note', 'dn', 'delivery order'],
+            'receipt': ['received', 'received by', 'received on', 'receipt', 'received from'],
+            'items': ['items', 'goods', 'products', 'materials', 'quantity', 'qty'],
+            'signature': ['signature', 'signed', 'signed by', 'authorized', 'received by'],
+            'location': ['delivered to', 'ship to', 'delivery address', 'shipping address']
+        }
+        
+        # Calculate scores
+        invoice_score = 0
+        delivery_score = 0
+        
+        # Score invoice keywords
+        for category, keywords in invoice_keywords.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    invoice_score += 1
+                    logger.debug(f"🔍 Found invoice keyword '{keyword}' in category '{category}'")
+        
+        # Score delivery keywords
+        for category, keywords in delivery_keywords.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    delivery_score += 1
+                    logger.debug(f"🔍 Found delivery keyword '{keyword}' in category '{category}'")
+        
+        # Use fuzzy matching for better detection
+        fuzzy_invoice_keywords = ['invoice', 'total', 'vat', 'supplier', 'bill']
+        fuzzy_delivery_keywords = ['delivery', 'received', 'items', 'signature', 'delivered']
+        
+        for keyword in fuzzy_invoice_keywords:
+            if find_fuzzy_keyword(text_lower, [keyword], threshold=0.8):
+                invoice_score += 0.5
+                logger.debug(f"🔍 Found fuzzy invoice keyword '{keyword}'")
+        
+        for keyword in fuzzy_delivery_keywords:
+            if find_fuzzy_keyword(text_lower, [keyword], threshold=0.8):
+                delivery_score += 0.5
+                logger.debug(f"🔍 Found fuzzy delivery keyword '{keyword}'")
+        
+        logger.info(f"📊 Document classification scores - Invoice: {invoice_score}, Delivery: {delivery_score}")
+        
+        # Determine document type with confidence thresholds
+        if invoice_score > delivery_score and invoice_score >= 2:
+            logger.info(f"✅ Classified as INVOICE (score: {invoice_score})")
+            return 'invoice'
+        elif delivery_score > invoice_score and delivery_score >= 2:
+            logger.info(f"✅ Classified as DELIVERY NOTE (score: {delivery_score})")
+            return 'delivery_note'
+        elif invoice_score == delivery_score and invoice_score >= 1:
+            logger.warning(f"⚠️ Ambiguous classification - equal scores: {invoice_score}")
+            return 'unknown'
+        else:
+            logger.warning(f"⚠️ Insufficient keywords for classification - Invoice: {invoice_score}, Delivery: {delivery_score}")
+            return 'unknown'
+            
+    except Exception as e:
+        logger.error(f"❌ Document classification failed: {e}")
+        return 'unknown'
 
 def is_valid_file(filename: str) -> bool:
     """Check if file has allowed extension"""
@@ -284,135 +568,206 @@ def safe_extract_invoice_number(text_lines: List[str], default: str = "Unknown")
         return default
 
 def extract_invoice_fields(text_lines: list[str]) -> dict:
-    """Extract invoice fields with bulletproof error handling"""
+    """Extract invoice fields with bulletproof error handling and fuzzy keyword matching"""
     logger.info(f"Extracting invoice fields from {len(text_lines)} lines")
     logger.debug(f"Raw text lines: {text_lines[:5]}...")  # Log first 5 lines
     
+    # Initialize with safe defaults
+    supplier_name = "Unknown Supplier"
+    invoice_number = "Unknown"
+    invoice_date = "Unknown"
+    total_amount = 0.0
+    currency = "GBP"
+    
     try:
-        # Initialize with safe defaults
-        supplier_name = "Unknown Supplier"
-        invoice_number = "Unknown"
-        invoice_date = "Unknown"
-        total_amount = 0.0
-        currency = "GBP"
+        # Define keyword mappings for fuzzy matching
+        keyword_mapping = {
+            'invoice_number': ['invoice number', 'invoice no', 'invoice #', 'inv number', 'inv no', 'inv #', 'bill number', 'bill no'],
+            'invoice_date': ['invoice date', 'date', 'billing date', 'issue date', 'created date'],
+            'total_amount': ['total', 'amount', 'balance', 'sum', 'due', 'grand total', 'final amount', 'total due'],
+            'supplier': ['supplier', 'vendor', 'company', 'business', 'from', 'issued by'],
+            'currency': ['currency', 'gbp', 'usd', 'eur', 'pound', 'dollar', 'euro']
+        }
+        
+        # Scan for fuzzy keyword matches
+        fuzzy_results = scan_for_fuzzy_keywords(text_lines, keyword_mapping, threshold=0.7)
+        logger.debug(f"🔍 Fuzzy keyword scan results: {fuzzy_results}")
         
         # Extract supplier name with bulletproof fallback
         try:
             supplier_name = safe_extract_supplier_name(text_lines, "Unknown Supplier")
+            logger.debug(f"✅ Extracted supplier name: {supplier_name}")
         except Exception as e:
-            logger.error(f"❌ Failed to extract supplier name from: {text_lines[:3]} — {e}")
+            logger.warning(f"⚠️ Failed to extract supplier name: {e}")
             supplier_name = "Unknown Supplier"
         
         # Extract invoice number with bulletproof fallback
         try:
             invoice_number = safe_extract_invoice_number(text_lines, "Unknown")
+            logger.debug(f"✅ Extracted invoice number: {invoice_number}")
         except Exception as e:
-            logger.error(f"❌ Failed to extract invoice number from: {text_lines[:3]} — {e}")
+            logger.warning(f"⚠️ Failed to extract invoice number: {e}")
             invoice_number = "Unknown"
         
-        # Extract invoice date with bulletproof fallback
-        for line_num, line in enumerate(text_lines):
+        # Extract invoice date with fuzzy keyword support
+        date_lines = fuzzy_results.get('invoice_date', [])
+        for date_match in date_lines:
             try:
-                line_lower = line.lower()
-                if 'date' in line_lower and any(char.isdigit() for char in line):
-                    logger.debug(f"Found date keyword in line {line_num+1}: '{line}'")
-                    try:
-                        parsed_date = safe_parse_date(line, "Unknown")
-                        if parsed_date != "Unknown":
-                            invoice_date = parsed_date
-                            logger.debug(f"Extracted invoice date: '{invoice_date}'")
-                            break
-                    except Exception as e:
-                        logger.error(f"❌ Failed to parse invoice date from: {line} — {e}")
-                        continue
+                line = date_match['line']
+                logger.debug(f"🔍 Processing date line {date_match['line_number']}: '{line}'")
+                parsed_date = safe_parse_date(line, "Unknown")
+                if parsed_date != "Unknown":
+                    invoice_date = parsed_date
+                    logger.debug(f"✅ Extracted invoice date: '{invoice_date}'")
+                    break
             except Exception as e:
-                logger.error(f"❌ Failed to process date line {line_num+1} '{line}': {e}")
+                logger.warning(f"⚠️ Failed to parse date from fuzzy match: {e}")
                 continue
         
-        # Extract total amount with bulletproof fallback
-        for line_num, line in enumerate(text_lines):
-            try:
-                line_lower = line.lower()
-                if any(word in line_lower for word in ['total', 'amount', 'balance', 'sum', 'due']):
-                    logger.debug(f"Found amount keyword in line {line_num+1}: '{line}'")
-                    
-                    # Look for currency amounts with multiple patterns
-                    amount_patterns = [
-                        r'[£$€]\s*([\d,]+\.?\d*)',
-                        r'([\d,]+\.?\d*)\s*[£$€]',
-                        r'total[^\d]*([\d,]+\.?\d*)',
-                        r'([\d,]+\.?\d*)\s*total',
-                        r'amount[^\d]*([\d,]+\.?\d*)',
-                        r'([\d,]+\.?\d*)\s*amount',
-                    ]
-                    
-                    for pattern_num, pattern in enumerate(amount_patterns):
+        # Fallback to original date extraction if fuzzy matching didn't work
+        if invoice_date == "Unknown":
+            for line_num, line in enumerate(text_lines):
+                try:
+                    line_lower = line.lower()
+                    if 'date' in line_lower and any(char.isdigit() for char in line):
+                        logger.debug(f"🔍 Found date keyword in line {line_num+1}: '{line}'")
                         try:
-                            match = re.search(pattern, line, re.IGNORECASE)
-                            if match:
-                                amount_str = match.group(1)
-                                logger.debug(f"Found amount with pattern {pattern_num+1}: '{amount_str}'")
-                                try:
-                                    parsed_amount = safe_parse_float(amount_str, 0.0)
-                                    if parsed_amount > 0:
-                                        total_amount = parsed_amount
-                                        logger.debug(f"Extracted total amount: {total_amount}")
-                                        break
-                                except Exception as e:
-                                    logger.error(f"❌ Failed to parse total amount from: {amount_str} — {e}")
-                                    continue
-                        except re.error as e:
-                            logger.error(f"❌ Invalid amount regex pattern {pattern_num+1} '{pattern}': {e}")
-                            continue
+                            parsed_date = safe_parse_date(line, "Unknown")
+                            if parsed_date != "Unknown":
+                                invoice_date = parsed_date
+                                logger.debug(f"✅ Extracted invoice date: '{invoice_date}'")
+                                break
                         except Exception as e:
-                            logger.error(f"❌ Error with amount pattern {pattern_num+1} on line {line_num+1}: {e}")
+                            logger.warning(f"⚠️ Failed to parse invoice date from line {line_num+1}: {e}")
                             continue
-                    
-                    if total_amount > 0:
-                        break
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to process date line {line_num+1}: {e}")
+                    continue
+        
+        # Extract total amount with fuzzy keyword support
+        amount_lines = fuzzy_results.get('total_amount', [])
+        for amount_match in amount_lines:
+            try:
+                line = amount_match['line']
+                logger.debug(f"🔍 Processing amount line {amount_match['line_number']}: '{line}'")
+                
+                # Look for currency amounts with multiple patterns
+                amount_patterns = [
+                    r'[£$€]\s*([\d,]+\.?\d*)',
+                    r'([\d,]+\.?\d*)\s*[£$€]',
+                    r'total[^\d]*([\d,]+\.?\d*)',
+                    r'([\d,]+\.?\d*)\s*total',
+                    r'amount[^\d]*([\d,]+\.?\d*)',
+                    r'([\d,]+\.?\d*)\s*amount',
+                ]
+                
+                for pattern_num, pattern in enumerate(amount_patterns):
+                    try:
+                        match = re.search(pattern, line, re.IGNORECASE)
+                        if match:
+                            amount_str = match.group(1)
+                            logger.debug(f"🔍 Found amount with pattern {pattern_num+1}: '{amount_str}'")
+                            try:
+                                parsed_amount = safe_parse_float(amount_str, 0.0)
+                                if parsed_amount > 0:
+                                    total_amount = parsed_amount
+                                    logger.debug(f"✅ Extracted total amount: {total_amount}")
+                                    break
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to parse total amount from '{amount_str}': {e}")
+                                continue
+                    except re.error as e:
+                        logger.warning(f"⚠️ Invalid amount regex pattern {pattern_num+1}: {e}")
+                        continue
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error with amount pattern {pattern_num+1}: {e}")
+                        continue
+                
+                if total_amount > 0:
+                    break
             except Exception as e:
-                logger.error(f"❌ Failed to process amount line {line_num+1} '{line}': {e}")
+                logger.warning(f"⚠️ Failed to process amount from fuzzy match: {e}")
                 continue
+        
+        # Fallback to original amount extraction if fuzzy matching didn't work
+        if total_amount == 0.0:
+            for line_num, line in enumerate(text_lines):
+                try:
+                    line_lower = line.lower()
+                    if any(word in line_lower for word in ['total', 'amount', 'balance', 'sum', 'due']):
+                        logger.debug(f"🔍 Found amount keyword in line {line_num+1}: '{line}'")
+                        
+                        # Look for currency amounts with multiple patterns
+                        amount_patterns = [
+                            r'[£$€]\s*([\d,]+\.?\d*)',
+                            r'([\d,]+\.?\d*)\s*[£$€]',
+                            r'total[^\d]*([\d,]+\.?\d*)',
+                            r'([\d,]+\.?\d*)\s*total',
+                            r'amount[^\d]*([\d,]+\.?\d*)',
+                            r'([\d,]+\.?\d*)\s*amount',
+                        ]
+                        
+                        for pattern_num, pattern in enumerate(amount_patterns):
+                            try:
+                                match = re.search(pattern, line, re.IGNORECASE)
+                                if match:
+                                    amount_str = match.group(1)
+                                    logger.debug(f"🔍 Found amount with pattern {pattern_num+1}: '{amount_str}'")
+                                    try:
+                                        parsed_amount = safe_parse_float(amount_str, 0.0)
+                                        if parsed_amount > 0:
+                                            total_amount = parsed_amount
+                                            logger.debug(f"✅ Extracted total amount: {total_amount}")
+                                            break
+                                    except Exception as e:
+                                        logger.warning(f"⚠️ Failed to parse total amount from '{amount_str}': {e}")
+                                        continue
+                            except re.error as e:
+                                logger.warning(f"⚠️ Invalid amount regex pattern {pattern_num+1}: {e}")
+                                continue
+                            except Exception as e:
+                                logger.warning(f"⚠️ Error with amount pattern {pattern_num+1} on line {line_num+1}: {e}")
+                                continue
+                        
+                        if total_amount > 0:
+                            break
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to process amount line {line_num+1}: {e}")
+                    continue
         
         # Extract currency with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 if '£' in line:
                     currency = "GBP"
-                    logger.debug(f"Found GBP currency in line {line_num+1}")
+                    logger.debug(f"✅ Found GBP currency in line {line_num+1}")
                     break
                 elif '$' in line:
                     currency = "USD"
-                    logger.debug(f"Found USD currency in line {line_num+1}")
+                    logger.debug(f"✅ Found USD currency in line {line_num+1}")
                     break
                 elif '€' in line:
                     currency = "EUR"
-                    logger.debug(f"Found EUR currency in line {line_num+1}")
+                    logger.debug(f"✅ Found EUR currency in line {line_num+1}")
                     break
             except Exception as e:
-                logger.error(f"❌ Failed to process currency line {line_num+1} '{line}': {e}")
+                logger.warning(f"⚠️ Failed to process currency line {line_num+1}: {e}")
                 continue
         
-        logger.info(f"Extracted invoice fields: supplier={supplier_name}, number={invoice_number}, date={invoice_date}, amount={total_amount}, currency={currency}")
-        
-        # Ensure we always return all required fields
-        return {
-            'supplier_name': supplier_name,
-            'invoice_number': invoice_number,
-            'invoice_date': invoice_date,
-            'total_amount': total_amount,
-            'currency': currency
-        }
+        logger.info(f"✅ Successfully extracted invoice fields: supplier={supplier_name}, number={invoice_number}, date={invoice_date}, amount={total_amount}, currency={currency}")
         
     except Exception as e:
-        logger.error(f"❌ Failed to extract invoice fields: {e}")
-        return {
-            'supplier_name': "Unknown Supplier",
-            'invoice_number': "Unknown",
-            'invoice_date': "Unknown",
-            'total_amount': 0.0,
-            'currency': "GBP"
-        }
+        logger.error(f"❌ Critical error in extract_invoice_fields: {e}")
+        logger.error(f"❌ Text lines that caused error: {text_lines[:3]}...")
+    
+    # Ensure we always return all required fields
+    return {
+        'supplier_name': supplier_name,
+        'invoice_number': invoice_number,
+        'invoice_date': invoice_date,
+        'total_amount': total_amount,
+        'currency': currency
+    }
 
 def extract_delivery_note_fields(text_lines: list[str]) -> dict:
     """Extract delivery note fields with bulletproof error handling"""
@@ -649,8 +1004,8 @@ def parse_receipt_items(lines: list) -> list:
         logger.warning(f"Failed to parse receipt items: {e}")
         return []
 
-async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
-    """Parse document with OCR with bulletproof error handling"""
+async def parse_with_ocr(file: UploadFile, threshold: int = 70, debug: bool = False) -> dict:
+    """Parse document with OCR with bulletproof error handling and PDF support"""
     logger.info(f"Starting OCR processing for file: {file.filename}")
     
     try:
@@ -662,9 +1017,143 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         
         logger.info(f"File size: {len(contents)} bytes")
         
+        # Check if file is PDF
+        if file.filename and is_pdf_file(file.filename):
+            logger.info(f"Processing PDF file: {file.filename}")
+            return await process_pdf_with_ocr(contents, file.filename, threshold, debug)
+        else:
+            logger.info(f"Processing image file: {file.filename}")
+            return await process_image_with_ocr(contents, file.filename or "unknown", threshold, debug)
+        
+    except Exception as e:
+        logger.error(f"❌ OCR processing error for {file.filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+
+async def process_pdf_with_ocr(file_content: bytes, filename: str, threshold: int = 70, debug: bool = False) -> dict:
+    """Process PDF file by converting to images and running OCR on each page"""
+    try:
+        # Convert PDF to images
+        images = convert_pdf_to_images(file_content, filename)
+        
+        all_lines = []
+        all_confidences = []
+        page_results = []
+        
+        # Process each page
+        for page_num, image in enumerate(images):
+            logger.info(f"Processing PDF page {page_num + 1}/{len(images)}")
+            
+            try:
+                # Convert PIL image to numpy array for preprocessing
+                img_array = np.array(image)
+                
+                # Preprocess image
+                try:
+                    preprocessed = preprocess_numpy_image(img_array)
+                    pil_for_ocr = Image.fromarray(preprocessed)
+                    logger.debug(f"Page {page_num + 1} preprocessing completed")
+                except Exception as preprocess_error:
+                    logger.warning(f"Page {page_num + 1} preprocessing failed, using original: {preprocess_error}")
+                    pil_for_ocr = image
+                
+                # Run OCR on this page
+                try:
+                    data = pytesseract.image_to_data(pil_for_ocr, output_type=pytesseract.Output.DICT)
+                    logger.debug(f"Page {page_num + 1} OCR completed, found {len(data.get('text', []))} text elements")
+                except Exception as ocr_error:
+                    logger.error(f"Page {page_num + 1} OCR failed: {ocr_error}")
+                    continue
+                
+                # Process OCR results for this page
+                page_lines, page_confidences = process_ocr_data(data, threshold)
+                
+                if page_lines:
+                    all_lines.extend(page_lines)
+                    all_confidences.extend(page_confidences)
+                    page_results.append({
+                        'page': page_num + 1,
+                        'lines': page_lines,
+                        'confidence': np.mean(page_confidences) if page_confidences else 0
+                    })
+                    logger.info(f"Page {page_num + 1}: {len(page_lines)} lines, avg confidence: {np.mean(page_confidences) if page_confidences else 0:.1f}")
+                
+            except Exception as page_error:
+                logger.error(f"❌ Failed to process PDF page {page_num + 1}: {page_error}")
+                continue
+        
+        if not all_lines:
+            raise ValueError("No readable text found in PDF")
+        
+        # Combine all pages and process
+        full_text = '\n'.join(all_lines)
+        logger.info(f"📄 Combined OCR Text from {len(images)} pages:\n{full_text}")
+        
+        # Save debug data if enabled
+        if debug:
+            # Get OCR data from the first page for debugging
+            first_page_data = pytesseract.image_to_data(images[0], output_type=pytesseract.Output.DICT) if images else {}
+            save_debug_data(first_page_data, full_text, filename, debug=True)
+        
+        # Detect document type
+        try:
+            doc_type = classify_document_type(full_text)
+            logger.info(f"Detected document type: {doc_type}")
+        except Exception as e:
+            logger.error(f"❌ Failed to detect document type: {e}")
+            doc_type = 'unknown'
+        
+        # Extract fields
+        try:
+            if doc_type == 'invoice':
+                parsed_fields = extract_invoice_fields(all_lines)
+            elif doc_type == 'delivery_note':
+                parsed_fields = extract_delivery_note_fields(all_lines)
+            else:
+                parsed_fields = {}
+        except Exception as field_error:
+            logger.error(f"❌ Field extraction failed: {field_error}")
+            parsed_fields = {
+                'supplier_name': "Unknown Supplier",
+                'invoice_number': "Unknown",
+                'invoice_date': "Unknown",
+                'total_amount': 0.0,
+                'currency': "GBP"
+            }
+        
+        # Calculate overall confidence
+        try:
+            avg_conf = int(np.mean(all_confidences)) if all_confidences else 0
+        except Exception as e:
+            logger.error(f"❌ Failed to calculate average confidence: {e}")
+            avg_conf = 0
+        
+        logger.info(f"PDF OCR processing completed. Type: {doc_type}, Confidence: {avg_conf}, Pages: {len(images)}")
+        
+        return {
+            'parsed_data': {
+                'supplier_name': parsed_fields.get('supplier_name', "Unknown Supplier"),
+                'invoice_number': parsed_fields.get('invoice_number', "Unknown"),
+                'invoice_date': parsed_fields.get('invoice_date', "Unknown"),
+                'total_amount': parsed_fields.get('total_amount', 0.0),
+                'currency': parsed_fields.get('currency', "GBP")
+            },
+            'raw_lines': all_lines,
+            'document_type': doc_type,
+            'confidence_score': avg_conf,
+            'pdf_pages': len(images),
+            'page_results': page_results
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ PDF processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
+
+async def process_image_with_ocr(file_content: bytes, filename: str, threshold: int = 70, debug: bool = False) -> dict:
+    """Process image file with OCR (original implementation)"""
+    try:
         # Save to a temp file for OpenCV
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            tmp.write(contents)
+            tmp.write(file_content)
             tmp_path = tmp.name
         
         try:
@@ -715,62 +1204,19 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
         
-        # Process OCR results with bulletproof error handling
-        lines = []
-        confidences = []
-        current_line = ''
-        last_line_num = -1
-        
-        logger.info("Processing OCR results...")
-        
-        for i in range(len(data['text'])):
-            try:
-                # Bulletproof confidence parsing
-                try:
-                    conf = int(data['conf'][i])
-                except (ValueError, TypeError, IndexError) as e:
-                    logger.warning(f"❌ Failed to parse confidence value at index {i}: {e}")
-                    conf = 0
-                
-                # Bulletproof word extraction
-                try:
-                    word = data['text'][i].strip()
-                except (IndexError, AttributeError) as e:
-                    logger.warning(f"❌ Failed to extract word at index {i}: {e}")
-                    word = ""
-                
-                # Bulletproof line number extraction
-                try:
-                    line_num = data['line_num'][i]
-                except (IndexError, KeyError) as e:
-                    logger.warning(f"❌ Failed to extract line number at index {i}: {e}")
-                    line_num = last_line_num + 1
-                
-                if conf < threshold or not word:
-                    continue
-                    
-                confidences.append(conf)
-                
-                if line_num != last_line_num and current_line:
-                    lines.append(current_line.strip())
-                    current_line = word
-                    last_line_num = line_num
-                else:
-                    current_line += ' ' + word
-                    
-            except Exception as e:
-                logger.error(f"❌ Failed to process OCR element at index {i}: {e}")
-                continue
-        
-        if current_line:
-            lines.append(current_line.strip())
+        # Process OCR results
+        lines, confidences = process_ocr_data(data, threshold)
         
         logger.info(f"Processed {len(lines)} text lines with average confidence: {np.mean(confidences) if confidences else 0:.1f}")
         logger.debug(f"First 5 lines: {lines[:5]}")
         
         # Log full OCR text for debugging
         full_text = '\n'.join(lines)
-        logger.info(f"📄 OCR Text for {file.filename}:\n{full_text}")
+        logger.info(f"📄 OCR Text for {filename}:\n{full_text}")
+        
+        # Save debug data if enabled
+        if debug:
+            save_debug_data(data, full_text, filename, debug=True)
         
         # Validate we have some content
         if not lines:
@@ -781,7 +1227,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         
         # Bulletproof document type detection
         try:
-            doc_type = detect_document_type(full_text)
+            doc_type = classify_document_type(full_text)
             logger.info(f"Detected document type: {doc_type}")
         except Exception as e:
             logger.error(f"❌ Failed to detect document type: {e}")
@@ -815,7 +1261,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
             logger.error(f"❌ Failed to calculate average confidence: {e}")
             avg_conf = 0
         
-        logger.info(f"OCR processing completed successfully. Type: {doc_type}, Confidence: {avg_conf}")
+        logger.info(f"Image OCR processing completed successfully. Type: {doc_type}, Confidence: {avg_conf}")
         
         # Ensure we always return all required fields
         return {
@@ -832,30 +1278,61 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         }
         
     except Exception as e:
-        logger.error(f"❌ OCR processing error for {file.filename}: {str(e)}")
-        
-        # Log the full OCR text if available for debugging
+        logger.error(f"❌ Image OCR processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Image OCR processing failed: {str(e)}")
+
+def process_ocr_data(data: dict, threshold: int) -> tuple[List[str], List[int]]:
+    """Process OCR data and return lines and confidences"""
+    lines = []
+    confidences = []
+    current_line = ''
+    last_line_num = -1
+    
+    logger.info("Processing OCR results...")
+    
+    for i in range(len(data['text'])):
         try:
-            if 'lines' in locals() and lines:
-                full_text = '\n'.join(lines)
-                logger.info("OCR output:")
-                logger.info(full_text)
-        except Exception as log_error:
-            logger.warning(f"Could not log OCR text: {log_error}")
-        
-        # Return a safe default response instead of raising
-        return {
-            'parsed_data': {
-                'supplier_name': "Unknown Supplier",
-                'invoice_number': "Unknown", 
-                'invoice_date': "Unknown",
-                'total_amount': 0.0,
-                'currency': "GBP"
-            },
-            'raw_lines': [],
-            'document_type': 'unknown',
-            'confidence_score': 0
-        }
+            # Bulletproof confidence parsing
+            try:
+                conf = int(data['conf'][i])
+            except (ValueError, TypeError, IndexError) as e:
+                logger.warning(f"❌ Failed to parse confidence value at index {i}: {e}")
+                conf = 0
+            
+            # Bulletproof word extraction
+            try:
+                word = data['text'][i].strip()
+            except (IndexError, AttributeError) as e:
+                logger.warning(f"❌ Failed to extract word at index {i}: {e}")
+                word = ""
+            
+            # Bulletproof line number extraction
+            try:
+                line_num = data['line_num'][i]
+            except (IndexError, KeyError) as e:
+                logger.warning(f"❌ Failed to extract line number at index {i}: {e}")
+                line_num = last_line_num + 1
+            
+            if conf < threshold or not word:
+                continue
+                
+            confidences.append(conf)
+            
+            if line_num != last_line_num and current_line:
+                lines.append(current_line.strip())
+                current_line = word
+                last_line_num = line_num
+            else:
+                current_line += ' ' + word
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to process OCR element at index {i}: {e}")
+            continue
+    
+    if current_line:
+        lines.append(current_line.strip())
+    
+    return lines, confidences
 
 async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
     """Parse receipt with bulletproof error handling"""
@@ -1001,15 +1478,15 @@ async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
         }
 
 @router.post("/ocr/parse")
-async def parse_document(file: UploadFile = File(...), confidence_threshold: int = 70):
+async def parse_document(file: UploadFile = File(...), confidence_threshold: int = 70, debug: bool = False):
     """Parse uploaded document using OCR"""
-    logger.info(f"Received OCR parse request for file: {file.filename}")
+    logger.info(f"Received OCR parse request for file: {file.filename} (debug: {debug})")
     
     # Validate file
     validate_file(file)
     
     try:
-        parsed_data = await parse_with_ocr(file, threshold=confidence_threshold)
+        parsed_data = await parse_with_ocr(file, threshold=confidence_threshold, debug=debug)
         
         # Ensure we always return a consistent response format
         result = {
