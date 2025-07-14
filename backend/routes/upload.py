@@ -32,8 +32,45 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 
 # In-memory store for parsed metadata (for demo; use DB in production)
 doc_store = {
-    'invoices': [],  # list of dicts: {filename, parsed_data, status}
-    'delivery_notes': []
+    'invoices': [
+        {
+            'filename': 'sample_invoice_1.pdf',
+            'parsed_data': {
+                'supplier_name': 'ABC Corporation',
+                'invoice_number': 'INV-2024-001',
+                'total_amount': '1500.00',
+                'invoice_date': '2024-01-15',
+                'currency': 'GBP'
+            },
+            'status': 'unmatched',
+            'uploaded_at': '2024-01-15T10:00:00'
+        },
+        {
+            'filename': 'sample_invoice_2.pdf',
+            'parsed_data': {
+                'supplier_name': 'XYZ Company',
+                'invoice_number': 'INV-2024-002',
+                'total_amount': '2500.00',
+                'invoice_date': '2024-01-16',
+                'currency': 'GBP'
+            },
+            'status': 'unmatched',
+            'uploaded_at': '2024-01-16T10:00:00'
+        }
+    ],
+    'delivery_notes': [
+        {
+            'filename': 'sample_delivery_1.pdf',
+            'parsed_data': {
+                'supplier_name': 'ABC Corporation',
+                'delivery_note_number': 'DN-2024-001',
+                'delivery_date': '2024-01-15',
+                'total_items': '3 items'
+            },
+            'status': 'unmatched',
+            'uploaded_at': '2024-01-15T09:00:00'
+        }
+    ]
 }
 
 def is_valid_file(filename: str) -> bool:

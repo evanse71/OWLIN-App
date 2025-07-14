@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressCircle from '@/components/ui/ProgressCircle';
 import { DocumentCard } from './DocumentCard';
+import DuplicateCheckModal from './DuplicateCheckModal';
 
 // SVG Icons
 const FileTextIcon = ({ className = 'w-10 h-10' }) => (
@@ -48,7 +49,7 @@ const ClipboardListIcon = ({ className = 'w-10 h-10' }) => (
 interface UploadedFile {
   name: string;
   timestamp: string;
-  status: 'uploading' | 'success' | 'error' | 'parsing' | 'parsed' | 'parse_error';
+  status: 'uploading' | 'success' | 'error' | 'parsing' | 'parsed' | 'parse_error' | 'duplicate_detected';
   error?: string;
   serverFilename?: string;
   parsedData?: any;
@@ -84,6 +85,7 @@ interface DeliveryNote {
 
 interface InvoicesUploadPanelProps {
   onDeliveryNotesUpdate?: (notes: DeliveryNote[]) => void;
+  onInvoicesUpdate?: (invoices: Document[]) => void;
 }
 
 // Upload limits and validation
@@ -188,6 +190,23 @@ const classifyAndParseFile = async (file: File): Promise<any> => {
   return result;
 };
 
+const checkForDuplicate = async (file: File): Promise<any> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await fetch(`${API_BASE_URL}/ocr/check-duplicate`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || 'Duplicate check failed');
+  }
+
+  return await response.json();
+};
+
 // Concurrency queue for file processing
 const MAX_CONCURRENT = 2;
 const BATCH_DELAY = 200; // ms delay between batches
@@ -215,7 +234,8 @@ async function processFilesWithConcurrency(
   files: File[],
   addFileToState: (file: UploadedFile, type: 'invoices' | 'delivery' | 'unknown') => void,
   updateFileStatus: (name: string, status: Partial<UploadedFile>) => void,
-  onError: (message: string) => void
+  onError: (message: string) => void,
+  checkDuplicates: boolean = true
 ) {
   async function uploadAndClassifyFile(file: File) {
     // Add file to state as uploading
@@ -237,11 +257,31 @@ async function processFilesWithConcurrency(
         }
       }
       
-      // Step 1: Upload file
+      // Step 1: Check for duplicates if enabled
+      if (checkDuplicates) {
+        try {
+          const duplicateCheck = await checkForDuplicate(fileToUpload);
+          if (duplicateCheck.is_duplicate) {
+            // Return special status to trigger modal
+            updateFileStatus(file.name, { 
+              status: 'duplicate_detected',
+              parsedData: duplicateCheck.parsed_data,
+              documentType: duplicateCheck.document_type,
+              confidence: duplicateCheck.confidence_score
+            });
+            return { type: 'duplicate', data: duplicateCheck };
+          }
+        } catch (error) {
+          console.error('Error in duplicate check:', error);
+          // Continue with normal processing if duplicate check fails
+        }
+      }
+      
+      // Step 2: Upload file
       const uploadResult = await uploadFile(fileToUpload);
       updateFileStatus(file.name, { status: 'success', serverFilename: uploadResult.filename });
       
-      // Step 2: Classify and parse with OCR
+      // Step 3: Classify and parse with OCR
       updateFileStatus(file.name, { status: 'parsing' });
       const classificationResult = await classifyAndParseFile(fileToUpload);
       
@@ -286,6 +326,8 @@ async function processFilesWithConcurrency(
         });
       }
       
+      return { type: 'success', data: classificationResult };
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Processing failed';
       updateFileStatus(file.name, {
@@ -295,19 +337,20 @@ async function processFilesWithConcurrency(
       
       // Show error notification
       onError(`Failed to process "${file.name}": ${errorMessage}`);
+      return { type: 'error', data: errorMessage };
     }
   }
 
   // Create upload tasks
   const uploadTasks = files.map(file => async () => {
-    await uploadAndClassifyFile(file);
+    return await uploadAndClassifyFile(file);
   });
 
   // Process in batches of MAX_CONCURRENT
-  await processInBatches(uploadTasks, MAX_CONCURRENT);
+  return await processInBatches(uploadTasks, MAX_CONCURRENT);
 }
 
-const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNotesUpdate }) => {
+const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNotesUpdate, onInvoicesUpdate }) => {
   const [invoiceFiles, setInvoiceFiles] = useState<UploadedFile[]>([]);
   const [deliveryFiles, setDeliveryFiles] = useState<UploadedFile[]>([]);
   const [unknownFiles, setUnknownFiles] = useState<UploadedFile[]>([]);
@@ -316,6 +359,12 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
   const [dragTargetArea, setDragTargetArea] = useState<'invoices' | 'delivery' | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Duplicate detection state
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<any>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFileType, setPendingFileType] = useState<'invoices' | 'delivery' | 'unknown'>('unknown');
 
   const invoiceInputRef = useRef<HTMLInputElement>(null);
   const deliveryInputRef = useRef<HTMLInputElement>(null);
@@ -445,7 +494,12 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
       .map(createDocumentFromOCR);
     
     setDocuments(invoiceDocuments);
-  }, [invoiceFiles]);
+    
+    // Notify parent component of invoice updates
+    if (onInvoicesUpdate) {
+      onInvoicesUpdate(invoiceDocuments);
+    }
+  }, [invoiceFiles, onInvoicesUpdate]);
 
   // Unified upload handler for both invoice and delivery note uploads
   const handleUpload = async (files: File[]) => {
@@ -490,7 +544,21 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     };
     
     try {
-      await processFilesWithConcurrency(files, addFileToState, updateFileStatus, showError);
+      const results = await processFilesWithConcurrency(files, addFileToState, updateFileStatus, showError, true);
+      
+      // Check for duplicates in results
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.type === 'duplicate') {
+          // Show duplicate modal for this file
+          setDuplicateInfo(result.data.duplicate_info);
+          setPendingFile(files[i]);
+          setPendingFileType('unknown'); // Will be determined by classification
+          setDuplicateModalOpen(true);
+          break; // Show modal for first duplicate found
+        }
+      }
+      
     } catch (error) {
       showError(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
@@ -584,6 +652,42 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
     };
   }, [isDragOver]); // Re-run effect if isDragOver state changes
 
+  // Handle duplicate modal actions
+  const handleDuplicateConfirm = () => {
+    if (pendingFile) {
+      // Continue with upload - process the file normally without duplicate check
+      const addFileToState = (file: UploadedFile, type: 'invoices' | 'delivery' | 'unknown') => {
+        if (type === 'invoices') {
+          setInvoiceFiles(prev => [...prev, file]);
+        } else if (type === 'delivery') {
+          setDeliveryFiles(prev => [...prev, file]);
+        } else {
+          setUnknownFiles(prev => [...prev, file]);
+        }
+      };
+      
+      const updateFileStatus = (name: string, status: Partial<UploadedFile>) => {
+        setInvoiceFiles(prev => prev.map(f => f.name === name ? { ...f, ...status } : f));
+        setDeliveryFiles(prev => prev.map(f => f.name === name ? { ...f, ...status } : f));
+        setUnknownFiles(prev => prev.map(f => f.name === name ? { ...f, ...status } : f));
+      };
+      
+      processFilesWithConcurrency([pendingFile], addFileToState, updateFileStatus, showError, false);
+    }
+    setDuplicateModalOpen(false);
+    setDuplicateInfo(null);
+    setPendingFile(null);
+    setPendingFileType('unknown');
+  };
+
+  const handleDuplicateReject = () => {
+    // Remove the file - don't process it
+    setDuplicateModalOpen(false);
+    setDuplicateInfo(null);
+    setPendingFile(null);
+    setPendingFileType('unknown');
+  };
+
   const GlassBox: React.FC<{
     title: string;
     icon: React.ReactNode;
@@ -673,6 +777,8 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
         return <span className="text-orange-600">⚠</span>;
       case 'error':
         return <span className="text-red-600">✗</span>;
+      case 'duplicate_detected':
+        return <span className="text-yellow-600">⚠</span>; // Indicate duplicate
       default:
         return null;
     }
@@ -696,6 +802,23 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
             </button>
           </div>
         </div>
+      )}
+
+      {/* Duplicate Check Modal */}
+      {duplicateInfo && (
+        <DuplicateCheckModal
+          isOpen={duplicateModalOpen}
+          onClose={() => setDuplicateModalOpen(false)}
+          onConfirm={handleDuplicateConfirm}
+          onReject={handleDuplicateReject}
+          newDocument={{
+            filename: pendingFile?.name || '',
+            parsed_data: duplicateInfo.parsed_data || {},
+            document_type: duplicateInfo.document_type || 'unknown',
+            confidence_score: duplicateInfo.confidence_score || 0
+          }}
+          duplicateInfo={duplicateInfo}
+        />
       )}
 
       {/* Upload Boxes */}
@@ -787,6 +910,11 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                           ⚠ Low confidence
                         </span>
                       )}
+                      {file.status === 'duplicate_detected' && (
+                        <span className="text-xs text-yellow-600 ml-2" title="Duplicate document detected">
+                          ⚠ Duplicate
+                        </span>
+                      )}
                     </div>
                     <span className="text-xs text-slate-500 ml-4">{file.timestamp}</span>
                   </li>
@@ -835,6 +963,11 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                       {file.confidence && file.confidence < 60 && (
                         <span className="text-xs text-orange-600 ml-2" title={`Low confidence: ${file.confidence}%`}>
                           ⚠ Low confidence
+                        </span>
+                      )}
+                      {file.status === 'duplicate_detected' && (
+                        <span className="text-xs text-yellow-600 ml-2" title="Duplicate document detected">
+                          ⚠ Duplicate
                         </span>
                       )}
                     </div>
@@ -886,6 +1019,11 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                       {file.confidence && (
                         <span className="text-xs text-orange-600 ml-2" title={`Classification confidence: ${file.confidence}%`}>
                           ⚠ {file.confidence}% confidence
+                        </span>
+                      )}
+                      {file.status === 'duplicate_detected' && (
+                        <span className="text-xs text-yellow-600 ml-2" title="Duplicate document detected">
+                          ⚠ Duplicate
                         </span>
                       )}
                     </div>

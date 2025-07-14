@@ -1472,6 +1472,181 @@ async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
             'confidence_score': 0
         }
 
+def detect_duplicate_document(new_doc: dict, existing_docs: list, threshold: float = 0.9) -> Optional[dict]:
+    """
+    Detect if a new document is a duplicate of an existing document.
+    
+    Args:
+        new_doc: Dictionary containing parsed data of the new document
+        existing_docs: List of existing document dictionaries
+        threshold: Similarity threshold (0.0 to 1.0) for duplicate detection
+    
+    Returns:
+        Dictionary with duplicate info if found, None otherwise
+        {
+            'existing_doc': dict,
+            'similarity_score': float,
+            'matching_fields': list,
+            'differences': dict
+        }
+    """
+    try:
+        if not existing_docs:
+            return None
+        
+        best_match = None
+        best_score = 0.0
+        best_matching_fields = []
+        best_differences = {}
+        
+        new_parsed = new_doc.get('parsed_data', {})
+        new_supplier = new_parsed.get('supplier_name', '').lower().strip()
+        new_invoice_num = new_parsed.get('invoice_number', '').lower().strip()
+        new_total = safe_parse_float(new_parsed.get('total_amount', '0'), 0.0)
+        new_date = new_parsed.get('invoice_date', '').lower().strip()
+        
+        for existing_doc in existing_docs:
+            existing_parsed = existing_doc.get('parsed_data', {})
+            existing_supplier = existing_parsed.get('supplier_name', '').lower().strip()
+            existing_invoice_num = existing_parsed.get('invoice_number', '').lower().strip()
+            existing_total = safe_parse_float(existing_parsed.get('total_amount', '0'), 0.0)
+            existing_date = existing_parsed.get('invoice_date', '').lower().strip()
+            
+            # Calculate field-by-field similarity scores
+            supplier_similarity = 0.0
+            if new_supplier and existing_supplier:
+                supplier_similarity = calculate_text_similarity(new_supplier, existing_supplier)
+            
+            invoice_similarity = 0.0
+            if new_invoice_num and existing_invoice_num:
+                invoice_similarity = calculate_text_similarity(new_invoice_num, existing_invoice_num)
+            
+            total_similarity = 0.0
+            if new_total > 0 and existing_total > 0:
+                # For amounts, use percentage difference
+                amount_diff = abs(new_total - existing_total) / max(new_total, existing_total)
+                total_similarity = 1.0 - min(amount_diff, 1.0)
+            
+            date_similarity = 0.0
+            if new_date and existing_date:
+                date_similarity = calculate_text_similarity(new_date, existing_date)
+            
+            # Calculate weighted overall similarity
+            # Give more weight to invoice number and supplier name
+            weights = {
+                'supplier': 0.4,
+                'invoice_number': 0.4,
+                'total_amount': 0.15,
+                'date': 0.05
+            }
+            
+            overall_similarity = (
+                supplier_similarity * weights['supplier'] +
+                invoice_similarity * weights['invoice_number'] +
+                total_similarity * weights['total_amount'] +
+                date_similarity * weights['date']
+            )
+            
+            # Track matching fields and differences
+            matching_fields = []
+            differences = {}
+            
+            if supplier_similarity > 0.8:
+                matching_fields.append('supplier_name')
+            elif new_supplier and existing_supplier:
+                differences['supplier_name'] = {
+                    'new': new_supplier,
+                    'existing': existing_supplier,
+                    'similarity': supplier_similarity
+                }
+            
+            if invoice_similarity > 0.8:
+                matching_fields.append('invoice_number')
+            elif new_invoice_num and existing_invoice_num:
+                differences['invoice_number'] = {
+                    'new': new_invoice_num,
+                    'existing': existing_invoice_num,
+                    'similarity': invoice_similarity
+                }
+            
+            if total_similarity > 0.9:
+                matching_fields.append('total_amount')
+            elif new_total > 0 and existing_total > 0:
+                differences['total_amount'] = {
+                    'new': new_total,
+                    'existing': existing_total,
+                    'similarity': total_similarity
+                }
+            
+            if date_similarity > 0.8:
+                matching_fields.append('invoice_date')
+            elif new_date and existing_date:
+                differences['invoice_date'] = {
+                    'new': new_date,
+                    'existing': existing_date,
+                    'similarity': date_similarity
+                }
+            
+            # Update best match if this is better
+            if overall_similarity > best_score:
+                best_score = overall_similarity
+                best_match = existing_doc
+                best_matching_fields = matching_fields
+                best_differences = differences
+        
+        # Return duplicate info if similarity exceeds threshold
+        if best_score >= threshold and best_match:
+            logger.info(f"Duplicate detected with {best_score:.2f} similarity score")
+            return {
+                'existing_doc': best_match,
+                'similarity_score': best_score,
+                'matching_fields': best_matching_fields,
+                'differences': best_differences
+            }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error in duplicate detection: {e}")
+        return None
+
+def calculate_text_similarity(text1: str, text2: str) -> float:
+    """
+    Calculate similarity between two text strings using multiple methods.
+    
+    Args:
+        text1: First text string
+        text2: Second text string
+    
+    Returns:
+        Similarity score between 0.0 and 1.0
+    """
+    try:
+        if not text1 or not text2:
+            return 0.0
+        
+        # Normalize text
+        text1 = text1.lower().strip()
+        text2 = text2.lower().strip()
+        
+        # Exact match
+        if text1 == text2:
+            return 1.0
+        
+        # Use difflib for fuzzy matching
+        from difflib import SequenceMatcher
+        similarity = SequenceMatcher(None, text1, text2).ratio()
+        
+        # Boost similarity for partial matches
+        if text1 in text2 or text2 in text1:
+            similarity = max(similarity, 0.9)
+        
+        return similarity
+        
+    except Exception as e:
+        logger.warning(f"Error calculating text similarity: {e}")
+        return 0.0
+
 @router.post("/ocr/parse")
 async def parse_document(file: UploadFile = File(...), confidence_threshold: int = 70, debug: bool = False):
     """Parse uploaded document using OCR"""
@@ -1659,3 +1834,95 @@ async def get_ocr_status():
         "supported_formats": list(ALLOWED_EXTENSIONS),
         "timestamp": datetime.now().isoformat()
     } 
+
+@router.post("/ocr/check-duplicate")
+async def check_duplicate_document(file: UploadFile = File(...), threshold: float = 0.95):
+    """
+    Check if uploaded document is a duplicate of existing documents.
+    
+    Args:
+        file: Uploaded document file
+        threshold: Similarity threshold for duplicate detection (0.0 to 1.0)
+    
+    Returns:
+        JSON response with duplicate detection results
+    """
+    logger.info(f"Received duplicate check request for file: {file.filename} (threshold: {threshold})")
+    
+    # Validate file
+    validate_file(file)
+    
+    try:
+        # Parse the uploaded document
+        parsed_data = await parse_with_ocr(file, threshold=70, debug=False)
+        
+        # Get existing documents from doc_store (import from upload.py)
+        from .upload import doc_store
+        
+        # Check for duplicates in both invoices and delivery notes
+        all_existing_docs = []
+        
+        # Add invoices
+        for inv in doc_store.get('invoices', []):
+            all_existing_docs.append({
+                'type': 'invoice',
+                'parsed_data': inv.get('parsed_data', {}),
+                'filename': inv.get('filename', ''),
+                'status': inv.get('status', ''),
+                'uploaded_at': inv.get('uploaded_at', '')
+            })
+        
+        # Add delivery notes
+        for dn in doc_store.get('delivery_notes', []):
+            all_existing_docs.append({
+                'type': 'delivery_note',
+                'parsed_data': dn.get('parsed_data', {}),
+                'filename': dn.get('filename', ''),
+                'status': dn.get('status', ''),
+                'uploaded_at': dn.get('uploaded_at', '')
+            })
+        
+        # Perform duplicate detection
+        duplicate_info = detect_duplicate_document(parsed_data, all_existing_docs, threshold)
+        
+        result = {
+            "success": True,
+            "is_duplicate": duplicate_info is not None,
+            "original_filename": file.filename,
+            "file_size": file.size,
+            "processed_at": datetime.now().isoformat(),
+            "parsed_data": parsed_data.get('parsed_data', {}),
+            "document_type": parsed_data.get('document_type', 'unknown'),
+            "confidence_score": parsed_data.get('confidence_score', 0)
+        }
+        
+        if duplicate_info:
+            result.update({
+                "duplicate_info": {
+                    "existing_doc": {
+                        "filename": duplicate_info['existing_doc'].get('filename', ''),
+                        "type": duplicate_info['existing_doc'].get('type', ''),
+                        "status": duplicate_info['existing_doc'].get('status', ''),
+                        "uploaded_at": duplicate_info['existing_doc'].get('uploaded_at', ''),
+                        "parsed_data": duplicate_info['existing_doc'].get('parsed_data', {})
+                    },
+                    "similarity_score": duplicate_info['similarity_score'],
+                    "matching_fields": duplicate_info['matching_fields'],
+                    "differences": duplicate_info['differences']
+                }
+            })
+        
+        logger.info(f"Duplicate check completed for {file.filename}. Is duplicate: {duplicate_info is not None}")
+        return JSONResponse(result)
+        
+    except Exception as e:
+        logger.error(f"Error in duplicate check: {str(e)}")
+        error_result = {
+            "success": False,
+            "is_duplicate": False,
+            "error": str(e),
+            "original_filename": file.filename,
+            "file_size": file.size,
+            "processed_at": datetime.now().isoformat()
+        }
+        return JSONResponse(error_result, status_code=500)
