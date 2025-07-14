@@ -284,7 +284,7 @@ def safe_extract_invoice_number(text_lines: List[str], default: str = "Unknown")
         return default
 
 def extract_invoice_fields(text_lines: list[str]) -> dict:
-    """Extract invoice fields with comprehensive error handling"""
+    """Extract invoice fields with bulletproof error handling"""
     logger.info(f"Extracting invoice fields from {len(text_lines)} lines")
     logger.debug(f"Raw text lines: {text_lines[:5]}...")  # Log first 5 lines
     
@@ -296,28 +296,40 @@ def extract_invoice_fields(text_lines: list[str]) -> dict:
         total_amount = 0.0
         currency = "GBP"
         
-        # Extract supplier name with fallback
-        supplier_name = safe_extract_supplier_name(text_lines, "Unknown Supplier")
+        # Extract supplier name with bulletproof fallback
+        try:
+            supplier_name = safe_extract_supplier_name(text_lines, "Unknown Supplier")
+        except Exception as e:
+            logger.error(f"❌ Failed to extract supplier name from: {text_lines[:3]} — {e}")
+            supplier_name = "Unknown Supplier"
         
-        # Extract invoice number with fallback
-        invoice_number = safe_extract_invoice_number(text_lines, "Unknown")
+        # Extract invoice number with bulletproof fallback
+        try:
+            invoice_number = safe_extract_invoice_number(text_lines, "Unknown")
+        except Exception as e:
+            logger.error(f"❌ Failed to extract invoice number from: {text_lines[:3]} — {e}")
+            invoice_number = "Unknown"
         
-        # Extract invoice date with fallback
+        # Extract invoice date with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
                 if 'date' in line_lower and any(char.isdigit() for char in line):
                     logger.debug(f"Found date keyword in line {line_num+1}: '{line}'")
-                    parsed_date = safe_parse_date(line, "Unknown")
-                    if parsed_date != "Unknown":
-                        invoice_date = parsed_date
-                        logger.debug(f"Extracted invoice date: '{invoice_date}'")
-                        break
+                    try:
+                        parsed_date = safe_parse_date(line, "Unknown")
+                        if parsed_date != "Unknown":
+                            invoice_date = parsed_date
+                            logger.debug(f"Extracted invoice date: '{invoice_date}'")
+                            break
+                    except Exception as e:
+                        logger.error(f"❌ Failed to parse invoice date from: {line} — {e}")
+                        continue
             except Exception as e:
-                logger.warning(f"Error processing date line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process date line {line_num+1} '{line}': {e}")
                 continue
         
-        # Extract total amount with fallback
+        # Extract total amount with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
@@ -340,25 +352,29 @@ def extract_invoice_fields(text_lines: list[str]) -> dict:
                             if match:
                                 amount_str = match.group(1)
                                 logger.debug(f"Found amount with pattern {pattern_num+1}: '{amount_str}'")
-                                parsed_amount = safe_parse_float(amount_str, 0.0)
-                                if parsed_amount > 0:
-                                    total_amount = parsed_amount
-                                    logger.debug(f"Extracted total amount: {total_amount}")
-                                    break
+                                try:
+                                    parsed_amount = safe_parse_float(amount_str, 0.0)
+                                    if parsed_amount > 0:
+                                        total_amount = parsed_amount
+                                        logger.debug(f"Extracted total amount: {total_amount}")
+                                        break
+                                except Exception as e:
+                                    logger.error(f"❌ Failed to parse total amount from: {amount_str} — {e}")
+                                    continue
                         except re.error as e:
-                            logger.debug(f"Invalid amount regex pattern {pattern_num+1} '{pattern}': {e}")
+                            logger.error(f"❌ Invalid amount regex pattern {pattern_num+1} '{pattern}': {e}")
                             continue
                         except Exception as e:
-                            logger.debug(f"Error with amount pattern {pattern_num+1} on line {line_num+1}: {e}")
+                            logger.error(f"❌ Error with amount pattern {pattern_num+1} on line {line_num+1}: {e}")
                             continue
                     
                     if total_amount > 0:
                         break
             except Exception as e:
-                logger.warning(f"Error processing amount line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process amount line {line_num+1} '{line}': {e}")
                 continue
         
-        # Extract currency with fallback
+        # Extract currency with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 if '£' in line:
@@ -374,11 +390,12 @@ def extract_invoice_fields(text_lines: list[str]) -> dict:
                     logger.debug(f"Found EUR currency in line {line_num+1}")
                     break
             except Exception as e:
-                logger.warning(f"Error processing currency line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process currency line {line_num+1} '{line}': {e}")
                 continue
         
         logger.info(f"Extracted invoice fields: supplier={supplier_name}, number={invoice_number}, date={invoice_date}, amount={total_amount}, currency={currency}")
         
+        # Ensure we always return all required fields
         return {
             'supplier_name': supplier_name,
             'invoice_number': invoice_number,
@@ -388,7 +405,7 @@ def extract_invoice_fields(text_lines: list[str]) -> dict:
         }
         
     except Exception as e:
-        logger.error(f"Failed to extract invoice fields: {e}")
+        logger.error(f"❌ Failed to extract invoice fields: {e}")
         return {
             'supplier_name': "Unknown Supplier",
             'invoice_number': "Unknown",
@@ -398,7 +415,7 @@ def extract_invoice_fields(text_lines: list[str]) -> dict:
         }
 
 def extract_delivery_note_fields(text_lines: list[str]) -> dict:
-    """Extract delivery note fields with comprehensive error handling"""
+    """Extract delivery note fields with bulletproof error handling"""
     logger.info(f"Extracting delivery note fields from {len(text_lines)} lines")
     logger.debug(f"Raw text lines: {text_lines[:5]}...")  # Log first 5 lines
     
@@ -411,10 +428,14 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
         signed_by = "Unknown"
         items = []
         
-        # Extract supplier name with fallback
-        supplier_name = safe_extract_supplier_name(text_lines, "Unknown Supplier")
+        # Extract supplier name with bulletproof fallback
+        try:
+            supplier_name = safe_extract_supplier_name(text_lines, "Unknown Supplier")
+        except Exception as e:
+            logger.error(f"❌ Failed to extract delivery note supplier name from: {text_lines[:3]} — {e}")
+            supplier_name = "Unknown Supplier"
         
-        # Extract delivery note number with fallback
+        # Extract delivery note number with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
@@ -441,34 +462,38 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
                                     logger.debug(f"Extracted delivery note number: '{delivery_note_number}'")
                                     break
                         except re.error as e:
-                            logger.debug(f"Invalid delivery note regex pattern {pattern_num+1} '{pattern}': {e}")
+                            logger.error(f"❌ Invalid delivery note regex pattern {pattern_num+1} '{pattern}': {e}")
                             continue
                         except Exception as e:
-                            logger.debug(f"Error with delivery note pattern {pattern_num+1} on line {line_num+1}: {e}")
+                            logger.error(f"❌ Error with delivery note pattern {pattern_num+1} on line {line_num+1}: {e}")
                             continue
                     
                     if delivery_note_number != "Unknown":
                         break
             except Exception as e:
-                logger.warning(f"Error processing delivery note number line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process delivery note number line {line_num+1} '{line}': {e}")
                 continue
         
-        # Extract delivery date with fallback
+        # Extract delivery date with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
                 if 'date' in line_lower and any(char.isdigit() for char in line):
                     logger.debug(f"Found date keyword in line {line_num+1}: '{line}'")
-                    parsed_date = safe_parse_date(line, "Unknown")
-                    if parsed_date != "Unknown":
-                        delivery_date = parsed_date
-                        logger.debug(f"Extracted delivery date: '{delivery_date}'")
-                        break
+                    try:
+                        parsed_date = safe_parse_date(line, "Unknown")
+                        if parsed_date != "Unknown":
+                            delivery_date = parsed_date
+                            logger.debug(f"Extracted delivery date: '{delivery_date}'")
+                            break
+                    except Exception as e:
+                        logger.error(f"❌ Failed to parse delivery date from: {line} — {e}")
+                        continue
             except Exception as e:
-                logger.warning(f"Error processing delivery date line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process delivery date line {line_num+1} '{line}': {e}")
                 continue
         
-        # Extract delivered by with fallback
+        # Extract delivered by with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
@@ -477,10 +502,10 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
                     logger.debug(f"Found delivered by in line {line_num+1}: '{delivered_by}'")
                     break
             except Exception as e:
-                logger.warning(f"Error processing delivered by line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process delivered by line {line_num+1} '{line}': {e}")
                 continue
         
-        # Extract signed by with fallback
+        # Extract signed by with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
@@ -489,10 +514,10 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
                     logger.debug(f"Found signed by in line {line_num+1}: '{signed_by}'")
                     break
             except Exception as e:
-                logger.warning(f"Error processing signed by line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process signed by line {line_num+1} '{line}': {e}")
                 continue
         
-        # Extract items with fallback
+        # Extract items with bulletproof fallback
         for line_num, line in enumerate(text_lines):
             try:
                 line_lower = line.lower()
@@ -501,11 +526,12 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
                     items.append(line.strip())
                     logger.debug(f"Added item from line {line_num+1}: '{line.strip()}'")
             except Exception as e:
-                logger.warning(f"Error processing item line {line_num+1} '{line}': {e}")
+                logger.error(f"❌ Failed to process item line {line_num+1} '{line}': {e}")
                 continue
         
         logger.info(f"Extracted delivery note fields: supplier={supplier_name}, number={delivery_note_number}, date={delivery_date}, items={len(items)}")
         
+        # Ensure we always return all required fields
         return {
             'supplier_name': supplier_name,
             'delivery_note_number': delivery_note_number,
@@ -516,7 +542,7 @@ def extract_delivery_note_fields(text_lines: list[str]) -> dict:
         }
         
     except Exception as e:
-        logger.error(f"Failed to extract delivery note fields: {e}")
+        logger.error(f"❌ Failed to extract delivery note fields: {e}")
         return {
             'supplier_name': "Unknown Supplier",
             'delivery_note_number': "Unknown",
@@ -624,7 +650,7 @@ def parse_receipt_items(lines: list) -> list:
         return []
 
 async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
-    """Parse document with OCR with enhanced error handling"""
+    """Parse document with OCR with bulletproof error handling"""
     logger.info(f"Starting OCR processing for file: {file.filename}")
     
     try:
@@ -689,7 +715,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
         
-        # Process OCR results
+        # Process OCR results with bulletproof error handling
         lines = []
         confidences = []
         current_line = ''
@@ -699,24 +725,42 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         
         for i in range(len(data['text'])):
             try:
-                conf = int(data['conf'][i])
-            except (ValueError, TypeError):
-                conf = 0
-            
-            word = data['text'][i].strip()
-            line_num = data['line_num'][i]
-            
-            if conf < threshold or not word:
-                continue
+                # Bulletproof confidence parsing
+                try:
+                    conf = int(data['conf'][i])
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.warning(f"❌ Failed to parse confidence value at index {i}: {e}")
+                    conf = 0
                 
-            confidences.append(conf)
-            
-            if line_num != last_line_num and current_line:
-                lines.append(current_line.strip())
-                current_line = word
-                last_line_num = line_num
-            else:
-                current_line += ' ' + word
+                # Bulletproof word extraction
+                try:
+                    word = data['text'][i].strip()
+                except (IndexError, AttributeError) as e:
+                    logger.warning(f"❌ Failed to extract word at index {i}: {e}")
+                    word = ""
+                
+                # Bulletproof line number extraction
+                try:
+                    line_num = data['line_num'][i]
+                except (IndexError, KeyError) as e:
+                    logger.warning(f"❌ Failed to extract line number at index {i}: {e}")
+                    line_num = last_line_num + 1
+                
+                if conf < threshold or not word:
+                    continue
+                    
+                confidences.append(conf)
+                
+                if line_num != last_line_num and current_line:
+                    lines.append(current_line.strip())
+                    current_line = word
+                    last_line_num = line_num
+                else:
+                    current_line += ' ' + word
+                    
+            except Exception as e:
+                logger.error(f"❌ Failed to process OCR element at index {i}: {e}")
+                continue
         
         if current_line:
             lines.append(current_line.strip())
@@ -726,7 +770,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         
         # Log full OCR text for debugging
         full_text = '\n'.join(lines)
-        logger.debug(f"Full OCR text:\n{full_text}")
+        logger.info(f"📄 OCR Text for {file.filename}:\n{full_text}")
         
         # Validate we have some content
         if not lines:
@@ -735,10 +779,15 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
             logger.info(full_text)
             raise ValueError("No readable text found in document")
         
-        doc_type = detect_document_type(full_text)
-        logger.info(f"Detected document type: {doc_type}")
+        # Bulletproof document type detection
+        try:
+            doc_type = detect_document_type(full_text)
+            logger.info(f"Detected document type: {doc_type}")
+        except Exception as e:
+            logger.error(f"❌ Failed to detect document type: {e}")
+            doc_type = 'unknown'
         
-        # Extract fields based on document type with enhanced error handling
+        # Extract fields based on document type with bulletproof error handling
         try:
             if doc_type == 'invoice':
                 parsed_fields = extract_invoice_fields(lines)
@@ -747,7 +796,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
             else:
                 parsed_fields = {}
         except Exception as field_error:
-            logger.error(f"Field extraction failed: {field_error}")
+            logger.error(f"❌ Field extraction failed: {field_error}")
             logger.info("OCR output:")
             logger.info(full_text)
             # Return safe defaults instead of crashing
@@ -759,19 +808,31 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
                 'currency': "GBP"
             }
         
-        avg_conf = int(np.mean(confidences)) if confidences else 0
+        # Bulletproof confidence calculation
+        try:
+            avg_conf = int(np.mean(confidences)) if confidences else 0
+        except Exception as e:
+            logger.error(f"❌ Failed to calculate average confidence: {e}")
+            avg_conf = 0
         
         logger.info(f"OCR processing completed successfully. Type: {doc_type}, Confidence: {avg_conf}")
         
+        # Ensure we always return all required fields
         return {
-            'parsed_data': parsed_fields,
+            'parsed_data': {
+                'supplier_name': parsed_fields.get('supplier_name', "Unknown Supplier"),
+                'invoice_number': parsed_fields.get('invoice_number', "Unknown"),
+                'invoice_date': parsed_fields.get('invoice_date', "Unknown"),
+                'total_amount': parsed_fields.get('total_amount', 0.0),
+                'currency': parsed_fields.get('currency', "GBP")
+            },
             'raw_lines': lines,
             'document_type': doc_type,
             'confidence_score': avg_conf
         }
         
     except Exception as e:
-        logger.error(f"OCR processing error for {file.filename}: {str(e)}")
+        logger.error(f"❌ OCR processing error for {file.filename}: {str(e)}")
         
         # Log the full OCR text if available for debugging
         try:
@@ -797,7 +858,7 @@ async def parse_with_ocr(file: UploadFile, threshold: int = 70) -> dict:
         }
 
 async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
-    """Parse receipt with enhanced error handling"""
+    """Parse receipt with bulletproof error handling"""
     logger.info(f"Starting receipt parsing for file: {file.filename}")
     
     try:
@@ -822,7 +883,7 @@ async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
         try:
             data = pytesseract.image_to_data(pil_for_ocr, output_type=pytesseract.Output.DICT, config=custom_config)
         except Exception as ocr_error:
-            logger.error(f"Receipt OCR failed: {ocr_error}")
+            logger.error(f"❌ Receipt OCR failed: {ocr_error}")
             raise ValueError(f"Receipt OCR processing failed: {str(ocr_error)}")
         
         lines = []
@@ -830,56 +891,82 @@ async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
         current_line = ''
         last_line_num = -1
         
+        # Bulletproof OCR result processing
         for i in range(len(data['text'])):
             try:
-                conf = int(data['conf'][i])
-            except Exception:
-                conf = 0
-            word = data['text'][i].strip()
-            line_num = data['line_num'][i]
-            if conf < threshold or not word:
+                # Bulletproof confidence parsing
+                try:
+                    conf = int(data['conf'][i])
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.warning(f"❌ Failed to parse receipt confidence value at index {i}: {e}")
+                    conf = 0
+                
+                # Bulletproof word extraction
+                try:
+                    word = data['text'][i].strip()
+                except (IndexError, AttributeError) as e:
+                    logger.warning(f"❌ Failed to extract receipt word at index {i}: {e}")
+                    word = ""
+                
+                # Bulletproof line number extraction
+                try:
+                    line_num = data['line_num'][i]
+                except (IndexError, KeyError) as e:
+                    logger.warning(f"❌ Failed to extract receipt line number at index {i}: {e}")
+                    line_num = last_line_num + 1
+                
+                if conf < threshold or not word:
+                    continue
+                confidences.append(conf)
+                if line_num != last_line_num and current_line:
+                    lines.append(current_line.strip())
+                    current_line = word
+                    last_line_num = line_num
+                else:
+                    current_line += ' ' + word
+            except Exception as e:
+                logger.error(f"❌ Failed to process receipt OCR element at index {i}: {e}")
                 continue
-            confidences.append(conf)
-            if line_num != last_line_num and current_line:
-                lines.append(current_line.strip())
-                current_line = word
-                last_line_num = line_num
-            else:
-                current_line += ' ' + word
+                
         if current_line:
             lines.append(current_line.strip())
         
         full_text = '\n'.join(lines)
         
         # Log full OCR text for debugging
-        logger.debug(f"Receipt OCR text:\n{full_text}")
+        logger.info(f"📄 Receipt OCR Text for {file.filename}:\n{full_text}")
         
-        # Extract fields with error handling
+        # Extract fields with bulletproof error handling
         try:
             total_amount = parse_receipt_total(full_text)
         except Exception as e:
-            logger.warning(f"Failed to parse total amount: {e}")
+            logger.error(f"❌ Failed to parse total amount from: {full_text} — {e}")
             total_amount = "Unknown"
             
         try:
             purchase_date = parse_receipt_date(full_text)
         except Exception as e:
-            logger.warning(f"Failed to parse purchase date: {e}")
+            logger.error(f"❌ Failed to parse purchase date from: {full_text} — {e}")
             purchase_date = "Unknown"
             
         try:
             store_name = parse_receipt_store(lines)
         except Exception as e:
-            logger.warning(f"Failed to parse store name: {e}")
+            logger.error(f"❌ Failed to parse store name from: {lines} — {e}")
             store_name = "Unknown"
             
         try:
             items = parse_receipt_items(lines)
         except Exception as e:
-            logger.warning(f"Failed to parse items: {e}")
+            logger.error(f"❌ Failed to parse items from: {lines} — {e}")
             items = []
         
-        avg_conf = int(np.mean(confidences)) if confidences else 0
+        # Bulletproof confidence calculation
+        try:
+            avg_conf = int(np.mean(confidences)) if confidences else 0
+        except Exception as e:
+            logger.error(f"❌ Failed to calculate receipt average confidence: {e}")
+            avg_conf = 0
         
         logger.info(f"Receipt parsing completed. Store: {store_name}, Amount: {total_amount}, Confidence: {avg_conf}")
         
@@ -893,7 +980,7 @@ async def parse_receipt(file: UploadFile, threshold: int = 70) -> dict:
         }
         
     except Exception as e:
-        logger.error(f"Receipt parsing error for {file.filename}: {str(e)}")
+        logger.error(f"❌ Receipt parsing error for {file.filename}: {str(e)}")
         
         # Log the full OCR text if available for debugging
         try:
