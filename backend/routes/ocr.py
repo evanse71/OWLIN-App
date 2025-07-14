@@ -241,7 +241,7 @@ def scan_for_fuzzy_keywords(text_lines: List[str], keyword_mapping: Dict[str, Li
         return {category: [] for category in keyword_mapping.keys()}
 
 def classify_document_type(text: str) -> str:
-    """Classify document type using fuzzy keyword matching and scoring system"""
+    """Classify document type using a robust scoring system with keyword lists"""
     try:
         if not text:
             logger.warning("⚠️ Empty text provided for document classification")
@@ -249,69 +249,48 @@ def classify_document_type(text: str) -> str:
         
         text_lower = text.lower()
         
-        # Define keyword categories with weights
-        invoice_keywords = {
-            'invoice': ['invoice', 'inv', 'bill', 'billing'],
-            'financial': ['total', 'amount', 'balance', 'sum', 'due', 'payment', 'paid'],
-            'tax': ['vat', 'tax', 'gst', 'hst', 'sales tax'],
-            'business': ['supplier', 'vendor', 'company', 'business', 'from', 'issued by'],
-            'numbers': ['invoice number', 'invoice no', 'invoice #', 'inv number', 'inv no', 'inv #']
-        }
+        # Define keyword lists for each document type
+        invoice_keywords = ["invoice", "vat", "tax", "subtotal", "total", "net amount", "supplier"]
+        delivery_note_keywords = ["delivery", "delivered to", "qty", "signature", "received", "goods", "date of delivery"]
         
-        delivery_keywords = {
-            'delivery': ['delivery', 'delivered', 'delivery note', 'dn', 'delivery order'],
-            'receipt': ['received', 'received by', 'received on', 'receipt', 'received from'],
-            'items': ['items', 'goods', 'products', 'materials', 'quantity', 'qty'],
-            'signature': ['signature', 'signed', 'signed by', 'authorized', 'received by'],
-            'location': ['delivered to', 'ship to', 'delivery address', 'shipping address']
-        }
+        # Count keyword matches for each type
+        invoice_matches = []
+        delivery_matches = []
         
-        # Calculate scores
-        invoice_score = 0
-        delivery_score = 0
+        # Check for invoice keywords
+        for keyword in invoice_keywords:
+            if keyword in text_lower:
+                invoice_matches.append(keyword)
+                logger.debug(f"🔍 Found invoice keyword: '{keyword}'")
         
-        # Score invoice keywords
-        for category, keywords in invoice_keywords.items():
-            for keyword in keywords:
-                if keyword in text_lower:
-                    invoice_score += 1
-                    logger.debug(f"🔍 Found invoice keyword '{keyword}' in category '{category}'")
+        # Check for delivery note keywords
+        for keyword in delivery_note_keywords:
+            if keyword in text_lower:
+                delivery_matches.append(keyword)
+                logger.debug(f"🔍 Found delivery keyword: '{keyword}'")
         
-        # Score delivery keywords
-        for category, keywords in delivery_keywords.items():
-            for keyword in keywords:
-                if keyword in text_lower:
-                    delivery_score += 1
-                    logger.debug(f"🔍 Found delivery keyword '{keyword}' in category '{category}'")
+        # Calculate normalized scores (0-1 scale)
+        invoice_score = len(invoice_matches) / len(invoice_keywords) if invoice_keywords else 0
+        delivery_score = len(delivery_matches) / len(delivery_note_keywords) if delivery_note_keywords else 0
         
-        # Use fuzzy matching for better detection
-        fuzzy_invoice_keywords = ['invoice', 'total', 'vat', 'supplier', 'bill']
-        fuzzy_delivery_keywords = ['delivery', 'received', 'items', 'signature', 'delivered']
+        logger.info(f"📊 Document classification scores:")
+        logger.info(f"   Invoice: {invoice_score:.3f} ({len(invoice_matches)}/{len(invoice_keywords)} keywords)")
+        logger.info(f"   Delivery: {delivery_score:.3f} ({len(delivery_matches)}/{len(delivery_note_keywords)} keywords)")
+        logger.info(f"   Invoice matches: {invoice_matches}")
+        logger.info(f"   Delivery matches: {delivery_matches}")
         
-        for keyword in fuzzy_invoice_keywords:
-            if find_fuzzy_keyword(text_lower, [keyword], threshold=0.8):
-                invoice_score += 0.5
-                logger.debug(f"🔍 Found fuzzy invoice keyword '{keyword}'")
-        
-        for keyword in fuzzy_delivery_keywords:
-            if find_fuzzy_keyword(text_lower, [keyword], threshold=0.8):
-                delivery_score += 0.5
-                logger.debug(f"🔍 Found fuzzy delivery keyword '{keyword}'")
-        
-        logger.info(f"📊 Document classification scores - Invoice: {invoice_score}, Delivery: {delivery_score}")
-        
-        # Determine document type with confidence thresholds
-        if invoice_score > delivery_score and invoice_score >= 2:
-            logger.info(f"✅ Classified as INVOICE (score: {invoice_score})")
-            return 'invoice'
-        elif delivery_score > invoice_score and delivery_score >= 2:
-            logger.info(f"✅ Classified as DELIVERY NOTE (score: {delivery_score})")
-            return 'delivery_note'
-        elif invoice_score == delivery_score and invoice_score >= 1:
-            logger.warning(f"⚠️ Ambiguous classification - equal scores: {invoice_score}")
+        # Determine document type based on scores
+        if invoice_score == 0 and delivery_score == 0:
+            logger.warning("⚠️ No keywords found - document cannot be classified")
             return 'unknown'
+        elif invoice_score > delivery_score:
+            logger.info(f"✅ Classified as INVOICE (score: {invoice_score:.3f})")
+            return 'invoice'
+        elif delivery_score > invoice_score:
+            logger.info(f"✅ Classified as DELIVERY NOTE (score: {delivery_score:.3f})")
+            return 'delivery_note'
         else:
-            logger.warning(f"⚠️ Insufficient keywords for classification - Invoice: {invoice_score}, Delivery: {delivery_score}")
+            logger.warning(f"⚠️ Equal scores - ambiguous classification (invoice: {invoice_score:.3f}, delivery: {delivery_score:.3f})")
             return 'unknown'
             
     except Exception as e:
@@ -1109,7 +1088,15 @@ async def process_pdf_with_ocr(file_content: bytes, filename: str, threshold: in
             elif doc_type == 'delivery_note':
                 parsed_fields = extract_delivery_note_fields(all_lines)
             else:
-                parsed_fields = {}
+                # Document could not be classified - return message instead of attempting field extraction
+                logger.warning("⚠️ Document classified as unknown - skipping field extraction")
+                parsed_fields = {
+                    'supplier_name': "This document could not be classified. Please review manually.",
+                    'invoice_number': "Unknown",
+                    'invoice_date': "Unknown",
+                    'total_amount': 0.0,
+                    'currency': "GBP"
+                }
         except Exception as field_error:
             logger.error(f"❌ Field extraction failed: {field_error}")
             parsed_fields = {
@@ -1240,7 +1227,15 @@ async def process_image_with_ocr(file_content: bytes, filename: str, threshold: 
             elif doc_type == 'delivery_note':
                 parsed_fields = extract_delivery_note_fields(lines)
             else:
-                parsed_fields = {}
+                # Document could not be classified - return message instead of attempting field extraction
+                logger.warning("⚠️ Document classified as unknown - skipping field extraction")
+                parsed_fields = {
+                    'supplier_name': "This document could not be classified. Please review manually.",
+                    'invoice_number': "Unknown",
+                    'invoice_date': "Unknown",
+                    'total_amount': 0.0,
+                    'currency': "GBP"
+                }
         except Exception as field_error:
             logger.error(f"❌ Field extraction failed: {field_error}")
             logger.info("OCR output:")
