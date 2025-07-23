@@ -26,8 +26,8 @@ async def get_invoices():
             i.id,
             i.invoice_number,
             i.invoice_date,
-            i.supplier,
-            i.total_value,
+            i.supplier_name,
+            i.total_amount,
             i.status,
             i.upload_timestamp,
             i.venue,
@@ -80,7 +80,7 @@ async def get_invoice_summary():
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_invoices,
-                SUM(total_value) as total_value,
+                SUM(total_amount) as total_value,
                 SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) as matched_count,
                 SUM(CASE WHEN status = 'discrepancy' THEN 1 ELSE 0 END) as discrepancy_count,
                 SUM(CASE WHEN status = 'not_paired' THEN 1 ELSE 0 END) as not_paired_count,

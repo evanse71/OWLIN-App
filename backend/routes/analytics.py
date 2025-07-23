@@ -23,12 +23,12 @@ async def get_dashboard_analytics():
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_invoices,
-                SUM(total_value) as total_value,
+                SUM(total_amount) as total_value,
                 COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_invoices,
                 COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as discrepancy_invoices,
                 COUNT(CASE WHEN status = 'not_paired' THEN 1 END) as not_paired_invoices,
                 COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing_invoices,
-                COUNT(DISTINCT supplier) as total_suppliers,
+                COUNT(DISTINCT supplier_name) as total_suppliers,
                 COUNT(DISTINCT venue) as total_venues
             FROM invoices
         """)
@@ -55,9 +55,9 @@ async def get_dashboard_analytics():
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_flagged,
-                SUM(ABS(qty * price)) as total_error_value,
+                SUM(ABS(quantity * unit_price)) as total_error_value,
                 COUNT(DISTINCT invoice_id) as affected_invoices
-            FROM invoices_line_items 
+            FROM invoice_line_items 
             WHERE flagged = 1
         """)
         
@@ -74,7 +74,7 @@ async def get_dashboard_analytics():
             SELECT 
                 DATE(upload_timestamp) as date,
                 COUNT(*) as invoice_count,
-                SUM(total_value) as daily_value
+                SUM(total_amount) as daily_value
             FROM invoices 
             WHERE upload_timestamp >= ?
             GROUP BY DATE(upload_timestamp)
@@ -93,14 +93,14 @@ async def get_dashboard_analytics():
         # Get top suppliers by value
         cursor.execute("""
             SELECT 
-                supplier,
+                supplier_name,
                 COUNT(*) as invoice_count,
-                SUM(total_value) as total_value
+                SUM(total_amount) as total_value
             FROM invoices 
-            WHERE supplier IS NOT NULL AND supplier != ''
-            GROUP BY supplier
+            WHERE supplier_name IS NOT NULL AND supplier_name != ''
+            GROUP BY supplier_name
             ORDER BY total_value DESC
-            LIMIT 5
+            LIMIT 10
         """)
         
         top_suppliers = []
@@ -117,7 +117,7 @@ async def get_dashboard_analytics():
             SELECT 
                 venue,
                 COUNT(*) as invoice_count,
-                SUM(total_value) as total_value
+                SUM(total_amount) as total_value
             FROM invoices 
             WHERE venue IS NOT NULL AND venue != ''
             GROUP BY venue
@@ -162,7 +162,7 @@ async def get_analytics_trends(days: int = 30):
             SELECT 
                 DATE(upload_timestamp) as date,
                 COUNT(*) as invoice_count,
-                SUM(total_value) as daily_value,
+                SUM(total_amount) as daily_value,
                 COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_count,
                 COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as discrepancy_count,
                 COUNT(CASE WHEN status = 'not_paired' THEN 1 END) as not_paired_count
@@ -189,8 +189,8 @@ async def get_analytics_trends(days: int = 30):
             SELECT 
                 strftime('%Y-%W', upload_timestamp) as week,
                 COUNT(*) as invoice_count,
-                SUM(total_value) as weekly_value,
-                AVG(total_value) as avg_invoice_value
+                SUM(total_amount) as weekly_value,
+                AVG(total_amount) as avg_invoice_value
             FROM invoices 
             WHERE upload_timestamp >= ?
             GROUP BY strftime('%Y-%W', upload_timestamp)
@@ -232,7 +232,7 @@ async def get_system_performance():
                 COUNT(CASE WHEN status = 'matched' THEN 1 END) as successful,
                 COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as with_discrepancies,
                 COUNT(CASE WHEN status = 'not_paired' THEN 1 END) as unpaired,
-                AVG(total_value) as avg_invoice_value,
+                AVG(total_amount) as avg_invoice_value,
                 MIN(upload_timestamp) as first_upload,
                 MAX(upload_timestamp) as last_upload
             FROM invoices
@@ -295,7 +295,7 @@ async def get_system_health():
         cursor.execute("SELECT COUNT(*) FROM invoices")
         total_invoices = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM invoices_line_items")
+        cursor.execute("SELECT COUNT(*) FROM invoice_line_items")
         total_line_items = cursor.fetchone()[0]
         
         # Get recent activity (last 24 hours)
@@ -304,7 +304,7 @@ async def get_system_health():
         recent_uploads = cursor.fetchone()[0]
         
         # Get error rate
-        cursor.execute("SELECT COUNT(*) FROM invoices_line_items WHERE flagged = 1")
+        cursor.execute("SELECT COUNT(*) FROM invoice_line_items WHERE flagged = 1")
         flagged_items = cursor.fetchone()[0]
         
         error_rate = 0.0
