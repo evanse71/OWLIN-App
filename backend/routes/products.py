@@ -13,15 +13,15 @@ def get_available_products() -> List[str]:
     try:
         conn = sqlite3.connect("data/owlin.db")
         query = """
-            SELECT DISTINCT li.item 
-            FROM line_items li 
-            JOIN invoices i ON li.invoice_id = i.id 
-            WHERE li.item IS NOT NULL 
-            ORDER BY li.item
+            SELECT DISTINCT ili.item_description 
+            FROM invoice_line_items ili 
+            JOIN invoices i ON ili.invoice_id = i.id 
+            WHERE ili.item_description IS NOT NULL 
+            ORDER BY ili.item_description
         """
         df = pd.read_sql_query(query, conn)
         conn.close()
-        return df['item'].tolist() if not df.empty else []
+        return df['item_description'].tolist() if not df.empty else []
     except Exception as e:
         print(f"Error fetching available products: {e}")
         return []
@@ -33,11 +33,11 @@ def get_historical_data(item_name: str) -> List[Dict[str, Any]]:
         query = """
             SELECT 
                 strftime('%Y-%m-%d', i.invoice_date) as date,
-                AVG(li.unit_price) as avg_price,
+                AVG(ili.unit_price) as avg_price,
                 COUNT(*) as transactions
-            FROM line_items li
-            JOIN invoices i ON li.invoice_id = i.id
-            WHERE li.item = ? AND li.unit_price IS NOT NULL
+            FROM invoice_line_items ili
+            JOIN invoices i ON ili.invoice_id = i.id
+            WHERE ili.item_description = ? AND ili.unit_price IS NOT NULL
             GROUP BY strftime('%Y-%m', i.invoice_date)
             ORDER BY date
         """

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routes import upload, invoices, flagged_issues, suppliers, analytics, ocr, products
-from backend.routes import upload_fixed as upload
+from backend.routes import invoices, flagged_issues, suppliers, analytics, ocr, products
+from backend.routes import upload_fixed
 
 app = FastAPI(title="Owlin API", version="1.0.0")
 
@@ -15,7 +15,7 @@ app.add_middleware(
 )
 
 # Include all route modules
-app.include_router(upload.router, prefix="/api")
+app.include_router(upload_fixed.router, prefix="/api")
 app.include_router(invoices.router, prefix="/api")
 app.include_router(flagged_issues.router, prefix="/api")
 app.include_router(suppliers.router, prefix="/api")

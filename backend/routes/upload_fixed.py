@@ -548,6 +548,7 @@ async def process_single_page_ocr(image: Image.Image, page_number: int, filename
 async def process_upload(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
     """Process uploaded file and return list of invoice data for each page"""
     logger.info(f"🚀 Starting multi-page processing for: {filename}")
+    logger.info(f"📊 File size: {len(file_bytes)} bytes")
     
     try:
         results = []
@@ -556,11 +557,13 @@ async def process_upload(file_bytes: bytes, filename: str) -> List[Dict[str, Any
             # Convert PDF to images
             logger.info("📄 Processing as multi-page PDF")
             images = convert_pdf_to_images(file_bytes)
+            logger.info(f"📋 Converted PDF to {len(images)} images")
             
             # Process each page
             for page_num, image in enumerate(images, 1):
                 logger.info(f"🔄 Processing page {page_num}/{len(images)}")
                 result = await process_single_page_ocr(image, page_num, filename)
+                logger.info(f"📋 Page {page_num} result: {result}")
                 results.append(result)
                 
         else:
@@ -568,9 +571,11 @@ async def process_upload(file_bytes: bytes, filename: str) -> List[Dict[str, Any
             logger.info("🖼️ Processing as single image")
             image = Image.open(io.BytesIO(file_bytes))
             result = await process_single_page_ocr(image, 1, filename)
+            logger.info(f"📋 Single image result: {result}")
             results.append(result)
         
         logger.info(f"✅ Multi-page processing completed. Found {len(results)} pages/invoices")
+        logger.info(f"📋 All results: {results}")
         return results
         
     except Exception as e:
@@ -745,6 +750,10 @@ def create_invoice_record(file_id: str, parsed_data: Dict, confidence: float,
         # Determine status
         if is_utility_invoice:
             status = 'utility'
+        elif confidence == 0.0:
+            status = 'error'  # OCR completely failed
+        elif supplier_name == 'Document requires manual review' or supplier_name == 'Document could not be automatically classified. Please review manually. Detected text suggests this might be from: Unknown Supplier':
+            status = 'waiting'  # OCR succeeded but needs manual review
         else:
             status = 'waiting'
         
@@ -914,14 +923,21 @@ async def upload_invoice(file: UploadFile = File(...)):
         page_results = await process_upload(file_bytes, file.filename)
         logger.info(f"✅ Multi-page processing completed. Found {len(page_results)} pages")
         
+        # Debug: Log each page result
+        for i, page_result in enumerate(page_results):
+            logger.info(f"📋 Page {i+1} result: success={page_result.get('success')}, error={page_result.get('error', 'None')}")
+            if page_result.get('success'):
+                logger.info(f"📋 Page {i+1} parsed data: {page_result.get('parsed_data', {})}")
+        
         # Step 8: Create invoice records for each page
         logger.info("🔄 Step 8: Creating invoice records...")
         invoice_ids = []
         match_results = []
         
         for page_result in page_results:
+            # Always create invoice record, regardless of OCR success
             if page_result['success']:
-                # Create invoice record for this page
+                # Create invoice record for successful OCR
                 invoice_id = create_invoice_record(
                     file_id=file_id,
                     parsed_data=page_result['parsed_data'],
@@ -943,8 +959,31 @@ async def upload_invoice(file: UploadFile = File(...)):
                     match_results.append({'matched': False, 'reason': 'Utility invoice - no delivery note required'})
                     logger.info(f"✅ Skipped matching for utility invoice on page {page_result['page_number']}")
             else:
+                # Create invoice record for failed OCR with error status
                 logger.warning(f"⚠️ Page {page_result['page_number']} failed processing: {page_result.get('error', 'Unknown error')}")
+                
+                # Create a minimal parsed_data for failed OCR
+                failed_parsed_data = {
+                    'supplier_name': 'Document requires manual review',
+                    'invoice_number': 'Unknown - requires manual review',
+                    'invoice_date': 'Unknown - requires manual review',
+                    'total_amount': 0.0,
+                    'currency': 'GBP'
+                }
+                
+                invoice_id = create_invoice_record(
+                    file_id=file_id,
+                    parsed_data=failed_parsed_data,
+                    confidence=page_result['confidence_score'],  # Use actual confidence from OCR
+                    ocr_text=page_result.get('ocr_text', ''),
+                    parent_pdf_filename=file.filename if is_pdf_file(file.filename) else None,
+                    page_number=page_result['page_number'],
+                    is_utility_invoice=False,
+                    utility_keywords=[]
+                )
+                invoice_ids.append(invoice_id)
                 match_results.append({'matched': False, 'reason': f"Processing failed: {page_result.get('error', 'Unknown error')}"})
+                logger.info(f"✅ Created invoice record for failed page {page_result['page_number']} with ID: {invoice_id}")
         
         # Step 9: Update file status to completed
         logger.info("🔄 Step 9: Updating file status to completed...")

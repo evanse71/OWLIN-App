@@ -19,7 +19,7 @@ export interface Invoice {
   invoice_date?: string;
   supplier_name?: string;
   total_amount?: number;
-  status: 'pending' | 'scanned' | 'matched' | 'unmatched' | 'error';
+  status: 'pending' | 'scanned' | 'matched' | 'unmatched' | 'error' | 'waiting' | 'utility';
   confidence?: number;
   upload_timestamp: string;
   delivery_note?: {
@@ -27,6 +27,11 @@ export interface Invoice {
     delivery_note_number: string;
     delivery_date: string;
   } | null;
+  delivery_note_required?: boolean;
+  is_utility_invoice?: boolean;
+  utility_keywords?: string[];
+  parent_pdf_filename?: string;
+  page_number?: number;
 }
 
 export interface DeliveryNote {
@@ -251,7 +256,11 @@ class ApiService {
     );
 
     const scannedAwaitingMatch = [
-      ...invoices.filter(invoice => invoice.status === 'unmatched'),
+      ...invoices.filter(invoice => 
+        invoice.status === 'unmatched' || 
+        invoice.status === 'waiting' || 
+        invoice.status === 'utility'
+      ),
       ...deliveryNotes.filter(dn => dn.status === 'unmatched')
     ];
 

@@ -17,23 +17,23 @@ def _get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
 def _detect_line_item_table(conn: sqlite3.Connection) -> str:
     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {row[0] for row in cur.fetchall()}
-    for name in ("line_items", "invoice_line_items", "invoices_line_items"):
-        if name in tables:
-            return name
-    raise RuntimeError("Line items table not found in database")
+    # Always use invoice_line_items as that's the correct table name
+    if "invoice_line_items" in tables:
+        return "invoice_line_items"
+    raise RuntimeError("invoice_line_items table not found in database")
 
 def _global_mean_price(conn: sqlite3.Connection, table: str) -> Optional[float]:
-    query = f"SELECT AVG(price) FROM {table} WHERE price IS NOT NULL"
+    query = f"SELECT AVG(unit_price) FROM {table} WHERE unit_price IS NOT NULL"
     cur = conn.execute(query)
     value = cur.fetchone()[0]
     return float(value) if value is not None else None
 
 def _fetch_history(conn: sqlite3.Connection, item_name: str, table: str) -> pd.DataFrame:
     query = f"""
-        SELECT i.invoice_date as invoice_date, li.price as price
-        FROM {table} li
-        JOIN invoices i ON li.invoice_id = i.id
-        WHERE li.item = ? AND li.price IS NOT NULL AND i.invoice_date IS NOT NULL
+        SELECT i.invoice_date as invoice_date, ili.unit_price as price
+        FROM {table} ili
+        JOIN invoices i ON ili.invoice_id = i.id
+        WHERE ili.item_description = ? AND ili.unit_price IS NOT NULL AND i.invoice_date IS NOT NULL
         ORDER BY i.invoice_date
     """
     df = pd.read_sql_query(query, conn, params=[item_name])

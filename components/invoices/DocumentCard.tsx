@@ -88,6 +88,10 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
           return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">⚠️ Awaiting Match</span>;
         case 'scanned':
           return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">📄 Scanned</span>;
+        case 'waiting':
+          return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">⏳ Waiting</span>;
+        case 'utility':
+          return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">🧾 Utility Invoice</span>;
         case 'error':
           return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">❌ Error</span>;
         default:

@@ -22,15 +22,15 @@ async def get_suppliers():
         # Get unique suppliers with basic stats
         query = """
         SELECT 
-            supplier,
+            supplier_name,
             COUNT(DISTINCT i.id) as total_invoices,
-            SUM(i.total_value) as total_value,
-            AVG(i.total_value) as avg_invoice_value,
+            SUM(i.total_amount) as total_value,
+            AVG(i.total_amount) as avg_invoice_value,
             MIN(i.invoice_date) as first_invoice,
             MAX(i.invoice_date) as last_invoice
         FROM invoices i
-        WHERE supplier IS NOT NULL AND supplier != ''
-        GROUP BY supplier
+        WHERE supplier_name IS NOT NULL AND supplier_name != ''
+        GROUP BY supplier_name
         ORDER BY total_value DESC
         """
         
@@ -65,18 +65,17 @@ async def get_supplier_analytics():
         # Get supplier analytics with line item details
         query = """
         SELECT 
-            i.supplier,
+            i.supplier_name,
             COUNT(DISTINCT i.id) as total_invoices,
-            SUM(i.total_value) as total_value,
-            COUNT(li.id) as total_line_items,
-            SUM(CASE WHEN li.flagged = 1 THEN 1 ELSE 0 END) as flagged_items,
-            AVG(li.price) as avg_item_price,
-            STDDEV(li.price) as price_volatility,
-            COUNT(DISTINCT li.item) as unique_items
+            SUM(i.total_amount) as total_value,
+            COUNT(ili.id) as total_line_items,
+            SUM(CASE WHEN ili.flagged = 1 THEN 1 ELSE 0 END) as flagged_items,
+            AVG(ili.unit_price) as avg_item_price,
+            COUNT(DISTINCT ili.item_description) as unique_items
         FROM invoices i
-        LEFT JOIN invoices_line_items li ON i.id = li.invoice_id
-        WHERE i.supplier IS NOT NULL AND i.supplier != ''
-        GROUP BY i.supplier
+        LEFT JOIN invoice_line_items ili ON i.id = ili.invoice_id
+        WHERE i.supplier_name IS NOT NULL AND i.supplier_name != ''
+        GROUP BY i.supplier_name
         ORDER BY total_value DESC
         """
         
@@ -97,8 +96,7 @@ async def get_supplier_analytics():
                 "flagged_items": flagged_items,
                 "mismatch_rate": round(mismatch_rate, 1),
                 "avg_item_price": float(row[5]) if row[5] else 0.0,
-                "price_volatility": float(row[6]) if row[6] else 0.0,
-                "unique_items": row[7]
+                "unique_items": row[6] or 0
             }
             analytics.append(supplier_analytics)
         
@@ -121,12 +119,12 @@ async def get_supplier_detail(supplier_name: str):
                 id,
                 invoice_number,
                 invoice_date,
-                total_value,
+                total_amount,
                 status,
                 upload_timestamp,
                 venue
             FROM invoices 
-            WHERE supplier = ?
+            WHERE supplier_name = ?
             ORDER BY invoice_date DESC
         """, (supplier_name,))
         
@@ -148,13 +146,13 @@ async def get_supplier_detail(supplier_name: str):
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_invoices,
-                SUM(total_value) as total_value,
-                AVG(total_value) as avg_invoice_value,
+                SUM(total_amount) as total_value,
+                AVG(total_amount) as avg_invoice_value,
                 MIN(invoice_date) as first_invoice,
                 MAX(invoice_date) as last_invoice,
                 COUNT(DISTINCT venue) as venues_used
             FROM invoices 
-            WHERE supplier = ?
+            WHERE supplier_name = ?
         """, (supplier_name,))
         
         summary_row = cursor.fetchone()
@@ -170,15 +168,15 @@ async def get_supplier_detail(supplier_name: str):
         # Get top items from this supplier
         cursor.execute("""
             SELECT 
-                li.item,
+                ili.item_description,
                 COUNT(*) as frequency,
-                AVG(li.price) as avg_price,
-                SUM(li.qty) as total_qty,
-                SUM(CASE WHEN li.flagged = 1 THEN 1 ELSE 0 END) as flagged_count
-            FROM invoices_line_items li
-            JOIN invoices i ON li.invoice_id = i.id
-            WHERE i.supplier = ?
-            GROUP BY li.item
+                AVG(ili.unit_price) as avg_price,
+                SUM(ili.quantity) as total_qty,
+                SUM(CASE WHEN ili.flagged = 1 THEN 1 ELSE 0 END) as flagged_count
+            FROM invoice_line_items ili
+            JOIN invoices i ON ili.invoice_id = i.id
+            WHERE i.supplier_name = ?
+            GROUP BY ili.item_description
             ORDER BY frequency DESC
             LIMIT 10
         """, (supplier_name,))
@@ -222,12 +220,12 @@ async def get_supplier_performance(supplier_name: str, days: int = 30):
             SELECT 
                 DATE(i.invoice_date) as date,
                 COUNT(*) as invoice_count,
-                SUM(i.total_value) as daily_value,
-                AVG(i.total_value) as avg_invoice_value,
+                SUM(i.total_amount) as daily_value,
+                AVG(i.total_amount) as avg_invoice_value,
                 COUNT(CASE WHEN i.status = 'matched' THEN 1 END) as matched_invoices,
                 COUNT(CASE WHEN i.status = 'discrepancy' THEN 1 END) as discrepancy_invoices
             FROM invoices i
-            WHERE i.supplier = ? 
+            WHERE i.supplier_name = ? 
             AND i.invoice_date >= ? 
             AND i.invoice_date <= ?
             GROUP BY DATE(i.invoice_date)
@@ -267,14 +265,14 @@ async def get_suppliers_overview():
         # Get overall supplier statistics
         cursor.execute("""
             SELECT 
-                COUNT(DISTINCT supplier) as total_suppliers,
-                SUM(total_value) as total_value,
-                AVG(total_value) as avg_supplier_value,
+                COUNT(DISTINCT supplier_name) as total_suppliers,
+                SUM(total_amount) as total_value,
+                AVG(total_amount) as avg_supplier_value,
                 COUNT(*) as total_invoices,
                 COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_invoices,
                 COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as discrepancy_invoices
             FROM invoices
-            WHERE supplier IS NOT NULL AND supplier != ''
+            WHERE supplier_name IS NOT NULL AND supplier_name != ''
         """)
         
         row = cursor.fetchone()

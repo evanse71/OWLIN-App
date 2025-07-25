@@ -22,21 +22,21 @@ async def get_flagged_issues():
         # Get flagged line items with invoice context
         query = """
         SELECT 
-            li.id,
-            li.item,
-            li.qty,
-            li.price,
-            li.flagged,
-            li.source,
-            li.upload_timestamp,
+            ili.id,
+            ili.item_description,
+            ili.quantity,
+            ili.unit_price,
+            ili.flagged,
+            ili.source,
+            i.upload_timestamp,
             i.invoice_number,
-            i.supplier,
+            i.supplier_name,
             i.invoice_date,
             i.venue
-        FROM invoices_line_items li
-        JOIN invoices i ON li.invoice_id = i.id
-        WHERE li.flagged = 1
-        ORDER BY li.upload_timestamp DESC
+        FROM invoice_line_items ili
+        JOIN invoices i ON ili.invoice_id = i.id
+        WHERE ili.flagged = 1
+        ORDER BY i.upload_timestamp DESC
         """
         
         cursor.execute(query)
@@ -77,11 +77,12 @@ async def get_flagged_issues_summary():
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_issues,
-                SUM(ABS(qty * price)) as total_error_value,
+                SUM(ABS(quantity * unit_price)) as total_error_value,
                 COUNT(DISTINCT invoice_id) as affected_invoices,
-                COUNT(DISTINCT supplier) as affected_suppliers
-            FROM invoices_line_items 
-            WHERE flagged = 1
+                COUNT(DISTINCT i.supplier_name) as affected_suppliers
+            FROM invoice_line_items ili
+            JOIN invoices i ON ili.invoice_id = i.id
+            WHERE ili.flagged = 1
         """)
         
         row = cursor.fetchone()
@@ -95,13 +96,13 @@ async def get_flagged_issues_summary():
         # Get issues by supplier
         cursor.execute("""
             SELECT 
-                i.supplier,
+                i.supplier_name,
                 COUNT(*) as issue_count,
-                SUM(ABS(li.qty * li.price)) as total_error
-            FROM invoices_line_items li
-            JOIN invoices i ON li.invoice_id = i.id
-            WHERE li.flagged = 1
-            GROUP BY i.supplier
+                SUM(ABS(ili.quantity * ili.unit_price)) as total_error
+            FROM invoice_line_items ili
+            JOIN invoices i ON ili.invoice_id = i.id
+            WHERE ili.flagged = 1
+            GROUP BY i.supplier_name
             ORDER BY issue_count DESC
         """)
         
