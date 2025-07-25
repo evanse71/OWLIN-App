@@ -4,10 +4,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from .pairing import match_documents
 from .ocr import parse_with_ocr
 from backend.matching import score_invoice_delivery_match as score_match
+import sqlite3
 
 router = APIRouter()
 
@@ -277,3 +278,28 @@ async def list_delivery_files():
                 "uploaded_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
             })
     return {"files": files} 
+
+DB_PATH = "data/owlin.db"
+UPLOADS_DIR = "data/uploads/"
+
+@router.get("/files/{document_id}/preview")
+def preview_file(document_id: str):
+    # Look up the file path in the uploaded_files table
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_path FROM uploaded_files WHERE id = ?", (document_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+    file_path = row[0]
+    # Only allow certain extensions
+    allowed_exts = {".pdf", ".jpg", ".jpeg", ".png"}
+    import os
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail="File type not supported for preview")
+    abs_path = os.path.join(UPLOADS_DIR, os.path.basename(file_path))
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    return FileResponse(abs_path, media_type=None, filename=os.path.basename(file_path)) 

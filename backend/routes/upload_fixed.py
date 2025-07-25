@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import shutil
 import io
 from PIL import Image
@@ -1506,3 +1506,75 @@ async def get_delivery_notes():
     
     conn.close()
     return {"delivery_notes": delivery_notes} 
+
+@router.get("/files/{document_id}/preview")
+async def preview_file(document_id: str):
+    """
+    Preview a file by document ID.
+    
+    Args:
+        document_id (str): The document ID from the uploaded_files table
+        
+    Returns:
+        FileResponse: The file content for preview
+        
+    Raises:
+        HTTPException: 404 if document not found, 400 if file type not supported
+    """
+    try:
+        # Look up the document in the uploaded_files table
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT original_filename, file_path 
+            FROM uploaded_files 
+            WHERE id = ?
+        """, (document_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        original_filename, file_path = row
+        
+        # Only allow certain file extensions for preview
+        allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png"}
+        file_extension = Path(original_filename).suffix.lower()
+        
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File type {file_extension} not supported for preview"
+            )
+        
+        # Construct the full file path
+        full_file_path = Path("data") / file_path
+        
+        if not full_file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
+        
+        # Determine media type based on file extension
+        media_types = {
+            ".pdf": "application/pdf",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png"
+        }
+        
+        media_type = media_types.get(file_extension)
+        
+        # Return the file using FileResponse
+        return FileResponse(
+            path=str(full_file_path),
+            media_type=media_type,
+            filename=original_filename
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing file {document_id}: {str(e)}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Internal server error") 

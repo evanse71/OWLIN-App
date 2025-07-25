@@ -7,9 +7,10 @@ const NavBar: React.FC = () => {
 
   const navItems = [
     { href: '/', label: 'Dashboard', icon: '🏠' },
-    { href: '/invoices', label: 'Invoices', icon: '📄' },
+    { href: '/invoices', label: 'Invoices', icon: '��' },
+    { href: '/document-queue', label: 'Document Queue', icon: '📋' },
     { href: '/flagged', label: 'Flagged Issues', icon: '⚠️' },
-    { href: '/suppliers', label: 'Suppliers', icon: '��' },
+    { href: '/suppliers', label: 'Suppliers', icon: '🏢' },
     { href: '/product-trends', label: 'Product Trends', icon: '📈' },
     { href: '/notes', label: 'Notes', icon: '📝' },
     { href: '/settings', label: 'Settings', icon: '⚙️' },

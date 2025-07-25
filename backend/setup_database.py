@@ -28,12 +28,14 @@ def create_tables():
             file_path TEXT NOT NULL,
             file_size INTEGER,
             upload_timestamp TEXT NOT NULL,
-            processing_status TEXT DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed'
+            processing_status TEXT DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed', 'reviewed', 'escalated'
             extracted_text TEXT,
             confidence REAL,
             processed_images INTEGER,
             extraction_timestamp TEXT,
-            error_message TEXT
+            error_message TEXT,
+            reviewed_by TEXT,
+            reviewed_at TEXT
         )
     """)
     
@@ -47,12 +49,14 @@ def create_tables():
             supplier_name TEXT,
             total_amount REAL,
             currency TEXT DEFAULT 'GBP',
-            status TEXT DEFAULT 'pending',  -- 'pending', 'scanned', 'matched', 'unmatched', 'error'
+            status TEXT DEFAULT 'pending',  -- 'pending', 'scanned', 'matched', 'unmatched', 'error', 'reviewed'
             confidence REAL,
             upload_timestamp TEXT NOT NULL,
             processing_timestamp TEXT,
             delivery_note_id TEXT,  -- Foreign key to delivery_notes
             venue TEXT,
+            reviewed_by TEXT,
+            reviewed_at TEXT,
             FOREIGN KEY (file_id) REFERENCES uploaded_files (id),
             FOREIGN KEY (delivery_note_id) REFERENCES delivery_notes (id)
         )
@@ -66,11 +70,13 @@ def create_tables():
             delivery_note_number TEXT,
             delivery_date TEXT,
             supplier_name TEXT,
-            status TEXT DEFAULT 'pending',  -- 'pending', 'scanned', 'matched', 'unmatched', 'error'
+            status TEXT DEFAULT 'pending',  -- 'pending', 'scanned', 'matched', 'unmatched', 'error', 'reviewed'
             confidence REAL,
             upload_timestamp TEXT NOT NULL,
             processing_timestamp TEXT,
             invoice_id TEXT,  -- Foreign key to invoices
+            reviewed_by TEXT,
+            reviewed_at TEXT,
             FOREIGN KEY (file_id) REFERENCES uploaded_files (id),
             FOREIGN KEY (invoice_id) REFERENCES invoices (id)
         )

@@ -1,5 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileStatus, Invoice, DeliveryNote } from '@/services/api';
+import ConfidenceBadge from '@/components/common/ConfidenceBadge';
+import SupplierInsights from './SupplierInsights';
+import DeliveryNotePairing from './DeliveryNotePairing';
 
 // Local Document type from InvoicesUploadPanel
 interface LocalDocument {
@@ -26,6 +29,11 @@ interface DocumentCardProps {
   onClick?: () => void;
   onRetry?: () => void;
   onCancel?: () => void;
+  onEdit?: (field: string, value: any) => void;
+  onComment?: (message: string) => void;
+  onCreditNote?: () => void;
+  onPairDeliveryNote?: (deliveryNoteId: string) => void;
+  onReOCR?: () => void;
   // Utility invoice props
   isUtilityInvoice?: boolean;
   deliveryNoteRequired?: boolean;
@@ -38,15 +46,43 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   onClick, 
   onRetry, 
   onCancel,
+  onEdit,
+  onComment,
+  onCreditNote,
+  onPairDeliveryNote,
+  onReOCR,
   isUtilityInvoice = false,
   deliveryNoteRequired = true,
   multipleInvoices = false,
   invoiceCount = 1,
 }) => {
+  const [showSupplierInsights, setShowSupplierInsights] = useState(false);
+  const [showDeliveryNotePairing, setShowDeliveryNotePairing] = useState(false);
+
   const isFileStatus = 'processing_status' in document;
   const isInvoice = 'invoice_number' in document;
   const isDeliveryNote = 'delivery_note_number' in document;
   const isLocalDocument = 'filename' in document && 'supplier' in document && 'invoiceNumber' in document;
+
+  // Get supplier name for insights
+  const getSupplierName = () => {
+    if (isInvoice) return document.supplier_name;
+    if (isDeliveryNote) return document.supplier_name;
+    if (isLocalDocument) return document.supplier;
+    return 'Unknown Supplier';
+  };
+
+  // Get invoice number for pairing
+  const getInvoiceNumber = () => {
+    if (isInvoice) return document.invoice_number;
+    if (isLocalDocument) return document.invoiceNumber;
+    return undefined;
+  };
+
+  // Get document ID
+  const getDocumentId = () => {
+    return document.id;
+  };
 
   const getStatusBadge = () => {
     if (isFileStatus) {
@@ -139,113 +175,184 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   const info = getDocumentInfo();
 
   return (
-    <div 
-      className={`
-        bg-white rounded-lg shadow-sm border border-gray-200 p-4 cursor-pointer
-        hover:shadow-md transition-shadow duration-200 relative
-        ${isFileStatus && document.processing_status === 'failed' ? 'border-red-200 bg-red-50' : ''}
-      `}
-      onClick={onClick}
-    >
-      {/* Utility Invoice Badge */}
-      {isUtilityInvoice && (
-        <div className="absolute top-2 left-2 z-10">
-          <div className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full border border-gray-200 flex items-center gap-1">
-            <span>🧾</span>
-            <span>Service Invoice</span>
-            <span className="text-gray-400">•</span>
-            <span>No Delivery Note Needed</span>
+    <div className="relative">
+      <div 
+        className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-all duration-200 cursor-pointer ${
+          onClick ? 'hover:border-blue-300 dark:hover:border-blue-600' : ''
+        }`}
+        onClick={onClick}
+      >
+        {/* Multiple Invoices Badge */}
+        {multipleInvoices && (
+          <div className="absolute top-2 left-2 z-10">
+            <div className="bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded-full border border-blue-200 flex items-center gap-1">
+              <span>📄</span>
+              <span>Invoice {invoiceCount > 1 ? `1/${invoiceCount}` : '1'} from PDF</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-between items-start mb-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center space-x-2">
+              <h3 className="text-sm font-medium text-gray-900 truncate">
+                {info.title}
+              </h3>
+              
+              {/* Supplier Insights Icon */}
+              {getSupplierName() && getSupplierName() !== 'Unknown Supplier' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowSupplierInsights(!showSupplierInsights);
+                  }}
+                  className="text-gray-400 hover:text-blue-600 transition-colors"
+                  title="View supplier insights"
+                >
+                  📊
+                </button>
+              )}
+            </div>
+            
+            <p className="text-xs text-gray-500 mt-1">
+              {info.subtitle}
+            </p>
+            
+            {/* Delivery Note Status for Invoices */}
+            {isInvoice && !isUtilityInvoice && (
+              <p className="text-xs text-gray-500 mt-1">
+                Delivery Note: {deliveryNoteRequired ? 'Required' : 'Not Required'}
+              </p>
+            )}
+            
+            {/* Delivery Note Status for Local Documents */}
+            {isLocalDocument && document.type === 'Invoice' && !isUtilityInvoice && (
+              <p className="text-xs text-gray-500 mt-1">
+                Delivery Note: {deliveryNoteRequired ? 'Required' : 'Not Required'}
+              </p>
+            )}
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            {getStatusBadge()}
+            
+            {/* Confidence Badge */}
+            {info.confidence !== undefined && (
+              <ConfidenceBadge 
+                confidence={Math.round(info.confidence * 100)}
+              />
+            )}
+            
+            {/* Action Buttons */}
+            <div className="flex items-center space-x-1">
+              {/* Pair Delivery Note Button */}
+              {isInvoice && document.status === 'scanned' && onPairDeliveryNote && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDeliveryNotePairing(true);
+                  }}
+                  className="text-gray-400 hover:text-blue-600 transition-colors"
+                  title="Pair with delivery note"
+                >
+                  🔗
+                </button>
+              )}
+              
+              {/* Credit Note Button */}
+              {isInvoice && onCreditNote && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreditNote();
+                  }}
+                  className="text-gray-400 hover:text-orange-600 transition-colors"
+                  title="Suggest credit note"
+                >
+                  💰
+                </button>
+              )}
+              
+              {/* Re-OCR Button for Low Confidence */}
+              {info.confidence !== undefined && info.confidence < 0.7 && onReOCR && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReOCR();
+                  }}
+                  className="text-gray-400 hover:text-yellow-600 transition-colors"
+                  title="Re-run OCR"
+                >
+                  🔄
+                </button>
+              )}
+              
+              {onCancel && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCancel();
+                  }}
+                  className="text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Multiple Invoice Badge */}
-      {multipleInvoices && invoiceCount > 1 && (
-        <div className="absolute top-2 left-2 z-10">
-          <div className="bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded-full border border-blue-200 flex items-center gap-1">
-            <span>📄</span>
-            <span>Invoice {invoiceCount > 1 ? `1/${invoiceCount}` : '1'} from PDF</span>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-between items-start mb-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-gray-900 truncate">
-            {info.title}
-          </h3>
-          <p className="text-xs text-gray-500 mt-1">
-            {info.subtitle}
+        {info.details && (
+          <p className="text-sm text-gray-700 mb-2">
+            {info.details}
           </p>
-          
-          {/* Delivery Note Status for Invoices */}
-          {isInvoice && !isUtilityInvoice && (
-            <p className="text-xs text-gray-500 mt-1">
-              Delivery Note: {deliveryNoteRequired ? 'Required' : 'Not Required'}
-            </p>
-          )}
-          
-          {/* Delivery Note Status for Local Documents */}
-          {isLocalDocument && document.type === 'Invoice' && !isUtilityInvoice && (
-            <p className="text-xs text-gray-500 mt-1">
-              Delivery Note: {deliveryNoteRequired ? 'Required' : 'Not Required'}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center space-x-2">
-          {getStatusBadge()}
-          {onCancel && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCancel();
-              }}
-              className="text-gray-400 hover:text-red-500 transition-colors"
-            >
-              ×
-            </button>
-          )}
-        </div>
+        )}
+
+        {info.matched && (
+          <p className="text-xs text-green-600 mb-2">
+            {info.matched}
+          </p>
+        )}
+
+        {/* Click to View Details Hint */}
+        {onClick && (
+          <div className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+            Click to view details →
+          </div>
+        )}
+
+        {isFileStatus && document.processing_status === 'processing' && (
+          <div className="mt-3">
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {info.details && (
-        <p className="text-sm text-gray-700 mb-2">
-          {info.details}
-        </p>
-      )}
-
-      {info.matched && (
-        <p className="text-xs text-green-600 mb-2">
-          {info.matched}
-        </p>
-      )}
-
-      {info.confidence !== undefined && (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-500">
-            Confidence: {Math.round(info.confidence * 100)}%
-          </span>
-          {onRetry && info.confidence < 0.6 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRetry();
-              }}
-              className="text-xs text-blue-600 hover:text-blue-800"
-            >
-              Retry
-            </button>
-          )}
+      {/* Supplier Insights Popup */}
+      {showSupplierInsights && (
+        <div className="absolute top-0 left-0 z-50">
+          <SupplierInsights
+            supplierName={getSupplierName() || ''}
+            isVisible={showSupplierInsights}
+            onClose={() => setShowSupplierInsights(false)}
+          />
         </div>
       )}
 
-      {isFileStatus && document.processing_status === 'processing' && (
-        <div className="mt-3">
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
-          </div>
-        </div>
-      )}
+      {/* Delivery Note Pairing Modal */}
+      <DeliveryNotePairing
+        isOpen={showDeliveryNotePairing}
+        onClose={() => setShowDeliveryNotePairing(false)}
+        invoiceId={getDocumentId()}
+        invoiceNumber={getInvoiceNumber()}
+        supplierName={getSupplierName()}
+        onPair={(deliveryNoteId) => {
+          onPairDeliveryNote?.(deliveryNoteId);
+          setShowDeliveryNotePairing(false);
+        }}
+      />
     </div>
   );
 };

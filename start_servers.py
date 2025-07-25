@@ -1,32 +1,83 @@
 #!/usr/bin/env python3
 """
-Script to start both the FastAPI backend and Next.js frontend servers.
+Start both FastAPI backend and Next.js frontend servers.
 """
 
 import subprocess
 import sys
-import os
 import time
-import signal
-import threading
-from pathlib import Path
+import socket
+import os
+
+# Configuration
+BACKEND_HOST = "0.0.0.0"
+BACKEND_PORT = "8000"
+FRONTEND_HOST = "0.0.0.0"
+FRONTEND_PORT = "3000"
+
+def check_ports():
+    """Check if ports are already in use."""
+    def is_port_in_use(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('localhost', port)) == 0
+    
+    if is_port_in_use(int(BACKEND_PORT)):
+        print(f"⚠️  Warning: Backend port {BACKEND_PORT} is already in use")
+    if is_port_in_use(int(FRONTEND_PORT)):
+        print(f"⚠️  Warning: Frontend port {FRONTEND_PORT} is already in use")
+
+def kill_existing_processes():
+    """Kill any existing server processes."""
+    try:
+        # Kill any existing uvicorn processes
+        subprocess.run(["pkill", "-f", "uvicorn"], check=False)
+        # Kill any existing next processes
+        subprocess.run(["pkill", "-f", "next"], check=False)
+        time.sleep(2)  # Wait for processes to terminate
+        print("✅ Killed existing server processes")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not kill existing processes: {e}")
 
 def start_backend():
     """Start the FastAPI backend server."""
     print("🚀 Starting FastAPI backend server...")
+    
+    # Set environment variables for development
+    env = os.environ.copy()
+    env['NODE_ENV'] = 'development'
+    env['ENVIRONMENT'] = 'development'
+    
     try:
-        # Start the backend server
         backend_process = subprocess.Popen([
-            sys.executable, "-m", "uvicorn", "backend.main:app", 
-            "--host", "0.0.0.0", "--port", "8000", "--reload",
-            "--reload-exclude", "node_modules",
-            "--reload-exclude", ".next",
-            "--reload-exclude", "data/uploads",
-            "--reload-exclude", "venv"
-        ], cwd=os.getcwd())
+            sys.executable, "-m", "uvicorn", "backend.main:app",
+            "--reload",
+            "--host", BACKEND_HOST,
+            "--port", BACKEND_PORT
+        ], env=env)
         
-        print("✅ Backend server started on http://localhost:8000")
-        return backend_process
+        # Wait a moment for the server to start
+        time.sleep(3)
+        
+        # Test if the server is responding
+        try:
+            import requests
+            response = requests.get(f"http://localhost:{BACKEND_PORT}/", timeout=5)
+            if response.status_code == 200:
+                print(f"✅ Backend server started on http://localhost:{BACKEND_PORT}")
+                print(f"   External access: http://{BACKEND_HOST}:{BACKEND_PORT}")
+                return backend_process
+            else:
+                print(f"❌ Backend server failed to start (status: {response.status_code})")
+                return None
+        except ImportError:
+            # requests not available, just assume it's working
+            print(f"✅ Backend server started on http://localhost:{BACKEND_PORT}")
+            print(f"   External access: http://{BACKEND_HOST}:{BACKEND_PORT}")
+            return backend_process
+        except Exception as e:
+            print(f"❌ Backend server failed to start: {e}")
+            return None
+            
     except Exception as e:
         print(f"❌ Failed to start backend server: {e}")
         return None
@@ -34,77 +85,81 @@ def start_backend():
 def start_frontend():
     """Start the Next.js frontend server."""
     print("🚀 Starting Next.js frontend server...")
+    
     try:
-        # Check if node_modules exists
-        if not Path("node_modules").exists():
-            print("📦 Installing npm dependencies...")
-            subprocess.run(["npm", "install"], check=True)
-        
-        # Start the frontend server on port 3000 (standard Next.js port)
         frontend_process = subprocess.Popen([
-            "npm", "run", "dev", "--", "--port", "3000"
-        ], cwd=os.getcwd())
+            "npm", "run", "dev"
+        ])
         
-        print("✅ Frontend server started on http://localhost:3000")
-        return frontend_process
+        # Wait for the server to start
+        time.sleep(5)
+        
+        # Test if the server is responding
+        try:
+            import requests
+            response = requests.get(f"http://localhost:{FRONTEND_PORT}/", timeout=10)
+            if response.status_code == 200:
+                print(f"✅ Frontend server started on http://localhost:{FRONTEND_PORT}")
+                print(f"   External access: http://{FRONTEND_HOST}:{FRONTEND_PORT}")
+                return frontend_process
+            else:
+                print(f"❌ Frontend server failed to start (status: {response.status_code})")
+                return None
+        except ImportError:
+            # requests not available, just assume it's working
+            print(f"✅ Frontend server started on http://localhost:{FRONTEND_PORT}")
+            print(f"   External access: http://{FRONTEND_HOST}:{FRONTEND_PORT}")
+            return frontend_process
+        except Exception as e:
+            print(f"❌ Frontend server failed to start: {e}")
+            return None
+            
     except Exception as e:
         print(f"❌ Failed to start frontend server: {e}")
         return None
 
 def main():
     """Main function to start both servers."""
-    print("🎯 Starting Owlin Application Servers...")
+    print("🎯 Starting Owlin Development Servers")
     print("=" * 50)
+    
+    # Check ports and kill existing processes
+    check_ports()
+    kill_existing_processes()
     
     # Start backend
     backend_process = start_backend()
     if not backend_process:
-        print("❌ Backend failed to start. Exiting.")
+        print("❌ Failed to start backend server. Exiting.")
         sys.exit(1)
-    
-    # Wait a moment for backend to initialize
-    time.sleep(2)
     
     # Start frontend
     frontend_process = start_frontend()
     if not frontend_process:
-        print("❌ Frontend failed to start. Stopping backend...")
+        print("❌ Failed to start frontend server. Exiting.")
         backend_process.terminate()
         sys.exit(1)
     
-    print("\n🎉 Both servers are running!")
-    print("📱 Frontend: http://localhost:3000")
-    print("🔧 Backend API: http://localhost:8000")
-    print("📚 API Docs: http://localhost:8000/docs")
-    print("\nPress Ctrl+C to stop both servers...")
+    print("\n" + "=" * 50)
+    print("🎉 Both servers started successfully!")
+    print(f"   Frontend: http://localhost:{FRONTEND_PORT}")
+    print(f"   Backend: http://localhost:{BACKEND_PORT}")
+    print("\n📝 Useful URLs:")
+    print(f"   - Invoice Management: http://localhost:{FRONTEND_PORT}/invoices")
+    print(f"   - API Documentation: http://localhost:{BACKEND_PORT}/docs")
+    print(f"   - API Health Check: http://localhost:{BACKEND_PORT}/health")
+    print("\n🛑 Press Ctrl+C to stop both servers")
+    print("=" * 50)
     
     try:
         # Keep the script running
         while True:
             time.sleep(1)
-            
-            # Check if processes are still running
-            if backend_process.poll() is not None:
-                print("❌ Backend server stopped unexpectedly")
-                break
-                
-            if frontend_process.poll() is not None:
-                print("❌ Frontend server stopped unexpectedly")
-                break
-                
     except KeyboardInterrupt:
         print("\n🛑 Stopping servers...")
-        
-        # Terminate both processes
-        if backend_process:
-            backend_process.terminate()
-            print("✅ Backend server stopped")
-            
-        if frontend_process:
-            frontend_process.terminate()
-            print("✅ Frontend server stopped")
-            
-        print("👋 Goodbye!")
+        backend_process.terminate()
+        frontend_process.terminate()
+        print("✅ Servers stopped")
 
 if __name__ == "__main__":
     main() 

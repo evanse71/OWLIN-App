@@ -32,6 +32,30 @@ export interface Invoice {
   utility_keywords?: string[];
   parent_pdf_filename?: string;
   page_number?: number;
+  ocr_text?: string;
+  // ✅ VAT calculations
+  subtotal?: number;
+  vat?: number;
+  vat_rate?: number;
+  total_incl_vat?: number;
+  // ✅ Enhanced line items with VAT calculations
+  line_items?: Array<{
+    description: string;
+    quantity: number;
+    unit_price?: number; // Legacy field
+    total_price?: number; // Legacy field
+    unit_price_excl_vat?: number;
+    unit_price_incl_vat?: number;
+    line_total_excl_vat?: number;
+    line_total_incl_vat?: number;
+    flagged?: boolean;
+  }>;
+  price_mismatches?: Array<{
+    description: string;
+    invoice_amount: number;
+    delivery_amount: number;
+    difference: number;
+  }>;
 }
 
 export interface DeliveryNote {
@@ -39,6 +63,7 @@ export interface DeliveryNote {
   delivery_note_number?: string;
   delivery_date?: string;
   supplier_name?: string;
+  total_amount?: number; // ✅ Add total_amount for price comparison
   status: 'pending' | 'scanned' | 'matched' | 'unmatched' | 'error';
   confidence?: number;
   upload_timestamp: string;
@@ -54,6 +79,48 @@ export interface DocumentGroup {
   scannedAwaitingMatch: (Invoice | DeliveryNote)[];
   matchedDocuments: (Invoice | DeliveryNote)[];
   failedDocuments: FileStatus[];
+}
+
+export interface DocumentQueueItem {
+  id: string;
+  filename: string;
+  file_type: string;
+  file_path: string;
+  file_size: number;
+  upload_date: string;
+  status: string;
+  status_badge: string;
+  confidence: number;
+  extracted_text?: string;
+  error_message?: string;
+  supplier_guess: string;
+  document_type_guess: string;
+}
+
+export interface ReviewData {
+  document_type: 'invoice' | 'delivery_note' | 'receipt' | 'utility';
+  supplier_name: string;
+  invoice_number?: string;
+  delivery_note_number?: string;
+  invoice_date?: string;
+  delivery_date?: string;
+  total_amount?: number;
+  confidence: number;
+  extracted_text?: string;
+  reviewed_by?: string;
+  line_items?: Array<{
+    description: string;
+    quantity: number;
+    unit_price: number;
+    total_price: number;
+  }>;
+  vat_included?: boolean;
+  comments?: string;
+}
+
+export interface EscalationData {
+  reason: string;
+  comments?: string;
 }
 
 // Fallback data when backend is not available
@@ -211,13 +278,13 @@ class ApiService {
     }
   }
 
-  // Upload invoice
+  // Upload invoice with OCR processing
   async uploadInvoice(file: File): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
     
     try {
-      return await this.fetchWithErrorHandling('/upload/invoice', {
+      return await this.fetchWithErrorHandling('/upload', {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
@@ -245,6 +312,60 @@ class ApiService {
     }
   }
 
+  // Upload document with type (new simplified method)
+  async uploadDocument(file: File, documentType: 'invoice' | 'delivery_note' | 'receipt' | 'utility'): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', documentType);
+    
+    try {
+      return await this.fetchWithErrorHandling('/upload/document', {
+        method: 'POST',
+        body: formData,
+        headers: {}, // Let browser set Content-Type for FormData
+      });
+    } catch (error) {
+      console.error('Upload failed:', error);
+      throw error;
+    }
+  }
+
+  // Upload document for smart processing and review
+  async uploadDocumentForReview(file: File): Promise<{ suggested_documents: any[] }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      return await this.fetchWithErrorHandling('/upload/review', {
+        method: 'POST',
+        body: formData,
+        headers: {}, // Let browser set Content-Type for FormData
+      });
+    } catch (error) {
+      console.error('Upload for review failed:', error);
+      throw error;
+    }
+  }
+
+  // Confirm document splits after review
+  async confirmDocumentSplits(fileName: string, documents: any[]): Promise<{ success: boolean; message: string }> {
+    try {
+      return await this.fetchWithErrorHandling('/upload/confirm-splits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          file_name: fileName,
+          documents: documents,
+        }),
+      });
+    } catch (error) {
+      console.error('Confirm splits failed:', error);
+      throw error;
+    }
+  }
+
   // Group documents by status
   groupDocumentsByStatus(
     files: FileStatus[],
@@ -259,9 +380,13 @@ class ApiService {
       ...invoices.filter(invoice => 
         invoice.status === 'unmatched' || 
         invoice.status === 'waiting' || 
-        invoice.status === 'utility'
+        invoice.status === 'utility' ||
+        invoice.status === 'scanned'  // ✅ Add scanned invoices to the list
       ),
-      ...deliveryNotes.filter(dn => dn.status === 'unmatched')
+      ...deliveryNotes.filter(dn => 
+        dn.status === 'unmatched' ||
+        dn.status === 'scanned'  // ✅ Add scanned delivery notes to the list
+      )
     ];
 
     const matchedDocuments = [
@@ -279,6 +404,88 @@ class ApiService {
       matchedDocuments,
       failedDocuments,
     };
+  }
+
+  // Document Queue API methods
+  async getDocumentsForReview(): Promise<{ documents: DocumentQueueItem[] }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ documents: DocumentQueueItem[] }>(
+        `${API_BASE_URL}/documents/queue`
+      );
+      return response;
+    } catch (error) {
+      console.error('Error fetching documents for review:', error);
+      return { documents: [] };
+    }
+  }
+
+  async approveDocument(documentId: string, reviewData: ReviewData): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(
+        `${API_BASE_URL}/documents/${documentId}/approve`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(reviewData),
+        }
+      );
+      return response;
+    } catch (error) {
+      console.error('Error approving document:', error);
+      throw error;
+    }
+  }
+
+  async escalateDocument(documentId: string, escalationData: EscalationData): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(
+        `${API_BASE_URL}/documents/${documentId}/escalate`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(escalationData),
+        }
+      );
+      return response;
+    } catch (error) {
+      console.error('Error escalating document:', error);
+      throw error;
+    }
+  }
+
+  async deleteDocument(documentId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(
+        `${API_BASE_URL}/documents/${documentId}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      return response;
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      throw error;
+    }
+  }
+
+  // ✅ Dev-only method to clear all documents
+  async clearAllDocuments(): Promise<void> {
+    const response = await fetch('/api/dev/clear-documents', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to clear documents: ${response.statusText}`);
+    }
+
+    return response.json();
   }
 }
 

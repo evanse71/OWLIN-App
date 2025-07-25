@@ -278,6 +278,18 @@ const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
+            <Link href="/document-queue" className="group">
+              <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-200">
+                <div className="flex items-center mb-4">
+                  <div className="p-2 bg-orange-100 rounded-lg group-hover:bg-orange-200 transition-colors">
+                    <span className="text-2xl">📋</span>
+                  </div>
+                  <h3 className="ml-3 text-lg font-semibold text-gray-900">Document Queue</h3>
+                </div>
+                <p className="text-gray-600">Review and classify uploaded documents</p>
+              </div>
+            </Link>
+
             <Link href="/flagged" className="group">
               <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-200">
                 <div className="flex items-center mb-4">
