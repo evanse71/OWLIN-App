@@ -45,11 +45,12 @@ except ImportError as e:
     extract_line_items = None
 
 try:
-    from backend.ocr.table_extractor import extract_table_data
-    logger.debug("✅ extract_table_data imported successfully")
+    from backend.ocr.table_extractor import extract_table_data, extract_line_items_from_text
+    logger.debug("✅ extract_table_data and extract_line_items_from_text imported successfully")
 except ImportError as e:
-    logger.error(f"❌ Failed to import extract_table_data: {e}")
+    logger.error(f"❌ Failed to import table_extractor functions: {e}")
     extract_table_data = None
+    extract_line_items_from_text = None
 
 # Check if all required functions are available
 ENHANCED_OCR_AVAILABLE = all([run_ocr, extract_invoice_metadata, extract_line_items, extract_table_data])
@@ -269,121 +270,68 @@ async def upload_invoice(file: UploadFile = File(...)):
                 logger.warning("⚠️ OCR text appears to be mostly noise - document may be low quality or corrupted")
                 raw_text = ""  # Treat as no text extracted
         
-        # Extract metadata
+        # ✅ Enhanced metadata extraction with fallback
         try:
             if extract_invoice_metadata and raw_text:
                 metadata = extract_invoice_metadata(raw_text)
-                logger.debug(f"✅ Metadata extracted: {metadata}")
+                logger.info(f"✅ Metadata extracted: {metadata}")
             else:
-                metadata = {
-                    'supplier_name': 'Unknown',
-                    'invoice_number': 'Unknown',
-                    'invoice_date': datetime.now().strftime("%Y-%m-%d"),
-                    'total_amount': 0.0,
-                    'subtotal': 0.0,
-                    'vat': 0.0,
-                    'vat_rate': 0.2,
-                    'total_incl_vat': 0.0
-                }
-                logger.debug("✅ Using fallback metadata")
+                metadata = create_fallback_metadata()
+                logger.warning("⚠️ Using fallback metadata")
         except Exception as metadata_error:
             logger.warning(f"⚠️ Metadata extraction failed: {metadata_error}")
-            metadata = {
-                'supplier_name': 'Unknown',
-                'invoice_number': 'Unknown',
-                'invoice_date': datetime.now().strftime("%Y-%m-%d"),
-                'total_amount': 0.0,
-                'subtotal': 0.0,
-                'vat': 0.0,
-                'vat_rate': 0.2,
-                'total_incl_vat': 0.0
-            }
+            metadata = create_fallback_metadata()
         
-        # Extract line items from table data
+        # ✅ Enhanced line item extraction
+        line_items = []
         try:
             if extract_line_items and table_data:
                 line_items = extract_line_items(table_data)
-                logger.debug(f"✅ Line items extracted from table: {len(line_items)} items")
-            else:
-                line_items = []
-                logger.debug("✅ No table data available for line item extraction")
+                logger.info(f"✅ Line items extracted from table: {len(line_items)} items")
+            elif extract_line_items_from_text and raw_text:
+                # Fallback to text-based extraction
+                line_items = extract_line_items_from_text(raw_text)
+                logger.info(f"✅ Line items extracted from text: {len(line_items)} items")
         except Exception as line_items_error:
-            logger.warning(f"⚠️ Line item extraction failed: {line_items_error}")
+            logger.warning(f"⚠️ Line items extraction failed: {line_items_error}")
             line_items = []
         
-        # If no line items from table, try pattern-based extraction
-        if not line_items and raw_text:
-            logger.debug("🔄 Attempting pattern-based line item extraction...")
-            try:
-                # Simple pattern-based line item extraction
-                lines = raw_text.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if len(line) > 10 and any(char.isdigit() for char in line):
-                        # Look for price patterns
-                        price_match = re.search(r'[£$€]?\s*(\d+(?:\.\d{2})?)', line)
-                        if price_match:
-                            line_items.append({
-                                "item": line,
-                                "quantity": 1.0,
-                                "unit_price": float(price_match.group(1)),
-                                "total_price": float(price_match.group(1)),
-                                "price_excl_vat": float(price_match.group(1)),
-                                "vat_rate": 0.2,
-                                "price_incl_vat": float(price_match.group(1)) * 1.2,
-                                "price_per_unit": float(price_match.group(1)),
-                                "unit_price_excl_vat": float(price_match.group(1)),
-                                "unit_price_incl_vat": float(price_match.group(1)) * 1.2,
-                                "line_total_excl_vat": float(price_match.group(1)),
-                                "line_total_incl_vat": float(price_match.group(1)) * 1.2,
-                                "flagged": False
-                            })
-                logger.debug(f"✅ Pattern-based extraction found {len(line_items)} line items")
-            except Exception as pattern_error:
-                logger.warning(f"⚠️ Pattern-based extraction failed: {pattern_error}")
+        # ✅ Calculate totals from line items if missing
+        if line_items and (metadata.get('total_amount', 0) == 0 or metadata.get('subtotal', 0) == 0):
+            calculated_subtotal = sum(item.get('line_total_excl_vat', item.get('total_price', 0)) for item in line_items)
+            calculated_vat = calculated_subtotal * (metadata.get('vat_rate', 20.0) / 100)
+            calculated_total = calculated_subtotal + calculated_vat
+            
+            if metadata.get('subtotal', 0) == 0:
+                metadata['subtotal'] = calculated_subtotal
+            if metadata.get('vat', 0) == 0:
+                metadata['vat'] = calculated_vat
+            if metadata.get('total_amount', 0) == 0:
+                metadata['total_amount'] = calculated_total
+            if metadata.get('total_incl_vat', 0) == 0:
+                metadata['total_incl_vat'] = calculated_total
+            
+            logger.info(f"✅ Calculated totals from line items: subtotal={metadata['subtotal']}, vat={metadata['vat']}, total={metadata['total_amount']}")
         
-        logger.info(f"✅ Metadata and line items extracted. Found {len(line_items)} line items")
-        
-        # Step 6: Calculate confidence and determine if manual review is needed
+        # Step 6: Calculate confidence and manual review flag
         logger.info("🔄 Step 6: Calculating confidence...")
         
-        # Log what was extracted for debugging
-        logger.debug(f"📝 Raw OCR text length: {len(raw_text)} characters")
-        logger.debug(f"📝 Raw OCR text preview: {raw_text[:200]}...")
-        logger.debug(f"📝 Extracted metadata: {metadata}")
-        logger.debug(f"📝 Extracted line items: {len(line_items)} items")
+        # ✅ Fix confidence calculation - ensure it's 0-100 scale
+        overall_confidence = ocr_result.get('overall_confidence', 0.0)
+        if overall_confidence > 1.0:
+            # If confidence is already a percentage, cap at 100
+            confidence = min(100.0, overall_confidence)
+        else:
+            # Convert decimal to percentage
+            confidence = min(100.0, overall_confidence * 100)
         
-        # Improved confidence scoring
-        confidence = 0.0
-        manual_review = True
-        
-        # Base confidence from OCR text quality
-        if len(raw_text) > 100:
-            confidence += 0.2  # Good amount of text extracted
-        elif len(raw_text) > 50:
-            confidence += 0.1  # Some text extracted
-        
-        # Confidence from metadata extraction
-        if metadata.get('supplier_name') and metadata.get('supplier_name') != 'Unknown':
-            confidence += 0.3
-            logger.info(f"✅ Found supplier: {metadata.get('supplier_name')}")
-        if metadata.get('invoice_number') and metadata.get('invoice_number') != 'Unknown':
-            confidence += 0.2
-            logger.info(f"✅ Found invoice number: {metadata.get('invoice_number')}")
-        if metadata.get('total_amount', 0) > 0:
-            confidence += 0.2
-            logger.info(f"✅ Found total amount: {metadata.get('total_amount')}")
-        if line_items:
-            confidence += 0.3
-            logger.info(f"✅ Found {len(line_items)} line items")
-        
-        # Bonus for having any meaningful text
-        if len(raw_text) > 500:
-            confidence += 0.1
-        
-        # Normalize confidence to 0-100 scale
-        confidence = min(confidence * 100, 100.0)
-        manual_review = confidence < 40.0  # Lower threshold for manual review
+        # ✅ Enhanced manual review logic
+        manual_review = (
+            confidence < 60.0 or 
+            not line_items or 
+            metadata.get('supplier_name') == 'Unknown' or
+            metadata.get('total_amount', 0) == 0.0
+        )
         
         logger.info(f"✅ Confidence calculated: {confidence:.1f}%, Manual review: {manual_review}")
         
@@ -398,8 +346,9 @@ async def upload_invoice(file: UploadFile = File(...)):
             cursor.execute("""
                 INSERT INTO invoices (
                     id, invoice_number, invoice_date, supplier_name, total_amount,
-                    status, confidence, upload_timestamp, ocr_text, parent_pdf_filename
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
+                    subtotal, vat, vat_rate, total_incl_vat
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 invoice_id,
                 metadata.get('invoice_number', 'Unknown'),
@@ -410,7 +359,11 @@ async def upload_invoice(file: UploadFile = File(...)):
                 confidence,
                 datetime.now().isoformat(),
                 raw_text,
-                file.filename
+                file.filename,
+                metadata.get('subtotal', 0.0),
+                metadata.get('vat', 0.0),
+                metadata.get('vat_rate', 20.0),
+                metadata.get('total_incl_vat', 0.0)
             ))
             
             conn.commit()
@@ -430,7 +383,7 @@ async def upload_invoice(file: UploadFile = File(...)):
             "total_amount": metadata.get('total_amount', 0.0),
             "subtotal": metadata.get('subtotal', 0.0),
             "vat": metadata.get('vat', 0.0),
-            "vat_rate": metadata.get('vat_rate', 0.2),
+            "vat_rate": metadata.get('vat_rate', 20.0),
             "total_incl_vat": metadata.get('total_incl_vat', 0.0),
             "confidence": confidence,
             "manual_review": manual_review,
@@ -508,6 +461,20 @@ def create_fallback_response(filename: str, error_message: str) -> dict:
         "table_detected": False,
         "pages": [],
         "overall_confidence": 0.0
+    }
+
+def create_fallback_metadata() -> Dict[str, Any]:
+    """Create a fallback metadata dictionary."""
+    logger.warning("⚠️ Using fallback metadata due to OCR engine issues.")
+    return {
+        'supplier_name': 'Unknown',
+        'invoice_number': 'Unknown',
+        'invoice_date': datetime.now().strftime("%Y-%m-%d"),
+        'total_amount': 0.0,
+        'subtotal': 0.0,
+        'vat': 0.0,
+        'vat_rate': 20.0,
+        'total_incl_vat': 0.0
     }
 
 @router.get("/health")

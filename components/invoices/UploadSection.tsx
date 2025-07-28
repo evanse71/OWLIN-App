@@ -66,13 +66,13 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
     setCurrentFile(file);
     setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
 
-    // ✅ Create temporary DocumentUploadResult object when file is uploaded
+    // ✅ Create small preview card (ChatGPT-style)
     const tempDocId = `temp-${Date.now()}`;
     const tempCard: DocumentUploadResult = {
       id: tempDocId,
       type: 'unknown',
       confidence: 0,
-      supplier_name: 'Scanning document...',
+      supplier_name: file.name, // Show filename instead of "Scanning document..."
       pages: [],
       preview_urls: [],
       metadata: {
@@ -84,15 +84,14 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
       originalFile: file
     };
 
-    // ✅ Push this object into the pendingUploads state (temporary preview only)
+    // ✅ Add small preview card
     setPendingUploads(prev => [...prev, tempCard]);
 
     let progressInterval: NodeJS.Timeout | null = null;
     let timeoutId: NodeJS.Timeout | null = null;
 
     try {
-      // ✅ Track upload progress using uploadProgress state
-      // ✅ Simulate a 10% increment every 200ms up to 90% while waiting for backend response
+      // ✅ Simulate progress up to 90%
       progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           const current = prev[file.name] || 0;
@@ -113,7 +112,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         throw new Error('Upload timed out after 30 seconds');
       }, 30000);
 
-      // Try direct upload first (simpler OCR processing)
+      // Try direct upload first
       let response: any;
       try {
         console.log(`📤 Attempting direct upload for ${file.name}...`);
@@ -124,13 +123,13 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         
         console.log(`✅ Direct upload successful for ${file.name}:`, response);
         
-        // Convert the response to the expected format
+        // ✅ Convert to processed document format
         const processedDoc: DocumentUploadResult = {
           id: response.invoice_id || tempDocId,
           type: 'invoice',
-          confidence: Math.round((response.parsed_data?.confidence || 0.75) * 100),
+          confidence: Math.round(response.parsed_data?.confidence || response.confidence || 0),
           supplier_name: response.parsed_data?.supplier_name || 'Unknown',
-          pages: [1], // Single page for direct upload
+          pages: [1],
           preview_urls: [],
           metadata: {
             invoice_number: response.parsed_data?.invoice_number || 'Unknown',
@@ -141,7 +140,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
           originalFile: file
         };
 
-        // ✅ Replace temp card with processed results (still temporary preview only)
+        // ✅ Replace temp card with processed results
         setPendingUploads(prev => {
           const filtered = prev.filter(doc => doc.id !== tempCard.id);
           return [...filtered, processedDoc];
@@ -156,12 +155,23 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
           timeoutId = null;
         }
         
+        // ✅ Ensure progress reaches 100%
         setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
         
         showToast('success', `Successfully processed ${file.name}`);
         
       } catch (error) {
         console.error(`❌ Direct upload failed for ${file.name}:`, error);
+        
+        // Clear progress interval on error
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
         
         // Fallback to smart processing
         try {
@@ -187,11 +197,16 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
               originalFile: file
             }));
 
-            // ✅ Replace temp card with processed results (still temporary preview only)
+            // ✅ Replace temp card with processed results
             setPendingUploads(prev => {
               const filtered = prev.filter(doc => doc.id !== tempCard.id);
               return [...filtered, ...processedDocs];
             });
+            
+            // ✅ Ensure progress reaches 100%
+            setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+            
+            showToast('success', `Successfully processed ${file.name} (${processedDocs.length} documents found)`);
           } else {
             // No documents found
             setPendingUploads(prev => {
@@ -199,72 +214,79 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
               return [...filtered, {
                 ...tempCard,
                 status: 'error',
-                supplier_name: 'No documents detected'
+                supplier_name: 'No documents found',
+                metadata: {
+                  invoice_number: 'Processing failed',
+                  total_amount: 0,
+                  invoice_date: undefined
+                }
               }];
             });
+            
+            // ✅ Set progress to 100% even on error
+            setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+            
+            showToast('error', `No documents found in ${file.name}`);
           }
-        } catch (smartError) {
-          console.error(`❌ Smart processing also failed for ${file.name}:`, smartError);
+        } catch (fallbackError) {
+          console.error(`❌ Smart processing also failed for ${file.name}:`, fallbackError);
           
-          // Mark as error
+          // ✅ Replace temp card with error state
           setPendingUploads(prev => {
             const filtered = prev.filter(doc => doc.id !== tempCard.id);
             return [...filtered, {
               ...tempCard,
               status: 'error',
-              supplier_name: 'Processing failed'
+              supplier_name: 'Processing failed',
+              metadata: {
+                invoice_number: 'Error',
+                total_amount: 0,
+                invoice_date: undefined
+              }
             }];
           });
+          
+          // ✅ Set progress to 100% on error
+          setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+          
+          showToast('error', `Failed to process ${file.name}`);
         }
-        
-        if (progressInterval) {
-          clearInterval(progressInterval);
-          progressInterval = null;
-        }
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-        
-        setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
       }
     } catch (error) {
-      console.error(`💥 Upload completely failed for ${file.name}:`, error);
+      console.error(`❌ Upload failed for ${file.name}:`, error);
       
-      // Clean up intervals and timeouts
+      // Clear intervals and timeouts
       if (progressInterval) {
         clearInterval(progressInterval);
+        progressInterval = null;
       }
       if (timeoutId) {
         clearTimeout(timeoutId);
+        timeoutId = null;
       }
       
-      // Mark as error and complete progress
+      // ✅ Replace temp card with error state
       setPendingUploads(prev => {
         const filtered = prev.filter(doc => doc.id !== tempCard.id);
         return [...filtered, {
           ...tempCard,
           status: 'error',
-          supplier_name: 'Upload failed'
+          supplier_name: 'Upload failed',
+          metadata: {
+            invoice_number: 'Error',
+            total_amount: 0,
+            invoice_date: undefined
+          }
         }];
       });
       
+      // ✅ Set progress to 100% on error
       setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
       
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      showToast('error', `🚨 Upload failed for ${file.name}: ${errorMessage}`);
+      showToast('error', `Upload failed for ${file.name}`);
     } finally {
       setIsUploading(false);
       setCurrentFile(null);
-      
-      // Clean up progress after a delay
-      setTimeout(() => {
-        setUploadProgress(prev => {
-          const newProgress = { ...prev };
-          delete newProgress[file.name];
-          return newProgress;
-        });
-      }, 2000);
     }
   };
 
@@ -494,7 +516,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2 mb-1">
                         <h4 className="font-medium text-gray-900 truncate">
-                          {doc.supplier_name}
+                          {doc.status === 'scanning' ? doc.supplier_name : doc.supplier_name}
                         </h4>
                         {doc.status === 'processed' && (
                           <ConfidenceBadge
@@ -506,7 +528,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
                         {doc.status === 'scanning' && (
                           <div className="flex items-center space-x-2">
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                            <span>Scanning document...</span>
+                            <span>Processing document...</span>
                           </div>
                         )}
                         {doc.status === 'processed' && (
@@ -543,6 +565,21 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
                     </button>
                   </div>
                 </div>
+                
+                {/* ✅ Show progress bar for scanning documents */}
+                {doc.status === 'scanning' && (
+                  <div className="mt-3">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress[doc.originalFile.name] || 0}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {uploadProgress[doc.originalFile.name] || 0}% complete
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

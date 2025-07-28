@@ -300,62 +300,80 @@ def run_ocr(pdf_path: str) -> Dict[str, Any]:
         for page_num, img in enumerate(images, 1):
             logger.info(f"Processing page {page_num}")
             
-            # Preprocess the image
-            processed_img = preprocess_image(img)
-            
-            # Save debug image
-            debug_image_path = os.path.join(log_dir, f'page{page_num}_clean.png')
-            cv2.imwrite(debug_image_path, processed_img)
-            
-            # Convert back to PIL for tesseract
-            pil_img = Image.fromarray(processed_img)
-            
-            # Run OCR with detailed output
-            data = pytesseract.image_to_data(
-                pil_img, 
-                lang='eng', 
-                config='--psm 6 --oem 3',
-                output_type=pytesseract.Output.DICT
-            )
-            
-            # Extract text and calculate confidence
-            page_text = ' '.join(data['text'])
-            confidences = [float(conf) for conf in data['conf'] if float(conf) > 0]
-            
-            if confidences:
-                avg_confidence = sum(confidences) / len(confidences) / 100.0  # Normalize to 0-1
-            else:
-                avg_confidence = 0.0
-            
-            word_count = len([text for text in data['text'] if text.strip()])
-            
-            # Store word-level data for table extraction
-            words = []
-            for i in range(len(data['text'])):
-                if int(data['conf'][i]) > 0 and data['text'][i].strip():
-                    words.append({
-                        'text': data['text'][i],
-                        'left': data['left'][i],
-                        'top': data['top'][i],
-                        'width': data['width'][i],
-                        'height': data['height'][i],
-                        'conf': float(data['conf'][i]),
-                        'page': page_num
-                    })
-            
-            page_data = {
-                "page": page_num,
-                "text": page_text,
-                "avg_confidence": round(avg_confidence, 3),
-                "word_count": word_count,
-                "image_debug_path": debug_image_path,
-                "words": words
-            }
-            
-            pages.append(page_data)
-            all_text.append(page_text)
-            total_confidence += avg_confidence
-            total_words += word_count
+            try:
+                # Preprocess the image
+                processed_img = preprocess_image(img)
+                
+                # Save debug image
+                debug_image_path = os.path.join(log_dir, f'page{page_num}_clean.png')
+                cv2.imwrite(debug_image_path, processed_img)
+                
+                # Convert back to PIL for tesseract
+                pil_img = Image.fromarray(processed_img)
+                
+                # Run OCR with detailed output
+                data = pytesseract.image_to_data(
+                    pil_img, 
+                    lang='eng', 
+                    config='--psm 6 --oem 3',
+                    output_type=pytesseract.Output.DICT
+                )
+                
+                # Extract text and calculate confidence
+                page_text = ' '.join(data['text'])
+                confidences = [float(conf) for conf in data['conf'] if float(conf) > 0]
+                
+                if confidences:
+                    avg_confidence = sum(confidences) / len(confidences) / 100.0  # Normalize to 0-1
+                else:
+                    avg_confidence = 0.0
+                
+                word_count = len([text for text in data['text'] if text.strip()])
+                
+                # Store word-level data for table extraction
+                words = []
+                for i in range(len(data['text'])):
+                    if int(data['conf'][i]) > 0 and data['text'][i].strip():
+                        words.append({
+                            'text': data['text'][i],
+                            'left': data['left'][i],
+                            'top': data['top'][i],
+                            'width': data['width'][i],
+                            'height': data['height'][i],
+                            'conf': float(data['conf'][i]),
+                            'page': page_num
+                        })
+                
+                page_data = {
+                    "page": page_num,
+                    "text": page_text,
+                    "avg_confidence": round(avg_confidence, 3),
+                    "word_count": word_count,
+                    "image_debug_path": debug_image_path,
+                    "words": words,
+                    "word_boxes": words  # Alias for table extraction
+                }
+                
+                pages.append(page_data)
+                all_text.append(page_text)
+                total_confidence += avg_confidence
+                total_words += word_count
+                
+                logger.info(f"Page {page_num}: {word_count} words, confidence: {avg_confidence:.3f}")
+                
+            except Exception as page_error:
+                logger.error(f"Error processing page {page_num}: {str(page_error)}")
+                # Add empty page data for failed pages
+                page_data = {
+                    "page": page_num,
+                    "text": "",
+                    "avg_confidence": 0.0,
+                    "word_count": 0,
+                    "image_debug_path": "",
+                    "words": [],
+                    "word_boxes": []
+                }
+                pages.append(page_data)
         
         # Calculate overall confidence
         overall_confidence = total_confidence / len(pages) if pages else 0.0
@@ -375,6 +393,7 @@ def run_ocr(pdf_path: str) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"OCR failed for {pdf_path}: {str(e)}")
+        logger.exception("Full traceback:")
         return {
             "pages": [],
             "raw_ocr_text": "",
