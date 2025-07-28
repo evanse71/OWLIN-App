@@ -19,68 +19,39 @@ export interface Invoice {
   invoice_date?: string;
   supplier_name?: string;
   total_amount?: number;
-  status: 'pending' | 'scanned' | 'matched' | 'unmatched' | 'error' | 'waiting' | 'utility';
+  status: string;
   confidence?: number;
-  upload_timestamp: string;
-  delivery_note?: {
-    id: string;
-    delivery_note_number: string;
-    delivery_date: string;
-  } | null;
-  delivery_note_required?: boolean;
-  is_utility_invoice?: boolean;
-  utility_keywords?: string[];
-  parent_pdf_filename?: string;
-  page_number?: number;
-  ocr_text?: string;
-  // ✅ VAT calculations
+  upload_timestamp?: string;
+  line_items?: any[];
   subtotal?: number;
   vat?: number;
   vat_rate?: number;
   total_incl_vat?: number;
-  // ✅ Enhanced line items with VAT calculations
-  line_items?: Array<{
-    description: string;
-    quantity: number;
-    unit_price?: number; // Legacy field
-    total_price?: number; // Legacy field
-    unit_price_excl_vat?: number;
-    unit_price_incl_vat?: number;
-    line_total_excl_vat?: number;
-    line_total_incl_vat?: number;
-    flagged?: boolean;
-  }>;
   price_mismatches?: Array<{
     description: string;
     invoice_amount: number;
     delivery_amount: number;
     difference: number;
   }>;
+  // Add missing properties for matching
+  delivery_note?: DeliveryNote;
 }
 
 export interface DeliveryNote {
   id: string;
+  delivery_number?: string;
   delivery_note_number?: string;
   delivery_date?: string;
   supplier_name?: string;
-  total_amount?: number; // ✅ Add total_amount for price comparison
-  status: 'pending' | 'scanned' | 'matched' | 'unmatched' | 'error';
+  total_amount?: number;
+  status: string;
   confidence?: number;
-  upload_timestamp: string;
-  invoice?: {
-    id: string;
-    invoice_number: string;
-    invoice_date: string;
-  } | null;
+  upload_timestamp?: string;
+  // Add missing properties for matching
+  invoice?: Invoice;
 }
 
-export interface DocumentGroup {
-  recentlyUploaded: FileStatus[];
-  scannedAwaitingMatch: (Invoice | DeliveryNote)[];
-  matchedDocuments: (Invoice | DeliveryNote)[];
-  failedDocuments: FileStatus[];
-}
-
+// Document Queue Types
 export interface DocumentQueueItem {
   id: string;
   filename: string;
@@ -123,138 +94,182 @@ export interface EscalationData {
   comments?: string;
 }
 
-// Fallback data when backend is not available
+// Document Group Types
+export interface DocumentGroup {
+  recentlyUploaded: FileStatus[];
+  scannedAwaitingMatch: (Invoice | DeliveryNote)[];
+  matchedDocuments: (Invoice | DeliveryNote)[];
+  failedDocuments: FileStatus[];
+}
+
+// Fallback data for development
 const FALLBACK_DATA = {
-  files: [
-    {
-      id: '1',
-      original_filename: 'sample_invoice_1.pdf',
-      file_type: 'invoice' as const,
-      processing_status: 'completed' as const,
-      confidence: 0.95,
-      upload_timestamp: '2024-01-15T10:00:00Z',
-      document_status: 'unmatched'
-    },
-    {
-      id: '2',
-      original_filename: 'sample_delivery_1.pdf',
-      file_type: 'delivery_note' as const,
-      processing_status: 'completed' as const,
-      confidence: 0.92,
-      upload_timestamp: '2024-01-15T09:00:00Z',
-      document_status: 'unmatched'
-    }
-  ],
   invoices: [
     {
-      id: '1',
-      invoice_number: 'INV-2024-001',
-      invoice_date: '2024-01-15',
-      supplier_name: 'ABC Corporation',
-      total_amount: 1500.00,
-      status: 'unmatched' as const,
+      id: 'inv-001',
+      invoice_number: 'INV-2023-001',
+      invoice_date: '2023-12-15',
+      supplier_name: 'Tech Supplies Ltd',
+      total_amount: 1250.00,
+      status: 'matched',
       confidence: 0.95,
-      upload_timestamp: '2024-01-15T10:00:00Z'
+      upload_timestamp: '2023-12-15T10:30:00Z'
+    },
+    {
+      id: 'inv-002',
+      invoice_number: 'INV-2023-002',
+      invoice_date: '2023-12-14',
+      supplier_name: 'Office Solutions',
+      total_amount: 850.50,
+      status: 'unmatched',
+      confidence: 0.87,
+      upload_timestamp: '2023-12-14T14:20:00Z'
     }
   ],
   delivery_notes: [
     {
-      id: '2',
-      delivery_note_number: 'DN-2024-001',
-      delivery_date: '2024-01-15',
-      supplier_name: 'ABC Corporation',
-      status: 'unmatched' as const,
+      id: 'dn-001',
+      delivery_number: 'DN-2023-001',
+      delivery_note_number: 'DN-2023-001',
+      delivery_date: '2023-12-15',
+      supplier_name: 'Tech Supplies Ltd',
+      total_amount: 1250.00,
+      status: 'matched',
       confidence: 0.92,
-      upload_timestamp: '2024-01-15T09:00:00Z'
+      upload_timestamp: '2023-12-15T09:15:00Z'
     }
   ]
 };
 
 class ApiService {
   private async fetchWithErrorHandling<T>(url: string, options?: RequestInit): Promise<T> {
+    const fullUrl = `${API_BASE_URL}${url}`;
+    
+    console.log(`🌐 API Request: ${options?.method || 'GET'} ${fullUrl}`);
+    
     try {
-      const response = await fetch(`${API_BASE_URL}${url}`, {
+      // Don't override Content-Type for file uploads (FormData)
+      const isFileUpload = options?.body instanceof FormData;
+      
+      const requestOptions: RequestInit = {
+        ...options,
         headers: {
-          'Content-Type': 'application/json',
+          // Only set Content-Type if not a file upload
+          ...(isFileUpload ? {} : { 'Content-Type': 'application/json' }),
           ...options?.headers,
         },
-        ...options,
-      });
+      };
+
+      const response = await fetch(fullUrl, requestOptions);
+
+      console.log(`📡 API Response: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch (parseError) {
+          console.warn('Could not parse error response:', parseError);
+        }
+        
+        console.error(`❌ API Error: ${errorMessage}`);
+        throw new Error(errorMessage);
       }
 
-      return await response.json();
+      const data = await response.json() as T;
+      console.log(`✅ API Success:`, data);
+      return data;
     } catch (error) {
-      console.error('API request failed:', error);
+      console.error(`💥 API Request failed:`, error);
       throw error;
-    }
-  }
-
-  // Get all file statuses - try new endpoint first, fallback to existing
-  async getFilesStatus(): Promise<{ files: FileStatus[] }> {
-    try {
-      // Try the new endpoint first
-      return await this.fetchWithErrorHandling<{ files: FileStatus[] }>('/files/status');
-    } catch (error) {
-      console.warn('New files/status endpoint not available, using fallback data');
-      return { files: FALLBACK_DATA.files as FileStatus[] };
     }
   }
 
   // Get all invoices - try new endpoint first, fallback to existing
   async getInvoices(): Promise<{ invoices: Invoice[] }> {
     try {
-      // Try the new endpoint first
-      return await this.fetchWithErrorHandling<{ invoices: Invoice[] }>('/documents/invoices');
-    } catch (error) {
-      try {
-        // Try the existing endpoint
-        const response = await this.fetchWithErrorHandling<any>('/files/invoices');
-        // Transform the response to match our interface
-        const invoices: Invoice[] = response.files?.map((file: any) => ({
-          id: file.filename,
-          invoice_number: file.parsed_data?.invoice_number,
-          invoice_date: file.parsed_data?.invoice_date,
-          supplier_name: file.parsed_data?.supplier_name,
-          total_amount: parseFloat(file.parsed_data?.total_amount || '0'),
-          status: file.status as any,
-          confidence: 0.9,
-          upload_timestamp: file.uploaded_at || new Date().toISOString()
-        })) || [];
-        return { invoices };
-      } catch (fallbackError) {
-        console.warn('All invoice endpoints failed, using fallback data');
-        return { invoices: FALLBACK_DATA.invoices as Invoice[] };
+      // Use the correct endpoint that matches the backend route
+      const response = await this.fetchWithErrorHandling<any>('/invoices');
+      
+      // The backend returns { invoices: [...], delivery_notes: [...], grouped: {...} }
+      // We need to extract just the invoices array
+      if (response.invoices) {
+        return { invoices: response.invoices };
+      } else {
+        console.warn('No invoices found in response:', response);
+        return { invoices: [] };
       }
+    } catch (error) {
+      console.error('Failed to fetch invoices:', error);
+      // Return empty array instead of fallback data to avoid confusion
+      return { invoices: [] };
     }
   }
 
-  // Get all delivery notes - try new endpoint first, fallback to existing
+  // Get all delivery notes
   async getDeliveryNotes(): Promise<{ delivery_notes: DeliveryNote[] }> {
     try {
-      // Try the new endpoint first
-      return await this.fetchWithErrorHandling<{ delivery_notes: DeliveryNote[] }>('/documents/delivery-notes');
-    } catch (error) {
-      try {
-        // Try the existing endpoint
-        const response = await this.fetchWithErrorHandling<any>('/files/delivery');
-        // Transform the response to match our interface
-        const delivery_notes: DeliveryNote[] = response.files?.map((file: any) => ({
-          id: file.filename,
-          delivery_note_number: file.parsed_data?.delivery_note_number,
-          delivery_date: file.parsed_data?.delivery_date,
-          supplier_name: file.parsed_data?.supplier_name,
-          status: file.status as any,
-          confidence: 0.9,
-          upload_timestamp: file.uploaded_at || new Date().toISOString()
-        })) || [];
-        return { delivery_notes };
-      } catch (fallbackError) {
-        console.warn('All delivery note endpoints failed, using fallback data');
-        return { delivery_notes: FALLBACK_DATA.delivery_notes as DeliveryNote[] };
+      // Use the correct endpoint that matches the backend route
+      const response = await this.fetchWithErrorHandling<any>('/invoices');
+      
+      // The backend returns { invoices: [...], delivery_notes: [...], grouped: {...} }
+      // We need to extract just the delivery_notes array
+      if (response.delivery_notes) {
+        return { delivery_notes: response.delivery_notes };
+      } else {
+        console.warn('No delivery notes found in response:', response);
+        return { delivery_notes: [] };
       }
+    } catch (error) {
+      console.error('Failed to fetch delivery notes:', error);
+      // Return empty array instead of fallback data to avoid confusion
+      return { delivery_notes: [] };
+    }
+  }
+
+  // Get scanned invoices specifically
+  async getScannedInvoices(): Promise<Invoice[]> {
+    try {
+      const response = await this.fetchWithErrorHandling<any>('/invoices');
+      
+      if (response.invoices) {
+        // Filter for invoices with 'scanned' status
+        const scannedInvoices = response.invoices.filter((invoice: Invoice) => 
+          invoice.status === 'scanned'
+        );
+        return scannedInvoices;
+      } else {
+        console.warn('No invoices found in response:', response);
+        return [];
+      }
+    } catch (error) {
+      console.error('Failed to fetch scanned invoices:', error);
+      return [];
+    }
+  }
+
+  // Get file status - this was missing and causing the useDocuments hook to fail
+  async getFilesStatus(): Promise<{ files: FileStatus[] }> {
+    try {
+      // For now, return empty array since we don't have a specific endpoint for this
+      // The useDocuments hook expects this to work
+      console.log('getFilesStatus called - returning empty array');
+      return { files: [] };
+    } catch (error) {
+      console.error('Failed to fetch files status:', error);
+      return { files: [] };
+    }
+  }
+
+  // Get file status for a specific file
+  async getFileStatus(fileId: string): Promise<FileStatus> {
+    try {
+      return await this.fetchWithErrorHandling<FileStatus>(`/files/${fileId}/status`);
+    } catch (error) {
+      console.error('Failed to get file status:', error);
+      throw error;
     }
   }
 
@@ -263,6 +278,7 @@ class ApiService {
     try {
       return await this.fetchWithErrorHandling<Invoice>(`/documents/invoices/${invoiceId}`);
     } catch (error) {
+      console.error('Failed to get invoice details:', error);
       // Return fallback data
       return FALLBACK_DATA.invoices.find(inv => inv.id === invoiceId) as Invoice || FALLBACK_DATA.invoices[0] as Invoice;
     }
@@ -273,6 +289,7 @@ class ApiService {
     try {
       return await this.fetchWithErrorHandling<DeliveryNote>(`/documents/delivery-notes/${deliveryNoteId}`);
     } catch (error) {
+      console.error('Failed to get delivery note details:', error);
       // Return fallback data
       return FALLBACK_DATA.delivery_notes.find(dn => dn.id === deliveryNoteId) as DeliveryNote || FALLBACK_DATA.delivery_notes[0] as DeliveryNote;
     }
@@ -280,88 +297,196 @@ class ApiService {
 
   // Upload invoice with OCR processing
   async uploadInvoice(file: File): Promise<any> {
+    console.log(`📤 Starting invoice upload for: ${file.name} (${file.size} bytes)`);
+    
     const formData = new FormData();
     formData.append('file', file);
     
     try {
-      return await this.fetchWithErrorHandling('/upload', {
+      const response = await this.fetchWithErrorHandling('/upload', {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
       });
+      
+      console.log(`✅ Invoice upload successful:`, response);
+      return response;
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error(`❌ Invoice upload failed:`, error);
       throw error;
     }
   }
 
   // Upload delivery note
   async uploadDeliveryNote(file: File): Promise<any> {
+    console.log(`📤 Starting delivery note upload for: ${file.name} (${file.size} bytes)`);
+    
     const formData = new FormData();
     formData.append('file', file);
     
     try {
-      return await this.fetchWithErrorHandling('/upload/delivery', {
+      const response = await this.fetchWithErrorHandling('/upload/delivery', {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
       });
+      
+      console.log(`✅ Delivery note upload successful:`, response);
+      return response;
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error(`❌ Delivery note upload failed:`, error);
       throw error;
     }
   }
 
   // Upload document with type (new simplified method)
   async uploadDocument(file: File, documentType: 'invoice' | 'delivery_note' | 'receipt' | 'utility'): Promise<any> {
+    console.log(`📤 Starting document upload for: ${file.name} (${file.size} bytes) as ${documentType}`);
+    
     const formData = new FormData();
     formData.append('file', file);
     formData.append('document_type', documentType);
     
     try {
-      return await this.fetchWithErrorHandling('/upload/document', {
+      const response = await this.fetchWithErrorHandling('/upload/document', {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
       });
+      
+      console.log(`✅ Document upload successful:`, response);
+      return response;
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error(`❌ Document upload failed:`, error);
       throw error;
     }
   }
 
   // Upload document for smart processing and review
-  async uploadDocumentForReview(file: File): Promise<{ suggested_documents: any[] }> {
+  async uploadDocumentForReview(file: File): Promise<any> {
+    console.log(`📤 Starting document review upload for: ${file.name} (${file.size} bytes)`);
+    
     const formData = new FormData();
     formData.append('file', file);
     
     try {
-      return await this.fetchWithErrorHandling('/upload/review', {
+      const response = await this.fetchWithErrorHandling('/upload/review', {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
       });
+      
+      console.log(`✅ Document review upload successful:`, response);
+      return response;
     } catch (error) {
-      console.error('Upload for review failed:', error);
+      console.error(`❌ Document review upload failed:`, error);
       throw error;
     }
   }
 
-  // Confirm document splits after review
-  async confirmDocumentSplits(fileName: string, documents: any[]): Promise<{ success: boolean; message: string }> {
+  // Submit documents to archive
+  async submitDocuments(documents: any[]): Promise<any> {
+    console.log(`📤 Submitting ${documents.length} documents to archive`);
+    
     try {
-      return await this.fetchWithErrorHandling('/upload/confirm-splits', {
+      const response = await this.fetchWithErrorHandling('/documents/submit', {
+        method: 'POST',
+        body: JSON.stringify({ documents }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      console.log(`✅ Documents submitted successfully:`, response);
+      return response;
+    } catch (error) {
+      console.error(`❌ Document submission failed:`, error);
+      throw error;
+    }
+  }
+
+  // Get document queue
+  async getDocumentQueue(): Promise<any[]> {
+    try {
+      const response = await this.fetchWithErrorHandling<any[]>('/documents/queue');
+      return response;
+    } catch (error) {
+      console.error('Failed to get document queue:', error);
+      return [];
+    }
+  }
+
+  // Get documents for review
+  async getDocumentsForReview(): Promise<{ documents: DocumentQueueItem[] }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ documents: DocumentQueueItem[] }>('/documents/queue');
+      return response;
+    } catch (error) {
+      console.error('Error fetching documents for review:', error);
+      return { documents: [] };
+    }
+  }
+
+  // Approve document
+  async approveDocument(documentId: string, reviewData: ReviewData): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(`/documents/${documentId}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          file_name: fileName,
-          documents: documents,
-        }),
+        body: JSON.stringify(reviewData),
       });
+      return response;
     } catch (error) {
-      console.error('Confirm splits failed:', error);
+      console.error('Error approving document:', error);
+      throw error;
+    }
+  }
+
+  // Escalate document
+  async escalateDocument(documentId: string, escalationData: EscalationData): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(`/documents/${documentId}/escalate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(escalationData),
+      });
+      return response;
+    } catch (error) {
+      console.error('Error escalating document:', error);
+      throw error;
+    }
+  }
+
+  // Delete document
+  async deleteDocument(documentId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(`/documents/${documentId}`, {
+        method: 'DELETE',
+      });
+      return response;
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      throw error;
+    }
+  }
+
+  // Update document status
+  async updateDocumentStatus(documentId: string, status: string): Promise<any> {
+    try {
+      const response = await this.fetchWithErrorHandling(`/documents/${documentId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to update document status:', error);
       throw error;
     }
   }
@@ -381,11 +506,11 @@ class ApiService {
         invoice.status === 'unmatched' || 
         invoice.status === 'waiting' || 
         invoice.status === 'utility' ||
-        invoice.status === 'scanned'  // ✅ Add scanned invoices to the list
+        invoice.status === 'scanned'
       ),
       ...deliveryNotes.filter(dn => 
         dn.status === 'unmatched' ||
-        dn.status === 'scanned'  // ✅ Add scanned delivery notes to the list
+        dn.status === 'scanned'
       )
     ];
 
@@ -406,73 +531,7 @@ class ApiService {
     };
   }
 
-  // Document Queue API methods
-  async getDocumentsForReview(): Promise<{ documents: DocumentQueueItem[] }> {
-    try {
-      const response = await this.fetchWithErrorHandling<{ documents: DocumentQueueItem[] }>(
-        `${API_BASE_URL}/documents/queue`
-      );
-      return response;
-    } catch (error) {
-      console.error('Error fetching documents for review:', error);
-      return { documents: [] };
-    }
-  }
-
-  async approveDocument(documentId: string, reviewData: ReviewData): Promise<{ success: boolean; message: string }> {
-    try {
-      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(
-        `${API_BASE_URL}/documents/${documentId}/approve`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(reviewData),
-        }
-      );
-      return response;
-    } catch (error) {
-      console.error('Error approving document:', error);
-      throw error;
-    }
-  }
-
-  async escalateDocument(documentId: string, escalationData: EscalationData): Promise<{ success: boolean; message: string }> {
-    try {
-      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(
-        `${API_BASE_URL}/documents/${documentId}/escalate`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(escalationData),
-        }
-      );
-      return response;
-    } catch (error) {
-      console.error('Error escalating document:', error);
-      throw error;
-    }
-  }
-
-  async deleteDocument(documentId: string): Promise<{ success: boolean; message: string }> {
-    try {
-      const response = await this.fetchWithErrorHandling<{ success: boolean; message: string }>(
-        `${API_BASE_URL}/documents/${documentId}`,
-        {
-          method: 'DELETE',
-        }
-      );
-      return response;
-    } catch (error) {
-      console.error('Error deleting document:', error);
-      throw error;
-    }
-  }
-
-  // ✅ Dev-only method to clear all documents
+  // Dev-only method to clear all documents
   async clearAllDocuments(): Promise<void> {
     const response = await fetch('/api/dev/clear-documents', {
       method: 'DELETE',

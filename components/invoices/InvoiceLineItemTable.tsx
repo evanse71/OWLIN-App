@@ -2,7 +2,8 @@ import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 interface LineItem {
-  description: string;
+  item?: string; // New primary field
+  description?: string; // Legacy field
   quantity: number;
   unit_price?: number; // Legacy field
   total_price?: number; // Legacy field
@@ -10,6 +11,10 @@ interface LineItem {
   unit_price_incl_vat?: number;
   line_total_excl_vat?: number;
   line_total_incl_vat?: number;
+  price_excl_vat?: number;
+  price_incl_vat?: number;
+  price_per_unit?: number;
+  vat_rate?: number;
   flagged?: boolean;
 }
 
@@ -48,7 +53,7 @@ const InvoiceLineItemTable: React.FC<InvoiceLineItemTableProps> = ({
 
   // Calculate totals from line items if not provided
   const calculatedSubtotal = subtotal || items.reduce((sum, item) => 
-    sum + (item.line_total_excl_vat || item.total_price || 0), 0);
+    sum + (item.price_excl_vat || item.line_total_excl_vat || item.total_price || 0), 0);
   
   const calculatedVAT = vat || (calculatedSubtotal * vat_rate);
   const calculatedTotal = total_incl_vat || (calculatedSubtotal + calculatedVAT);
@@ -95,6 +100,7 @@ const InvoiceLineItemTable: React.FC<InvoiceLineItemTableProps> = ({
             const unitPriceExclVAT = item.unit_price_excl_vat || item.unit_price || 0;
             const unitPriceInclVAT = item.unit_price_incl_vat || (unitPriceExclVAT * (1 + vat_rate));
             const lineTotal = item.line_total_excl_vat || item.total_price || 0;
+            const itemName = item.item || item.description || 'Unknown Item';
             
             return (
               <tr
@@ -103,7 +109,7 @@ const InvoiceLineItemTable: React.FC<InvoiceLineItemTableProps> = ({
               >
                 <td className="px-4 py-3 text-sm text-slate-900">
                   <div className="flex items-center">
-                    <span className="truncate max-w-xs">{item.description}</span>
+                    <span className="truncate max-w-xs">{itemName}</span>
                     {item.flagged && (
                       <AlertTriangle className="w-3 h-3 text-red-500 ml-2 flex-shrink-0" />
                     )}

@@ -7,14 +7,39 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import os
+import uuid
 
 logger = logging.getLogger(__name__)
 
 class SmartUploadProcessor:
     def __init__(self):
+        # Enhanced invoice keywords for better detection
         self.invoice_keywords = [
             'invoice', 'tax', 'total', 'vat', 'subtotal', 'net', 'amount due',
-            'invoice number', 'invoice date', 'supplier', 'payment'
+            'invoice number', 'invoice date', 'supplier', 'payment', 'bill',
+            'statement', 'account', 'balance', 'outstanding'
+        ]
+        
+        # Invoice header patterns to detect new invoices
+        self.invoice_header_patterns = [
+            r'invoice\s*#?\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+            r'invoice\s*number\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+            r'inv\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+            r'bill\s*#?\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+            r'statement\s*#?\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+            r'page\s+\d+\s+of\s+\d+',  # Page numbering often indicates new document
+            r'continued\s+on\s+next\s+page',  # Continuation indicators
+        ]
+        
+        # Keywords that indicate end of invoice
+        self.invoice_end_patterns = [
+            r'total\s+amount\s+due',
+            r'grand\s+total',
+            r'amount\s+due',
+            r'payment\s+terms',
+            r'thank\s+you',
+            r'please\s+pay',
+            r'terms\s+and\s+conditions'
         ]
         
         self.delivery_keywords = [
@@ -30,6 +55,7 @@ class SmartUploadProcessor:
     def process_multi_invoice_pdf(self, filepath: str) -> Dict[str, Any]:
         """
         Process a PDF that may contain multiple invoices and intelligently split them.
+        Returns individual invoice documents with full metadata and line items.
         """
         try:
             # Open the PDF
@@ -44,15 +70,23 @@ class SmartUploadProcessor:
             
             doc.close()
             
-            # Group pages into logical documents
-            grouped_documents = self._group_pages_into_documents(pages_data)
+            # Group pages into logical invoice documents
+            grouped_documents = self._group_pages_into_invoices(pages_data)
+            
+            # Process each group to extract full invoice data
+            processed_documents = []
+            for group in grouped_documents:
+                if group.get('type') == 'invoice':
+                    processed_doc = self._process_invoice_group(group, pages_data)
+                    if processed_doc:
+                        processed_documents.append(processed_doc)
             
             return {
-                "suggested_documents": grouped_documents,
+                "suggested_documents": processed_documents,
                 "total_pages": len(pages_data),
                 "processing_summary": {
                     "pages_processed": len(pages_data),
-                    "documents_found": len(grouped_documents),
+                    "invoices_found": len(processed_documents),
                     "skipped_pages": len([p for p in pages_data if p.get('skip_page', False)])
                 }
             }
@@ -94,6 +128,9 @@ class SmartUploadProcessor:
             # Determine document type
             doc_type = self._classify_document_type(ocr_text)
             
+            # Check for invoice headers
+            invoice_headers = self._detect_invoice_headers(ocr_text)
+            
             # Calculate confidence based on metadata completeness
             confidence = self._calculate_page_confidence(metadata, doc_type, word_count)
             
@@ -105,7 +142,9 @@ class SmartUploadProcessor:
                 "skip_page": False,
                 "document_type": doc_type,
                 "confidence": confidence,
-                "metadata": metadata
+                "metadata": metadata,
+                "invoice_headers": invoice_headers,
+                "is_invoice_start": len(invoice_headers) > 0
             }
             
         except Exception as e:
@@ -238,6 +277,20 @@ class SmartUploadProcessor:
         else:
             return 'unknown'
 
+    def _detect_invoice_headers(self, ocr_text: str) -> List[str]:
+        """
+        Detect invoice headers that indicate the start of a new invoice.
+        """
+        headers = []
+        text_lower = ocr_text.lower()
+        
+        for pattern in self.invoice_header_patterns:
+            matches = re.finditer(pattern, text_lower, re.IGNORECASE)
+            for match in matches:
+                headers.append(match.group(0))
+        
+        return headers
+
     def _calculate_page_confidence(self, metadata: Dict[str, Any], doc_type: str, word_count: int) -> float:
         """
         Calculate confidence score based on metadata completeness and document type.
@@ -270,88 +323,118 @@ class SmartUploadProcessor:
         
         return min(base_confidence, 1.0)
 
-    def _group_pages_into_documents(self, pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _group_pages_into_invoices(self, pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Group pages into logical documents based on metadata similarity.
+        Group pages into logical invoice documents based on invoice headers and content.
         """
         documents = []
         current_group = []
+        current_invoice_start = None
         
         for page_data in pages_data:
             if page_data.get('skip_page', False):
                 continue
             
-            # If this is the first page or metadata is similar to current group
-            if not current_group or self._should_group_with_current(page_data, current_group):
-                current_group.append(page_data)
-            else:
-                # Create document from current group
+            # Check if this page starts a new invoice
+            if page_data.get('is_invoice_start', False) and current_group:
+                # Save current group as a document
                 if current_group:
-                    doc = self._create_document_from_group(current_group)
+                    doc = self._create_document_from_group(current_group, current_invoice_start)
                     documents.append(doc)
                 
                 # Start new group
                 current_group = [page_data]
+                current_invoice_start = page_data.get('page_number')
+            else:
+                # Add to current group
+                if not current_group:
+                    current_invoice_start = page_data.get('page_number')
+                current_group.append(page_data)
         
         # Don't forget the last group
         if current_group:
-            doc = self._create_document_from_group(current_group)
+            doc = self._create_document_from_group(current_group, current_invoice_start)
             documents.append(doc)
         
         return documents
 
-    def _should_group_with_current(self, page_data: Dict[str, Any], current_group: List[Dict[str, Any]]) -> bool:
+    def _process_invoice_group(self, group: Dict[str, Any], pages_data: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
-        Determine if a page should be grouped with the current document group.
+        Process a group of pages as a single invoice and extract full metadata.
         """
-        if not current_group:
-            return True
-        
-        # Get metadata from current group (use the most complete one)
-        current_metadata = self._get_best_metadata_from_group(current_group)
-        new_metadata = page_data.get('metadata', {})
-        
-        # Check if supplier names match
-        if (current_metadata.get('supplier_name') and 
-            new_metadata.get('supplier_name') and
-            current_metadata['supplier_name'].lower() != new_metadata['supplier_name'].lower()):
-            return False
-        
-        # Check if invoice numbers match (for invoices)
-        if (current_metadata.get('invoice_number') and 
-            new_metadata.get('invoice_number') and
-            current_metadata['invoice_number'] != new_metadata['invoice_number']):
-            return False
-        
-        # Check if document types are compatible
-        current_types = [p.get('document_type') for p in current_group]
-        new_type = page_data.get('document_type')
-        
-        # If types are different, don't group (except for unknown types)
-        if new_type != 'unknown' and 'unknown' not in current_types:
-            if new_type not in current_types:
-                return False
-        
-        return True
-
-    def _get_best_metadata_from_group(self, group: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Get the most complete metadata from a group of pages.
-        """
-        best_metadata = {}
-        best_score = 0
-        
-        for page in group:
-            metadata = page.get('metadata', {})
-            score = sum(1 for v in metadata.values() if v is not None)
+        try:
+            page_numbers = group.get('pages', [])
+            if not page_numbers:
+                return None
             
-            if score > best_score:
-                best_score = score
-                best_metadata = metadata
-        
-        return best_metadata
+            # Combine OCR text from all pages in the group
+            combined_ocr = ""
+            for page_num in page_numbers:
+                page_data = next((p for p in pages_data if p.get('page_number') == page_num), None)
+                if page_data and not page_data.get('skip_page', False):
+                    combined_ocr += page_data.get('ocr_text', '') + "\n"
+            
+            if not combined_ocr.strip():
+                return None
+            
+            # Extract full invoice metadata
+            from backend.ocr.parse_invoice import parse_invoice_text
+            parsed_data = parse_invoice_text(combined_ocr)
+            
+            # Validate that this is actually an invoice
+            if not self._is_valid_invoice(parsed_data, combined_ocr):
+                return None
+            
+            # Create the invoice document
+            invoice_doc = {
+                "id": str(uuid.uuid4()),
+                "type": "invoice",
+                "pages": page_numbers,
+                "confidence": group.get('confidence', 0.5),
+                "supplier_name": parsed_data.get('supplier_name', 'Unknown'),
+                "metadata": {
+                    "invoice_number": parsed_data.get('invoice_number'),
+                    "invoice_date": parsed_data.get('invoice_date'),
+                    "total_amount": parsed_data.get('total_amount'),
+                    "subtotal": parsed_data.get('subtotal'),
+                    "vat": parsed_data.get('vat'),
+                    "vat_rate": parsed_data.get('vat_rate'),
+                    "total_incl_vat": parsed_data.get('total_incl_vat')
+                },
+                "line_items": parsed_data.get('line_items', []),
+                "ocr_text": combined_ocr,
+                "word_count": len(combined_ocr.split()),
+                "preview_urls": []  # Would be populated with actual preview images
+            }
+            
+            return invoice_doc
+            
+        except Exception as e:
+            logger.error(f"Error processing invoice group: {str(e)}")
+            return None
 
-    def _create_document_from_group(self, group: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _is_valid_invoice(self, parsed_data: Dict[str, Any], ocr_text: str) -> bool:
+        """
+        Validate that the parsed data represents a valid invoice.
+        """
+        # Check for minimum required fields
+        has_invoice_number = parsed_data.get('invoice_number') and parsed_data.get('invoice_number') != 'Unknown'
+        has_supplier = parsed_data.get('supplier_name') and parsed_data.get('supplier_name') != 'Unknown'
+        has_total = parsed_data.get('total_amount') and parsed_data.get('total_amount') > 0
+        
+        # Check for minimum word count (filter out irrelevant pages)
+        word_count = len(ocr_text.split())
+        has_sufficient_content = word_count >= 30
+        
+        # Check for invoice keywords
+        text_lower = ocr_text.lower()
+        has_invoice_keywords = any(keyword in text_lower for keyword in self.invoice_keywords)
+        
+        # Must have at least 2 out of 3 required fields and sufficient content
+        required_fields = sum([has_invoice_number, has_supplier, has_total])
+        return required_fields >= 2 and has_sufficient_content and has_invoice_keywords
+
+    def _create_document_from_group(self, group: List[Dict[str, Any]], invoice_start: Optional[int]) -> Dict[str, Any]:
         """
         Create a document object from a group of pages.
         """
@@ -372,22 +455,27 @@ class SmartUploadProcessor:
         # Get page numbers
         page_numbers = [p.get('page_number') for p in group]
         
-        # Generate a unique ID
-        import uuid
-        doc_id = str(uuid.uuid4())
-        
         return {
-            "id": doc_id,
             "type": primary_type,
             "pages": page_numbers,
             "confidence": round(avg_confidence, 2),
             "supplier_name": metadata.get('supplier_name', 'Unknown'),
-            "preview_urls": [],  # Would be populated with actual preview images
-            "metadata": {
-                "invoice_number": metadata.get('invoice_number'),
-                "delivery_note_number": metadata.get('delivery_note_number'),
-                "invoice_date": metadata.get('invoice_date'),
-                "delivery_date": metadata.get('delivery_date'),
-                "total_amount": metadata.get('total_amount')
-            }
-        } 
+            "invoice_start": invoice_start
+        }
+
+    def _get_best_metadata_from_group(self, group: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Get the most complete metadata from a group of pages.
+        """
+        best_metadata = {}
+        best_score = 0
+        
+        for page in group:
+            metadata = page.get('metadata', {})
+            score = sum(1 for v in metadata.values() if v is not None)
+            
+            if score > best_score:
+                best_score = score
+                best_metadata = metadata
+        
+        return best_metadata 

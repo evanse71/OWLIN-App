@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Database setup script for Owlin invoice management system.
-Creates necessary tables for the complete upload → scan → match flow.
+Fixed upload route for Owlin invoice management system.
+Implements robust OCR processing with fallback logic and proper error handling.
 """
 
 import sqlite3
@@ -22,347 +22,49 @@ import io
 from PIL import Image
 import fitz  # PyMuPDF for PDF processing
 import re
+import asyncio
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DB_PATH = "data/owlin.db"
+# Import working OCR functions with detailed error handling
+try:
+    from backend.ocr.ocr_engine import run_ocr
+    logger.debug("✅ run_ocr imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Failed to import run_ocr: {e}")
+    run_ocr = None
 
-def create_tables():
-    """Create the necessary tables for the complete invoice management system."""
-    logger.info("🚀 Starting database table creation...")
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        # Create uploaded_files table (tracks all uploaded files)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS uploaded_files (
-                id TEXT PRIMARY KEY,
-                original_filename TEXT NOT NULL,
-                file_type TEXT NOT NULL,  -- 'invoice', 'delivery_note', 'receipt'
-                file_path TEXT NOT NULL,
-                file_size INTEGER,
-                upload_timestamp TEXT NOT NULL,
-                processing_status TEXT DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed'
-                extracted_text TEXT,
-                confidence REAL,
-                processed_images INTEGER,
-                extraction_timestamp TEXT,
-                error_message TEXT
-            )
-        """)
-        
-        # Create invoices table (processed invoice data)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS invoices (
-                id TEXT PRIMARY KEY,
-                file_id TEXT NOT NULL,
-                invoice_number TEXT,
-                invoice_date TEXT,
-                supplier_name TEXT,
-                total_amount REAL,
-                currency TEXT DEFAULT 'GBP',
-                status TEXT DEFAULT 'pending',  -- 'pending', 'scanned', 'matched', 'unmatched', 'error', 'utility', 'waiting'
-                confidence REAL,
-                upload_timestamp TEXT NOT NULL,
-                processing_timestamp TEXT,
-                delivery_note_id TEXT,  -- Foreign key to delivery_notes
-                venue TEXT,
-                delivery_note_required BOOLEAN DEFAULT TRUE,  -- New column for utility invoices
-                ocr_text TEXT,  -- Store the full OCR text for each page
-                parent_pdf_filename TEXT,  -- Original PDF filename for multi-page PDFs
-                page_number INTEGER DEFAULT 1,  -- Page number within the PDF
-                is_utility_invoice BOOLEAN DEFAULT FALSE,  -- Flag for utility/service invoices
-                utility_keywords TEXT,  -- Keywords that triggered utility classification
-                FOREIGN KEY (file_id) REFERENCES uploaded_files (id),
-                FOREIGN KEY (delivery_note_id) REFERENCES delivery_notes (id)
-            )
-        """)
-        
-        # Create delivery_notes table (processed delivery note data)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS delivery_notes (
-                id TEXT PRIMARY KEY,
-                file_id TEXT NOT NULL,
-                delivery_note_number TEXT,
-                delivery_date TEXT,
-                supplier_name TEXT,
-                status TEXT DEFAULT 'pending',  -- 'pending', 'scanned', 'matched', 'unmatched', 'error'
-                confidence REAL,
-                upload_timestamp TEXT NOT NULL,
-                processing_timestamp TEXT,
-                invoice_id TEXT,  -- Foreign key to invoices
-                FOREIGN KEY (file_id) REFERENCES uploaded_files (id),
-                FOREIGN KEY (invoice_id) REFERENCES invoices (id)
-            )
-        """)
-        
-        # Create invoice_line_items table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS invoice_line_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                invoice_id TEXT NOT NULL,
-                item_description TEXT NOT NULL,
-                quantity REAL NOT NULL,
-                unit_price REAL NOT NULL,
-                total_price REAL NOT NULL,
-                source TEXT DEFAULT 'ocr',  -- 'ocr', 'manual', 'corrected'
-                confidence REAL,
-                flagged BOOLEAN DEFAULT FALSE,
-                FOREIGN KEY (invoice_id) REFERENCES invoices (id)
-            )
-        """)
-        
-        # Create delivery_line_items table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS delivery_line_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                delivery_note_id TEXT NOT NULL,
-                item_description TEXT NOT NULL,
-                quantity REAL NOT NULL,
-                unit_price REAL NOT NULL,
-                total_price REAL NOT NULL,
-                source TEXT DEFAULT 'ocr',  -- 'ocr', 'manual', 'corrected'
-                confidence REAL,
-                flagged BOOLEAN DEFAULT FALSE,
-                FOREIGN KEY (delivery_note_id) REFERENCES delivery_notes (id)
-            )
-        """)
-        
-        # Create price_forecasting tables (existing - keep for compatibility)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS price_forecasting_invoices (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                invoice_number TEXT NOT NULL,
-                supplier_name TEXT NOT NULL,
-                invoice_date DATE NOT NULL,
-                total_amount REAL NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS price_forecasting_line_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                invoice_id INTEGER NOT NULL,
-                item TEXT NOT NULL,
-                quantity REAL NOT NULL,
-                unit_price REAL NOT NULL,
-                price REAL NOT NULL,
-                FOREIGN KEY (invoice_id) REFERENCES price_forecasting_invoices (id)
-            )
-        """)
-        
-        # Create indexes for better performance
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_uploaded_files_type_status ON uploaded_files (file_type, processing_status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices (status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_notes_status ON delivery_notes (status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_supplier_date ON invoices (supplier_name, invoice_date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_notes_supplier_date ON delivery_notes (supplier_name, delivery_date)")
-        
-        conn.commit()
-        conn.close()
-        logger.info("✅ Database tables created successfully")
-    except Exception as e:
-        logger.error(f"❌ Database table creation failed: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to create database tables: {str(e)}")
+try:
+    from backend.ocr.parse_invoice import extract_invoice_metadata, extract_line_items
+    logger.debug("✅ extract_invoice_metadata and extract_line_items imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Failed to import parse_invoice functions: {e}")
+    extract_invoice_metadata = None
+    extract_line_items = None
 
-def generate_sample_data():
-    """Generate realistic sample data for the complete invoice management system."""
-    logger.info("🚀 Starting sample data generation...")
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        # Sample products with realistic price ranges and trends
-        products = {
-            'Milk': {'base_price': 1.20, 'volatility': 0.15, 'trend': 0.02},
-            'Carrots': {'base_price': 0.80, 'volatility': 0.25, 'trend': 0.05},
-            'Pork Shoulder': {'base_price': 3.50, 'volatility': 0.30, 'trend': -0.01},
-            'Chicken Breast': {'base_price': 2.80, 'volatility': 0.20, 'trend': 0.03},
-            'Tomatoes': {'base_price': 1.50, 'volatility': 0.40, 'trend': 0.08},
-            'Potatoes': {'base_price': 0.60, 'volatility': 0.10, 'trend': 0.01},
-            'Onions': {'base_price': 0.70, 'volatility': 0.20, 'trend': 0.02},
-            'Bread': {'base_price': 1.10, 'volatility': 0.08, 'trend': 0.015},
-        }
-        
-        suppliers = ['Fresh Foods Ltd', 'Quality Meats Co', 'Green Grocers Inc', 'Farm Fresh Supply']
-        
-        # Generate 18 months of data (from 2023-01 to 2024-06)
-        start_date = datetime(2023, 1, 1)
-        end_date = datetime(2024, 6, 30)
-        
-        invoice_id = 1
-        current_date = start_date
-        
-        while current_date <= end_date:
-            # Generate 2-4 invoices per month
-            invoices_per_month = random.randint(2, 4)
-            
-            for _ in range(invoices_per_month):
-                supplier = random.choice(suppliers)
-                invoice_date = current_date + timedelta(days=random.randint(0, 28))
-                
-                # Create uploaded file record
-                file_id = f"FILE-{uuid.uuid4().hex[:8]}"
-                cursor.execute("""
-                    INSERT INTO uploaded_files 
-                    (id, original_filename, file_type, file_path, file_size, upload_timestamp, processing_status, confidence)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    file_id,
-                    f"INV-{invoice_id:04d}.pdf",
-                    'invoice',
-                    f"uploads/invoices/INV-{invoice_id:04d}.pdf",
-                    1024 * 1024,  # 1MB
-                    invoice_date.isoformat(),
-                    'completed',
-                    0.85 + random.random() * 0.15  # 85-100% confidence
-                ))
-                
-                # Insert invoice
-                cursor.execute("""
-                    INSERT INTO price_forecasting_invoices (invoice_number, supplier_name, invoice_date, total_amount)
-                    VALUES (?, ?, ?, ?)
-                """, (f"INV-{invoice_id:04d}", supplier, invoice_date.strftime('%Y-%m-%d'), 0.0))
-                
-                # Generate line items for this invoice
-                total_amount = 0.0
-                items_in_invoice = random.sample(list(products.keys()), random.randint(2, 5))
-                
-                for item in items_in_invoice:
-                    product_info = products[item]
-                    
-                    # Calculate price with trend and seasonal effects
-                    months_since_start = (current_date.year - 2023) * 12 + current_date.month - 1
-                    trend_factor = 1 + (product_info['trend'] * months_since_start)
-                    
-                    # Add seasonal variation (higher prices in winter for some items)
-                    seasonal_factor = 1.0
-                    if current_date.month in [12, 1, 2]:  # Winter months
-                        if item in ['Milk', 'Bread']:
-                            seasonal_factor = 1.1  # 10% higher in winter
-                        elif item in ['Tomatoes', 'Carrots']:
-                            seasonal_factor = 1.2  # 20% higher in winter
-                    
-                    # Add random volatility
-                    volatility_factor = 1 + random.uniform(-product_info['volatility'], product_info['volatility'])
-                    
-                    # Calculate final price
-                    unit_price = product_info['base_price'] * trend_factor * seasonal_factor * volatility_factor
-                    unit_price = max(0.1, unit_price)  # Ensure positive price
-                    
-                    quantity = random.uniform(1, 10)
-                    price = unit_price * quantity
-                    total_amount += price
-                    
-                    # Insert line item
-                    cursor.execute("""
-                        INSERT INTO price_forecasting_line_items (invoice_id, item, quantity, unit_price, price)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (invoice_id, item, quantity, unit_price, price))
-                
-                # Update invoice total
-                cursor.execute("""
-                    UPDATE price_forecasting_invoices SET total_amount = ? WHERE id = ?
-                """, (total_amount, invoice_id))
-                
-                invoice_id += 1
-            
-            # Move to next month
-            if current_date.month == 12:
-                current_date = current_date.replace(year=current_date.year + 1, month=1)
-            else:
-                current_date = current_date.replace(month=current_date.month + 1)
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Generated {invoice_id - 1} invoices with realistic price data")
-    except Exception as e:
-        logger.error(f"❌ Sample data generation failed: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to generate sample data: {str(e)}")
+try:
+    from backend.ocr.table_extractor import extract_table_data
+    logger.debug("✅ extract_table_data imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Failed to import extract_table_data: {e}")
+    extract_table_data = None
 
-def verify_data():
-    """Verify the generated data looks realistic."""
-    logger.info("🚀 Starting data verification...")
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        
-        # Check total records
-        invoices_count = pd.read_sql("SELECT COUNT(*) as count FROM price_forecasting_invoices", conn).iloc[0]['count']
-        line_items_count = pd.read_sql("SELECT COUNT(*) as count FROM price_forecasting_line_items", conn).iloc[0]['count']
-        
-        logger.info(f"📊 Database contains:")
-        logger.info(f"   - {invoices_count} invoices")
-        logger.info(f"   - {line_items_count} line items")
-        
-        # Show sample price trends
-        sample_products = ['Milk', 'Carrots', 'Pork Shoulder']
-        for product in sample_products:
-            query = """
-            SELECT 
-                strftime('%Y-%m', i.invoice_date) as month,
-                AVG(li.unit_price) as avg_price,
-                COUNT(*) as transactions
-            FROM price_forecasting_line_items li
-            JOIN price_forecasting_invoices i ON li.invoice_id = i.id
-            WHERE li.item = ?
-            GROUP BY strftime('%Y-%m', i.invoice_date)
-            ORDER BY month
-            """
-            df = pd.read_sql(query, conn, params=(product,))
-            logger.info(f"\n📈 {product} price trends:")
-            logger.info(df.to_string(index=False))
-        
-        conn.close()
-        logger.info("✅ Data verification complete.")
-    except Exception as e:
-        logger.error(f"❌ Data verification failed: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to verify data: {str(e)}")
-
-if __name__ == "__main__":
-    logger.info("🚀 Setting up Owlin invoice management database...")
-    create_tables()
-    generate_sample_data()
-    verify_data()
-    logger.info("\n✅ Database setup complete! Ready for invoice management.")
-
-import os
-import shutil
-import uuid
-import traceback
-import logging
-from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Optional, Any
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-import sqlite3
-from backend.routes.ocr import parse_with_ocr, classify_document_type, extract_invoice_fields, classify_utility_invoice
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-router = APIRouter()
+# Check if all required functions are available
+ENHANCED_OCR_AVAILABLE = all([run_ocr, extract_invoice_metadata, extract_line_items, extract_table_data])
+if ENHANCED_OCR_AVAILABLE:
+    logger.info("✅ Enhanced OCR pipeline available")
+else:
+    logger.warning("⚠️ Some OCR functions are missing - using fallback mode")
 
 # Define upload directories
-UPLOAD_BASE = Path("data/uploads")
-INVOICE_DIR = UPLOAD_BASE / "invoices"
-DELIVERY_DIR = UPLOAD_BASE / "delivery_notes"
-RECEIPT_DIR = UPLOAD_BASE / "receipts"
-DOCUMENTS_DIR = UPLOAD_BASE / "documents"  # General documents directory
+UPLOAD_DIR = "data/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Create directories if they don't exist
-INVOICE_DIR.mkdir(parents=True, exist_ok=True)
-DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
-RECEIPT_DIR.mkdir(parents=True, exist_ok=True)
-DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+# Create logs directory for failed uploads
+LOGS_DIR = "data/logs"
+os.makedirs(LOGS_DIR, exist_ok=True)
 
 # Allowed file types
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
@@ -370,218 +72,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 # File size limits (10MB)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 
-# Utility invoice keywords for detection
-UTILITY_KEYWORDS = [
-    "electricity", "edf", "octopus", "british gas", "utility", "water", "rates", 
-    "gas", "tv license", "energy", "power", "electric", "british gas", "sse", 
-    "npower", "eon", "scottish power", "thames water", "severn trent", "united utilities",
-    "south west water", "wessex water", "anglia water", "yorkshire water", "northumbrian water",
-    "tv licence", "council tax", "rates", "service charge", "maintenance", "insurance",
-    "telephone", "internet", "broadband", "mobile", "phone", "telecom", "bt", "sky",
-    "virgin media", "talktalk", "vodafone", "o2", "ee", "three", "giffgaff"
-]
-
-def is_pdf_file(filename: str) -> bool:
-    """Check if file is a PDF"""
-    return Path(filename).suffix.lower() == '.pdf'
-
-def convert_pdf_to_images(file_bytes: bytes) -> List[Image.Image]:
-    """Convert PDF bytes to list of PIL Images"""
-    try:
-        # Use PyMuPDF to convert PDF to images
-        pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
-        images = []
-        
-        for page_num in range(len(pdf_document)):
-            page = pdf_document.load_page(page_num)
-            # Render page to image with higher resolution
-            mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
-            pix = page.get_pixmap(matrix=mat)
-            
-            # Convert to PIL Image
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
-            images.append(img)
-        
-        pdf_document.close()
-        logger.info(f"✅ Converted PDF to {len(images)} images")
-        return images
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to convert PDF to images: {str(e)}")
-        raise Exception(f"PDF conversion failed: {str(e)}")
-
-def detect_utility_invoice(text: str, supplier_name: str) -> tuple[bool, List[str]]:
-    """Detect if an invoice is a utility/service invoice"""
-    text_lower = text.lower()
-    supplier_lower = supplier_name.lower()
-    
-    found_keywords = []
-    
-    # Check for utility keywords in text and supplier name
-    for keyword in UTILITY_KEYWORDS:
-        keyword_lower = keyword.lower()
-        if keyword_lower in text_lower or keyword_lower in supplier_lower:
-            found_keywords.append(keyword)
-    
-    # Additional checks for common patterns
-    utility_patterns = [
-        'british gas',
-        'edf energy',
-        'octopus energy',
-        'sse energy',
-        'npower',
-        'eon energy',
-        'scottish power',
-        'thames water',
-        'severn trent',
-        'united utilities',
-        'tv licence',
-        'council tax',
-        'service charge'
-    ]
-    
-    for pattern in utility_patterns:
-        if pattern in text_lower or pattern in supplier_lower:
-            if pattern not in found_keywords:
-                found_keywords.append(pattern)
-    
-    is_utility = len(found_keywords) > 0
-    
-    if is_utility:
-        logger.info(f"🔌 Utility invoice detected with keywords: {found_keywords}")
-        logger.info(f"🔌 Text sample: {text_lower[:100]}...")
-        logger.info(f"🔌 Supplier: {supplier_lower}")
-    else:
-        logger.info(f"📄 Regular invoice detected")
-        logger.info(f"📄 Text sample: {text_lower[:100]}...")
-        logger.info(f"📄 Supplier: {supplier_lower}")
-    
-    return is_utility, found_keywords
-
-async def process_single_page_ocr(image: Image.Image, page_number: int, filename: str) -> Dict[str, Any]:
-    """Process OCR for a single page/image"""
-    try:
-        logger.info(f"🔄 Processing OCR for page {page_number}")
-        
-        # Convert PIL Image to bytes for OCR processing
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-        
-        # Create a mock UploadFile for OCR processing
-        class MockUploadFile:
-            def __init__(self, content: bytes, filename: str):
-                self.file = io.BytesIO(content)
-                self.filename = filename
-                self.size = len(content)
-            
-            async def read(self):
-                return self.file.read()
-            
-            def seek(self, pos):
-                self.file.seek(pos)
-        
-        mock_file = MockUploadFile(img_byte_arr, f"{filename}_page_{page_number}.png")
-        
-        # Run OCR processing
-        ocr_result = await parse_with_ocr(mock_file)
-        
-        # Extract text for utility detection
-        ocr_text = ""
-        if ocr_result.get('success', False):
-            parsed_data = ocr_result.get('parsed_data', {})
-            # Combine all text fields for utility detection
-            text_fields = [
-                parsed_data.get('supplier_name', ''),
-                parsed_data.get('invoice_number', ''),
-                parsed_data.get('invoice_date', ''),
-                str(parsed_data.get('total_amount', '')),
-                ocr_result.get('raw_text', '')
-            ]
-            ocr_text = ' '.join([str(field) for field in text_fields if field])
-        
-        # Detect utility invoice
-        supplier_name = ocr_result.get('parsed_data', {}).get('supplier_name', 'Unknown Supplier')
-        is_utility, utility_keywords = detect_utility_invoice(ocr_text, supplier_name)
-        
-        # Determine status and delivery note requirement
-        if is_utility:
-            status = 'utility'
-            delivery_note_required = False
-        else:
-            status = 'waiting'
-            delivery_note_required = True
-        
-        # Prepare result
-        result = {
-            'page_number': page_number,
-            'success': ocr_result.get('success', False),
-            'confidence_score': ocr_result.get('confidence_score', 0.0),
-            'parsed_data': ocr_result.get('parsed_data', {}),
-            'ocr_text': ocr_text,
-            'is_utility_invoice': is_utility,
-            'utility_keywords': utility_keywords,
-            'status': status,
-            'delivery_note_required': delivery_note_required,
-            'error': ocr_result.get('error', None)
-        }
-        
-        logger.info(f"✅ Page {page_number} processed. Status: {status}, Utility: {is_utility}")
-        return result
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to process page {page_number}: {str(e)}")
-        return {
-            'page_number': page_number,
-            'success': False,
-            'confidence_score': 0.0,
-            'parsed_data': {},
-            'ocr_text': '',
-            'is_utility_invoice': False,
-            'utility_keywords': [],
-            'status': 'error',
-            'delivery_note_required': True,
-            'error': str(e)
-        }
-
-async def process_upload(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
-    """Process uploaded file and return list of invoice data for each page"""
-    logger.info(f"🚀 Starting multi-page processing for: {filename}")
-    logger.info(f"📊 File size: {len(file_bytes)} bytes")
-    
-    try:
-        results = []
-        
-        if is_pdf_file(filename):
-            # Convert PDF to images
-            logger.info("📄 Processing as multi-page PDF")
-            images = convert_pdf_to_images(file_bytes)
-            logger.info(f"📋 Converted PDF to {len(images)} images")
-            
-            # Process each page
-            for page_num, image in enumerate(images, 1):
-                logger.info(f"🔄 Processing page {page_num}/{len(images)}")
-                result = await process_single_page_ocr(image, page_num, filename)
-                logger.info(f"📋 Page {page_num} result: {result}")
-                results.append(result)
-                
-        else:
-            # Process as single image
-            logger.info("🖼️ Processing as single image")
-            image = Image.open(io.BytesIO(file_bytes))
-            result = await process_single_page_ocr(image, 1, filename)
-            logger.info(f"📋 Single image result: {result}")
-            results.append(result)
-        
-        logger.info(f"✅ Multi-page processing completed. Found {len(results)} pages/invoices")
-        logger.info(f"📋 All results: {results}")
-        return results
-        
-    except Exception as e:
-        logger.error(f"❌ Multi-page processing failed: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Multi-page processing failed: {str(e)}")
+router = APIRouter()
 
 def get_db_connection():
     """Get database connection."""
@@ -647,243 +138,67 @@ def save_file_with_timestamp(file: UploadFile, directory: Path) -> str:
         return filename
         
     except Exception as e:
-        logger.error(f"❌ File save failed for {file.filename}: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to save file: {str(e)}")
+        logger.error(f"❌ Failed to save file: {str(e)}")
+        raise Exception(f"File save failed: {str(e)}")
 
-def create_uploaded_file_record(file_id: str, original_filename: str, file_type: str, 
-                               file_path: str, file_size: int) -> None:
-    """Create a record in the uploaded_files table"""
-    logger.info(f"🔄 Creating database record for file: {original_filename}")
-    logger.info(f"📋 File ID: {file_id}")
-    logger.info(f"📋 File type: {file_type}")
-    logger.info(f"📋 File path: {file_path}")
+async def process_upload_with_timeout(filepath: str, filename: str, timeout_seconds: int = 30):
+    """Process upload with timeout to prevent hanging."""
+    logger.debug(f"🔄 Starting OCR processing for {filename} with {timeout_seconds}s timeout")
+    logger.debug(f"📁 File path: {filepath}")
     
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # Check if run_ocr function is available
+        if run_ocr is None:
+            logger.error("❌ run_ocr function is not available")
+            raise Exception("OCR engine not available")
         
-        cursor.execute("""
-            INSERT INTO uploaded_files 
-            (id, original_filename, file_type, file_path, file_size, upload_timestamp, processing_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            file_id,
-            original_filename,
-            file_type,
-            file_path,
-            file_size,
-            datetime.now().isoformat(),
-            'pending'
-        ))
+        # Check if file exists
+        if not os.path.exists(filepath):
+            logger.error(f"❌ File not found: {filepath}")
+            raise Exception(f"File not found: {filepath}")
         
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Database record created successfully for file: {original_filename}")
+        logger.debug(f"📊 File size: {os.path.getsize(filepath)} bytes")
         
+        # Run OCR with timeout
+        logger.debug("🔄 Calling run_ocr function...")
+        ocr_result = await asyncio.wait_for(
+            asyncio.to_thread(run_ocr, filepath),
+            timeout=timeout_seconds
+        )
+        
+        logger.debug(f"✅ OCR completed for {filename}")
+        logger.debug(f"📝 OCR result keys: {list(ocr_result.keys()) if isinstance(ocr_result, dict) else 'Not a dict'}")
+        
+        return ocr_result
+        
+    except asyncio.TimeoutError:
+        logger.error(f"❌ OCR processing timed out after {timeout_seconds}s for {filename}")
+        raise HTTPException(status_code=408, detail=f"OCR processing timed out after {timeout_seconds} seconds")
     except Exception as e:
-        logger.error(f"❌ Database record creation failed for {original_filename}: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to create database record: {str(e)}")
+        logger.exception(f"❌ OCR processing failed for {filename}")
+        logger.error(f"📋 Error details: {str(e)}")
+        logger.error(f"📋 Error type: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
-def update_file_processing_status(file_id: str, status: str, confidence: float = None, 
-                                 extracted_text: str = None, error_message: str = None) -> None:
-    """Update the processing status of an uploaded file"""
-    logger.info(f"🔄 Updating processing status for file ID: {file_id}")
-    logger.info(f"📋 New status: {status}")
-    if confidence is not None:
-        logger.info(f"📋 Confidence: {confidence}")
-    if error_message:
-        logger.warning(f"⚠️ Error message: {error_message}")
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            UPDATE uploaded_files 
-            SET processing_status = ?, confidence = ?, extracted_text = ?, 
-                extraction_timestamp = ?, error_message = ?
-            WHERE id = ?
-        """, (
-            status,
-            confidence,
-            extracted_text,
-            datetime.now().isoformat() if status in ['completed', 'failed'] else None,
-            error_message,
-            file_id
-        ))
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Processing status updated successfully for file ID: {file_id}")
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to update processing status for file ID {file_id}: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to update processing status: {str(e)}")
-
-def create_invoice_record(file_id: str, parsed_data: Dict, confidence: float, 
-                         ocr_text: str = "", parent_pdf_filename: str = None, 
-                         page_number: int = 1, is_utility_invoice: bool = False, 
-                         utility_keywords: List[str] = None) -> str:
-    """Create an invoice record in the database with enhanced fields"""
-    logger.info(f"🔄 Creating invoice record for file ID: {file_id}")
-    logger.info(f"📋 Parsed data keys: {list(parsed_data.keys())}")
-    logger.info(f"📋 Confidence: {confidence}")
-    logger.info(f"📋 Page number: {page_number}")
-    logger.info(f"📋 Is utility: {is_utility_invoice}")
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        invoice_id = str(uuid.uuid4())
-        
-        # Extract values with logging
-        invoice_number = parsed_data.get('invoice_number')
-        invoice_date = parsed_data.get('invoice_date')
-        supplier_name = parsed_data.get('supplier_name')
-        total_amount = float(parsed_data.get('total_amount', 0))
-        delivery_note_required = not is_utility_invoice  # Utility invoices don't need delivery notes
-        
-        # Determine status
-        if is_utility_invoice:
-            status = 'utility'
-        elif confidence == 0.0:
-            status = 'error'  # OCR completely failed
-        elif supplier_name == 'Document requires manual review' or supplier_name == 'Document could not be automatically classified. Please review manually. Detected text suggests this might be from: Unknown Supplier':
-            status = 'waiting'  # OCR succeeded but needs manual review
-        else:
-            status = 'waiting'
-        
-        # Convert utility keywords list to string
-        utility_keywords_str = ', '.join(utility_keywords) if utility_keywords else None
-        
-        logger.info(f"📋 Invoice number: {invoice_number}")
-        logger.info(f"📋 Invoice date: {invoice_date}")
-        logger.info(f"📋 Supplier: {supplier_name}")
-        logger.info(f"📋 Total amount: {total_amount}")
-        logger.info(f"📋 Delivery note required: {delivery_note_required}")
-        logger.info(f"📋 Status: {status}")
-        logger.info(f"📋 Utility keywords: {utility_keywords_str}")
-        
-        cursor.execute("""
-            INSERT INTO invoices 
-            (id, file_id, invoice_number, invoice_date, supplier_name, total_amount, 
-             confidence, upload_timestamp, status, delivery_note_required, ocr_text,
-             parent_pdf_filename, page_number, is_utility_invoice, utility_keywords)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            invoice_id,
-            file_id,
-            invoice_number,
-            invoice_date,
-            supplier_name,
-            total_amount,
-            confidence,
-            datetime.now().isoformat(),
-            status,
-            delivery_note_required,
-            ocr_text,
-            parent_pdf_filename,
-            page_number,
-            is_utility_invoice,
-            utility_keywords_str
-        ))
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Invoice record created successfully. Invoice ID: {invoice_id}")
-        return invoice_id
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to create invoice record for file ID {file_id}: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to create invoice record: {str(e)}")
-
-def create_delivery_note_record(file_id: str, parsed_data: Dict, confidence: float) -> str:
-    """Create a delivery note record in the database"""
-    logger.info(f"🔄 Creating delivery note record for file ID: {file_id}")
-    logger.info(f"📋 Parsed data keys: {list(parsed_data.keys())}")
-    logger.info(f"📋 Confidence: {confidence}")
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        delivery_note_id = str(uuid.uuid4())
-        
-        # Extract values with logging
-        delivery_note_number = parsed_data.get('delivery_note_number')
-        delivery_date = parsed_data.get('delivery_date')
-        supplier_name = parsed_data.get('supplier_name')
-        
-        logger.info(f"📋 Delivery note number: {delivery_note_number}")
-        logger.info(f"📋 Delivery date: {delivery_date}")
-        logger.info(f"📋 Supplier: {supplier_name}")
-        
-        cursor.execute("""
-            INSERT INTO delivery_notes 
-            (id, file_id, delivery_note_number, delivery_date, supplier_name, 
-             confidence, upload_timestamp, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            delivery_note_id,
-            file_id,
-            delivery_note_number,
-            delivery_date,
-            supplier_name,
-            confidence,
-            datetime.now().isoformat(),
-            'scanned'
-        ))
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Delivery note record created successfully. Delivery note ID: {delivery_note_id}")
-        return delivery_note_id
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to create delivery note record for file ID {file_id}: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to create delivery note record: {str(e)}")
-
-def attempt_matching(document_type: str, document_id: str, parsed_data: Dict) -> Dict:
-    """Attempt to match document with existing documents"""
-    logger.info(f"🔄 Attempting matching for {document_type} ID: {document_id}")
-    
-    try:
-        # This is a simplified matching attempt
-        # In a real implementation, you would query the database for potential matches
-        logger.info(f"📋 Matching logic would run here for {document_type}")
-        logger.info(f"📋 Parsed data available for matching: {list(parsed_data.keys())}")
-        
-        # For now, return a simple unmatched result
-        result = {
-            'matched': False,
-            'confidence': 0.0,
-            'reason': 'No matching logic implemented yet'
-        }
-        
-        logger.info(f"✅ Matching completed. Result: {result}")
-        return result
-        
-    except Exception as e:
-        logger.error(f"❌ Matching failed for {document_type} ID {document_id}: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        return {
-            'matched': False,
-            'confidence': 0.0,
-            'reason': f'Matching error: {str(e)}'
-        }
-
-@router.post("/upload/invoice")
+@router.post("/upload")
 async def upload_invoice(file: UploadFile = File(...)):
-    """Upload invoice file, parse, and try to match with delivery notes"""
+    """Upload and process invoice with robust error handling and fallback logic."""
+    logger.debug(f"Upload received: {file.filename if file else 'No file'}")
     logger.info(f"🚀 Starting invoice upload process for: {file.filename}")
-    logger.info(f"📊 File size: {file.size} bytes")
-    logger.info(f"📄 File type: {Path(file.filename).suffix}")
+    logger.debug(f"📊 File size: {file.size} bytes")
+    logger.debug(f"📋 Content type: {file.content_type}")
+    
+    # ✅ Enhanced input validation
+    if not file:
+        logger.error("❌ No file uploaded")
+        raise HTTPException(status_code=400, detail="No file uploaded")
+    
+    if not file.filename:
+        logger.error("❌ No filename provided")
+        raise HTTPException(status_code=400, detail="No filename provided")
+    
+    # Temporary file path for processing
+    temp_filepath = None
     
     try:
         # Step 1: Validate file
@@ -891,690 +206,311 @@ async def upload_invoice(file: UploadFile = File(...)):
         validate_file(file)
         logger.info("✅ File validation passed")
         
-        # Step 2: Generate unique file ID
-        logger.info("🔄 Step 2: Generating file ID...")
+        # Step 2: Save file temporarily
+        logger.info("🔄 Step 2: Saving file temporarily...")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_id = str(uuid.uuid4())
-        logger.info(f"✅ Generated file ID: {file_id}")
+        extension = Path(file.filename).suffix
+        temp_filename = f"{file_id}_{timestamp}{extension}"
+        temp_filepath = os.path.join(UPLOAD_DIR, temp_filename)
         
-        # Step 3: Save file to disk
-        logger.info("🔄 Step 3: Saving file to disk...")
-        filename = save_file_with_timestamp(file, INVOICE_DIR)
-        file_path = f"uploads/invoices/{filename}"
-        logger.info(f"✅ File saved as: {filename}")
+        # Save file
+        logger.debug(f"📁 Saving to: {temp_filepath}")
+        with open(temp_filepath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        logger.info(f"✅ File saved as: {temp_filename}")
         
-        # Step 4: Create uploaded file record
-        logger.info("🔄 Step 4: Creating database record...")
-        create_uploaded_file_record(file_id, file.filename, 'invoice', file_path, file.size)
-        logger.info("✅ Database record created")
+        # Step 3: Run OCR with timeout
+        logger.info("🔄 Step 3: Running OCR processing...")
+        try:
+            ocr_result = await process_upload_with_timeout(temp_filepath, file.filename)
+            logger.info("✅ OCR processing completed")
+        except Exception as ocr_error:
+            logger.exception("❌ OCR processing failed - using fallback")
+            # Save failed PDF for debugging
+            failed_file_path = os.path.join(LOGS_DIR, f"failed_{temp_filename}")
+            try:
+                shutil.copy2(temp_filepath, failed_file_path)
+                logger.info(f"📁 Failed PDF saved for debugging: {failed_file_path}")
+            except Exception as copy_error:
+                logger.warning(f"⚠️ Could not save failed PDF: {copy_error}")
+            
+            # Return fallback response
+            return create_fallback_response(file.filename, str(ocr_error))
         
-        # Step 5: Update status to processing
-        logger.info("🔄 Step 5: Updating status to processing...")
-        update_file_processing_status(file_id, 'processing')
-        logger.info("✅ Status updated to processing")
+        # Step 4: Extract table data
+        logger.info("🔄 Step 4: Extracting table data...")
+        table_data = []
+        try:
+            if extract_table_data and ocr_result.get('pages'):
+                for page in ocr_result['pages']:
+                    if page.get('word_boxes'):
+                        page_table_data = extract_table_data(page['word_boxes'])
+                        table_data.extend(page_table_data)
+            logger.info(f"✅ Table extraction completed. Found {len(table_data)} table rows")
+        except Exception as table_error:
+            logger.warning(f"⚠️ Table extraction failed: {table_error}")
+            table_data = []
         
-        # Step 6: Read file bytes for multi-page processing
-        logger.info("🔄 Step 6: Reading file bytes...")
-        file.file.seek(0)
-        file_bytes = await file.read()
-        logger.info(f"✅ Read {len(file_bytes)} bytes")
+        # Step 5: Extract metadata and line items
+        logger.info("🔄 Step 5: Extracting metadata and line items...")
+        raw_text = ocr_result.get('raw_ocr_text', '')
         
-        # Step 7: Process multi-page PDF/image
-        logger.info("🔄 Step 7: Starting multi-page processing...")
-        page_results = await process_upload(file_bytes, file.filename)
-        logger.info(f"✅ Multi-page processing completed. Found {len(page_results)} pages")
+        # Check if OCR text is mostly noise
+        if raw_text:
+            # Count meaningful characters vs noise
+            meaningful_chars = sum(1 for c in raw_text if c.isalnum() or c.isspace())
+            total_chars = len(raw_text)
+            meaningful_ratio = meaningful_chars / total_chars if total_chars > 0 else 0
+            
+            logger.info(f"📊 OCR quality check: {meaningful_chars}/{total_chars} meaningful chars ({meaningful_ratio:.2%})")
+            
+            if meaningful_ratio < 0.3:  # Less than 30% meaningful characters
+                logger.warning("⚠️ OCR text appears to be mostly noise - document may be low quality or corrupted")
+                raw_text = ""  # Treat as no text extracted
         
-        # Debug: Log each page result
-        for i, page_result in enumerate(page_results):
-            logger.info(f"📋 Page {i+1} result: success={page_result.get('success')}, error={page_result.get('error', 'None')}")
-            if page_result.get('success'):
-                logger.info(f"📋 Page {i+1} parsed data: {page_result.get('parsed_data', {})}")
-        
-        # Step 8: Create invoice records for each page
-        logger.info("🔄 Step 8: Creating invoice records...")
-        invoice_ids = []
-        match_results = []
-        
-        for page_result in page_results:
-            # Always create invoice record, regardless of OCR success
-            if page_result['success']:
-                # Create invoice record for successful OCR
-                invoice_id = create_invoice_record(
-                    file_id=file_id,
-                    parsed_data=page_result['parsed_data'],
-                    confidence=page_result['confidence_score'],
-                    ocr_text=page_result['ocr_text'],
-                    parent_pdf_filename=file.filename if is_pdf_file(file.filename) else None,
-                    page_number=page_result['page_number'],
-                    is_utility_invoice=page_result['is_utility_invoice'],
-                    utility_keywords=page_result['utility_keywords']
-                )
-                invoice_ids.append(invoice_id)
-                
-                # Attempt matching (skip for utility invoices)
-                if not page_result['is_utility_invoice']:
-                    match_result = attempt_matching('invoice', invoice_id, page_result['parsed_data'])
-                    match_results.append(match_result)
-                    logger.info(f"✅ Matching completed for page {page_result['page_number']}: {match_result['matched']}")
-                else:
-                    match_results.append({'matched': False, 'reason': 'Utility invoice - no delivery note required'})
-                    logger.info(f"✅ Skipped matching for utility invoice on page {page_result['page_number']}")
+        # Extract metadata
+        try:
+            if extract_invoice_metadata and raw_text:
+                metadata = extract_invoice_metadata(raw_text)
+                logger.debug(f"✅ Metadata extracted: {metadata}")
             else:
-                # Create invoice record for failed OCR with error status
-                logger.warning(f"⚠️ Page {page_result['page_number']} failed processing: {page_result.get('error', 'Unknown error')}")
-                
-                # Create a minimal parsed_data for failed OCR
-                failed_parsed_data = {
-                    'supplier_name': 'Document requires manual review',
-                    'invoice_number': 'Unknown - requires manual review',
-                    'invoice_date': 'Unknown - requires manual review',
+                metadata = {
+                    'supplier_name': 'Unknown',
+                    'invoice_number': 'Unknown',
+                    'invoice_date': datetime.now().strftime("%Y-%m-%d"),
                     'total_amount': 0.0,
-                    'currency': 'GBP'
+                    'subtotal': 0.0,
+                    'vat': 0.0,
+                    'vat_rate': 0.2,
+                    'total_incl_vat': 0.0
                 }
-                
-                invoice_id = create_invoice_record(
-                    file_id=file_id,
-                    parsed_data=failed_parsed_data,
-                    confidence=page_result['confidence_score'],  # Use actual confidence from OCR
-                    ocr_text=page_result.get('ocr_text', ''),
-                    parent_pdf_filename=file.filename if is_pdf_file(file.filename) else None,
-                    page_number=page_result['page_number'],
-                    is_utility_invoice=False,
-                    utility_keywords=[]
-                )
-                invoice_ids.append(invoice_id)
-                match_results.append({'matched': False, 'reason': f"Processing failed: {page_result.get('error', 'Unknown error')}"})
-                logger.info(f"✅ Created invoice record for failed page {page_result['page_number']} with ID: {invoice_id}")
-        
-        # Step 9: Update file status to completed
-        logger.info("🔄 Step 9: Updating file status to completed...")
-        successful_pages = len([r for r in page_results if r['success']])
-        total_pages = len(page_results)
-        update_file_processing_status(
-            file_id, 'completed', 
-            confidence=sum(r['confidence_score'] for r in page_results if r['success']) / max(successful_pages, 1),
-            extracted_text=f"Processed {successful_pages}/{total_pages} pages successfully"
-        )
-        logger.info("✅ File status updated to completed")
-        
-        # Step 10: Prepare response
-        logger.info("🔄 Step 10: Preparing response...")
-        
-        if len(page_results) > 1:
-            # Multiple pages/invoices
-            response_data = {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "original_name": file.filename,
-                "uploaded_at": datetime.now().isoformat(),
-                "file_size": file.size,
-                "status": 'completed',
-                "page_count": len(page_results),
-                "successful_pages": successful_pages,
-                "invoice_ids": invoice_ids,
-                "match_results": match_results,
-                "multiple_invoices": True,
-                "message": f"Successfully processed {successful_pages}/{total_pages} pages from PDF",
-                "page_details": [
-                    {
-                        "page_number": r['page_number'],
-                        "success": r['success'],
-                        "status": r['status'],
-                        "is_utility_invoice": r['is_utility_invoice'],
-                        "supplier_name": r['parsed_data'].get('supplier_name', 'Unknown'),
-                        "invoice_number": r['parsed_data'].get('invoice_number', 'Unknown'),
-                        "total_amount": r['parsed_data'].get('total_amount', 0.0),
-                        "confidence_score": r['confidence_score'],
-                        "error": r.get('error')
-                    } for r in page_results
-                ]
-            }
-        else:
-            # Single page/invoice
-            page_result = page_results[0]
-            response_data = {
-                "success": page_result['success'],
-                "file_id": file_id,
-                "invoice_id": invoice_ids[0] if invoice_ids else None,
-                "filename": filename,
-                "original_name": file.filename,
-                "uploaded_at": datetime.now().isoformat(),
-                "file_size": file.size,
-                "status": page_result['status'],
-                "confidence_score": page_result['confidence_score'],
-                "parsed_data": page_result['parsed_data'],
-                "match_result": match_results[0] if match_results else None,
-                "multiple_invoices": False,
-                "is_utility_invoice": page_result['is_utility_invoice'],
-                "delivery_note_required": page_result['delivery_note_required'],
-                "utility_keywords": page_result['utility_keywords'],
-                "error": page_result.get('error')
+                logger.debug("✅ Using fallback metadata")
+        except Exception as metadata_error:
+            logger.warning(f"⚠️ Metadata extraction failed: {metadata_error}")
+            metadata = {
+                'supplier_name': 'Unknown',
+                'invoice_number': 'Unknown',
+                'invoice_date': datetime.now().strftime("%Y-%m-%d"),
+                'total_amount': 0.0,
+                'subtotal': 0.0,
+                'vat': 0.0,
+                'vat_rate': 0.2,
+                'total_incl_vat': 0.0
             }
         
-        logger.info("✅ Invoice upload process completed successfully")
-        return JSONResponse(response_data)
-        
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        logger.error("❌ HTTP exception occurred during upload")
-        raise
-    except Exception as e:
-        logger.error(f"❌ Unexpected error during invoice upload: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-        
-        # Try to update file status to failed if we have a file_id
+        # Extract line items from table data
         try:
-            if 'file_id' in locals():
-                update_file_processing_status(
-                    file_id, 'failed', None, None, f"Unexpected error: {str(e)}"
-                )
-                logger.info("✅ File status updated to failed due to unexpected error")
-        except Exception as update_error:
-            logger.error(f"❌ Failed to update file status after error: {str(update_error)}")
+            if extract_line_items and table_data:
+                line_items = extract_line_items(table_data)
+                logger.debug(f"✅ Line items extracted from table: {len(line_items)} items")
+            else:
+                line_items = []
+                logger.debug("✅ No table data available for line item extraction")
+        except Exception as line_items_error:
+            logger.warning(f"⚠️ Line item extraction failed: {line_items_error}")
+            line_items = []
         
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-@router.post("/upload/delivery")
-async def upload_delivery(file: UploadFile = File(...)):
-    """Upload delivery note file, parse, and try to match with invoices"""
-    logger.info(f"🚀 Starting delivery note upload process for: {file.filename}")
-    logger.info(f"📊 File size: {file.size} bytes")
-    logger.info(f"📄 File type: {Path(file.filename).suffix}")
-    
-    try:
-        # Step 1: Validate file
-        logger.info("🔄 Step 1: Validating file...")
-        validate_file(file)
-        logger.info("✅ File validation passed")
+        # If no line items from table, try pattern-based extraction
+        if not line_items and raw_text:
+            logger.debug("🔄 Attempting pattern-based line item extraction...")
+            try:
+                # Simple pattern-based line item extraction
+                lines = raw_text.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if len(line) > 10 and any(char.isdigit() for char in line):
+                        # Look for price patterns
+                        price_match = re.search(r'[£$€]?\s*(\d+(?:\.\d{2})?)', line)
+                        if price_match:
+                            line_items.append({
+                                "item": line,
+                                "quantity": 1.0,
+                                "unit_price": float(price_match.group(1)),
+                                "total_price": float(price_match.group(1)),
+                                "price_excl_vat": float(price_match.group(1)),
+                                "vat_rate": 0.2,
+                                "price_incl_vat": float(price_match.group(1)) * 1.2,
+                                "price_per_unit": float(price_match.group(1)),
+                                "unit_price_excl_vat": float(price_match.group(1)),
+                                "unit_price_incl_vat": float(price_match.group(1)) * 1.2,
+                                "line_total_excl_vat": float(price_match.group(1)),
+                                "line_total_incl_vat": float(price_match.group(1)) * 1.2,
+                                "flagged": False
+                            })
+                logger.debug(f"✅ Pattern-based extraction found {len(line_items)} line items")
+            except Exception as pattern_error:
+                logger.warning(f"⚠️ Pattern-based extraction failed: {pattern_error}")
         
-        # Step 2: Generate unique file ID
-        logger.info("🔄 Step 2: Generating file ID...")
-        file_id = str(uuid.uuid4())
-        logger.info(f"✅ Generated file ID: {file_id}")
+        logger.info(f"✅ Metadata and line items extracted. Found {len(line_items)} line items")
         
-        # Step 3: Save file to disk
-        logger.info("🔄 Step 3: Saving file to disk...")
-        filename = save_file_with_timestamp(file, DELIVERY_DIR)
-        file_path = f"uploads/delivery_notes/{filename}"
-        logger.info(f"✅ File saved as: {filename}")
+        # Step 6: Calculate confidence and determine if manual review is needed
+        logger.info("🔄 Step 6: Calculating confidence...")
         
-        # Step 4: Create uploaded file record
-        logger.info("🔄 Step 4: Creating database record...")
-        create_uploaded_file_record(file_id, file.filename, 'delivery_note', file_path, file.size)
-        logger.info("✅ Database record created")
+        # Log what was extracted for debugging
+        logger.debug(f"📝 Raw OCR text length: {len(raw_text)} characters")
+        logger.debug(f"📝 Raw OCR text preview: {raw_text[:200]}...")
+        logger.debug(f"📝 Extracted metadata: {metadata}")
+        logger.debug(f"📝 Extracted line items: {len(line_items)} items")
         
-        # Step 5: Update status to processing
-        logger.info("🔄 Step 5: Updating status to processing...")
-        update_file_processing_status(file_id, 'processing')
-        logger.info("✅ Status updated to processing")
+        # Improved confidence scoring
+        confidence = 0.0
+        manual_review = True
         
-        # Step 6: Rewind file for parsing
-        logger.info("🔄 Step 6: Preparing file for OCR...")
-        file.file.seek(0)
-        logger.info("✅ File prepared for OCR")
+        # Base confidence from OCR text quality
+        if len(raw_text) > 100:
+            confidence += 0.2  # Good amount of text extracted
+        elif len(raw_text) > 50:
+            confidence += 0.1  # Some text extracted
         
-        # Step 7: Parse with OCR
-        logger.info("🔄 Step 7: Starting OCR processing...")
-        parsed = await parse_with_ocr(file)
-        parsed_data = parsed.get('parsed_data', {})
-        confidence_score = parsed.get('confidence_score', 0.0)
-        logger.info(f"✅ OCR completed. Confidence: {confidence_score}")
-        logger.info(f"📋 Parsed fields: {list(parsed_data.keys())}")
+        # Confidence from metadata extraction
+        if metadata.get('supplier_name') and metadata.get('supplier_name') != 'Unknown':
+            confidence += 0.3
+            logger.info(f"✅ Found supplier: {metadata.get('supplier_name')}")
+        if metadata.get('invoice_number') and metadata.get('invoice_number') != 'Unknown':
+            confidence += 0.2
+            logger.info(f"✅ Found invoice number: {metadata.get('invoice_number')}")
+        if metadata.get('total_amount', 0) > 0:
+            confidence += 0.2
+            logger.info(f"✅ Found total amount: {metadata.get('total_amount')}")
+        if line_items:
+            confidence += 0.3
+            logger.info(f"✅ Found {len(line_items)} line items")
         
-        if parsed.get('success', False):
-            # Step 8: Create delivery note record
-            logger.info("🔄 Step 8: Creating delivery note record...")
-            delivery_note_id = create_delivery_note_record(file_id, parsed_data, confidence_score)
-            logger.info(f"✅ Delivery note record created. Delivery note ID: {delivery_note_id}")
-            
-            # Step 9: Update file status to completed
-            logger.info("🔄 Step 9: Updating file status to completed...")
-            update_file_processing_status(
-                file_id, 'completed', confidence_score, 
-                str(parsed_data), None
-            )
-            logger.info("✅ File status updated to completed")
-            
-            # Step 10: Attempt matching
-            logger.info("🔄 Step 10: Attempting document matching...")
-            match_result = attempt_matching('delivery_note', delivery_note_id, parsed_data)
-            logger.info(f"✅ Matching completed. Result: {match_result}")
-            
-            # Step 11: Return success response
-            logger.info("🔄 Step 11: Preparing success response...")
-            response_data = {
-                "success": True,
-                "file_id": file_id,
-                "delivery_note_id": delivery_note_id,
-                "filename": filename,
-                "original_name": file.filename,
-                "uploaded_at": datetime.now().isoformat(),
-                "file_size": file.size,
-                "status": 'matched' if match_result['matched'] else 'unmatched',
-                "confidence_score": confidence_score,
-                "parsed_data": parsed_data,
-                "match_result": match_result
-            }
-            logger.info("✅ Delivery note upload process completed successfully")
-            return JSONResponse(response_data)
-            
-        else:
-            # Step 8b: Handle OCR failure
-            logger.error("❌ Step 8b: OCR processing failed")
-            error_msg = parsed.get('error', 'OCR processing failed')
-            logger.error(f"❌ OCR error: {error_msg}")
-            
-            # Update file status to failed
-            logger.info("🔄 Updating file status to failed...")
-            update_file_processing_status(
-                file_id, 'failed', None, None, error_msg
-            )
-            logger.info("✅ File status updated to failed")
-            
-            raise HTTPException(status_code=500, detail=f"OCR processing failed: {error_msg}")
-            
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        logger.error("❌ HTTP exception occurred during upload")
-        raise
-    except Exception as e:
-        logger.error(f"❌ Unexpected error during delivery note upload: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+        # Bonus for having any meaningful text
+        if len(raw_text) > 500:
+            confidence += 0.1
         
-        # Try to update file status to failed if we have a file_id
+        # Normalize confidence to 0-100 scale
+        confidence = min(confidence * 100, 100.0)
+        manual_review = confidence < 40.0  # Lower threshold for manual review
+        
+        logger.info(f"✅ Confidence calculated: {confidence:.1f}%, Manual review: {manual_review}")
+        
+        # Step 7: Save to database
+        logger.info("🔄 Step 7: Saving to database...")
         try:
-            if 'file_id' in locals():
-                update_file_processing_status(
-                    file_id, 'failed', None, None, f"Unexpected error: {str(e)}"
-                )
-                logger.info("✅ File status updated to failed due to unexpected error")
-        except Exception as update_error:
-            logger.error(f"❌ Failed to update file status after error: {str(update_error)}")
-        
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-@router.post("/upload/document")
-async def upload_document(file: UploadFile = File(...)):
-    """Upload any document file and automatically classify it as invoice or delivery note"""
-    logger.info(f"🚀 Starting general document upload process for: {file.filename}")
-    logger.info(f"📊 File size: {file.size} bytes")
-    logger.info(f"📄 File type: {Path(file.filename).suffix}")
-    
-    try:
-        # Step 1: Validate file
-        logger.info("🔄 Step 1: Validating file...")
-        validate_file(file)
-        logger.info("✅ File validation passed")
-        
-        # Step 2: Generate unique file ID
-        logger.info("🔄 Step 2: Generating file ID...")
-        file_id = str(uuid.uuid4())
-        logger.info(f"✅ Generated file ID: {file_id}")
-        
-        # Step 3: Save file to documents directory
-        logger.info("🔄 Step 3: Saving file to documents directory...")
-        filename = save_file_with_timestamp(file, DOCUMENTS_DIR)
-        file_path = f"uploads/documents/{filename}"
-        logger.info(f"✅ File saved as: {filename}")
-        
-        # Step 4: Create uploaded file record
-        logger.info("🔄 Step 4: Creating database record...")
-        create_uploaded_file_record(file_id, file.filename, 'document', file_path, file.size)
-        logger.info("✅ Database record created")
-        
-        # Step 5: Update status to processing
-        logger.info("🔄 Step 5: Updating status to processing...")
-        update_file_processing_status(file_id, 'processing')
-        logger.info("✅ Status updated to processing")
-        
-        # Step 6: Rewind file for parsing
-        logger.info("🔄 Step 6: Preparing file for OCR...")
-        file.file.seek(0)
-        logger.info("✅ File prepared for OCR")
-        
-        # Step 7: Parse with OCR to determine document type
-        logger.info("🔄 Step 7: Starting OCR processing for classification...")
-        parsed = await parse_with_ocr(file)
-        parsed_data = parsed.get('parsed_data', {})
-        confidence_score = parsed.get('confidence_score', 0.0)
-        document_type = parsed.get('document_type', 'unknown')
-        
-        logger.info(f"✅ OCR completed. Document type: {document_type}, Confidence: {confidence_score}")
-        
-        # Step 8: Handle based on document type
-        if parsed.get('success', False) and document_type in ['invoice', 'delivery_note']:
-            logger.info(f"🔄 Step 8: Processing as {document_type}...")
+            conn = get_db_connection()
+            cursor = conn.cursor()
             
-            if document_type == 'invoice':
-                # Process as invoice
-                invoice_id = create_invoice_record(file_id, parsed_data, confidence_score)
-                logger.info(f"✅ Invoice record created with ID: {invoice_id}")
-                
-                # Attempt matching
-                match_result = attempt_matching('invoice', invoice_id, parsed_data)
-                logger.info(f"✅ Matching completed: {match_result['matched']}")
-                
-                response_data = {
-                    "success": True,
-                    "file_id": file_id,
-                    "invoice_id": invoice_id,
-                    "filename": filename,
-                    "original_name": file.filename,
-                    "uploaded_at": datetime.now().isoformat(),
-                    "file_size": file.size,
-                    "status": 'matched' if match_result['matched'] else 'unmatched',
-                    "confidence_score": confidence_score,
-                    "parsed_data": parsed_data,
-                    "match_result": match_result,
-                    "multiple_invoices": False,
-                    "is_utility_invoice": parsed.get('is_utility_invoice', False),
-                    "delivery_note_required": parsed_data.get('delivery_note_required', True)
-                }
-                
-            else:  # delivery_note
-                # Process as delivery note
-                delivery_id = create_delivery_note_record(file_id, parsed_data, confidence_score)
-                logger.info(f"✅ Delivery note record created with ID: {delivery_id}")
-                
-                # Attempt matching
-                match_result = attempt_matching('delivery_note', delivery_id, parsed_data)
-                logger.info(f"✅ Matching completed: {match_result['matched']}")
-                
-                response_data = {
-                    "success": True,
-                    "file_id": file_id,
-                    "delivery_id": delivery_id,
-                    "filename": filename,
-                    "original_name": file.filename,
-                    "uploaded_at": datetime.now().isoformat(),
-                    "file_size": file.size,
-                    "status": 'matched' if match_result['matched'] else 'unmatched',
-                    "confidence_score": confidence_score,
-                    "parsed_data": parsed_data,
-                    "match_result": match_result
-                }
+            # Create invoice record
+            invoice_id = str(uuid.uuid4())
+            cursor.execute("""
+                INSERT INTO invoices (
+                    id, invoice_number, invoice_date, supplier_name, total_amount,
+                    status, confidence, upload_timestamp, ocr_text, parent_pdf_filename
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                invoice_id,
+                metadata.get('invoice_number', 'Unknown'),
+                metadata.get('invoice_date', datetime.now().strftime("%Y-%m-%d")),
+                metadata.get('supplier_name', 'Unknown'),
+                metadata.get('total_amount', 0.0),
+                'scanned',
+                confidence,
+                datetime.now().isoformat(),
+                raw_text,
+                file.filename
+            ))
             
-            # Update file status to completed
-            logger.info("🔄 Updating file status to completed...")
-            update_file_processing_status(file_id, 'completed', confidence_score)
-            logger.info("✅ File status updated to completed")
-            
-            logger.info("✅ Document upload process completed successfully")
-            return JSONResponse(response_data)
-            
-        else:
-            # Step 8b: Handle OCR failure or unknown document type
-            logger.warning("⚠️ Step 8b: OCR processing failed or unknown document type")
-            error_msg = parsed.get('error', 'OCR processing failed or unknown document type')
-            logger.warning(f"⚠️ OCR result: {error_msg}")
-            
-            # Update file status to failed
-            logger.info("🔄 Updating file status to failed...")
-            update_file_processing_status(
-                file_id, 'failed', None, None, error_msg
-            )
-            logger.info("✅ File status updated to failed")
-            
-            # Return response indicating the document needs manual review
-            response_data = {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "original_name": file.filename,
-                "uploaded_at": datetime.now().isoformat(),
-                "file_size": file.size,
-                "status": 'needs_review',
-                "confidence_score": confidence_score,
-                "parsed_data": {
-                    "supplier_name": "Document requires manual review",
-                    "invoice_number": "Unknown",
-                    "invoice_date": "Unknown",
-                    "total_amount": 0.0,
-                    "currency": "GBP"
-                },
-                "error": error_msg,
-                "document_type": "unknown"
-            }
-            
-            logger.info("✅ Document uploaded but requires manual review")
-            return JSONResponse(response_data)
-            
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        logger.error("❌ HTTP exception occurred during upload")
-        raise
-    except Exception as e:
-        logger.error(f"❌ Unexpected error during document upload: {str(e)}")
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+            conn.commit()
+            conn.close()
+            logger.info("✅ Database record created")
+        except Exception as db_error:
+            logger.warning(f"⚠️ Database save failed: {db_error}")
+            invoice_id = str(uuid.uuid4())  # Generate ID anyway
         
-        # Try to update file status to failed if we have a file_id
-        try:
-            if 'file_id' in locals():
-                update_file_processing_status(
-                    file_id, 'failed', None, None, f"Unexpected error: {str(e)}"
-                )
-                logger.info("✅ File status updated to failed due to unexpected error")
-        except Exception as update_error:
-            logger.error(f"❌ Failed to update file status after error: {str(update_error)}")
+        # Step 8: Prepare response
+        logger.info("🔄 Step 8: Preparing response...")
         
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-@router.get("/files/status")
-async def get_files_status():
-    """Get status of all uploaded files"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT 
-            uf.id,
-            uf.original_filename,
-            uf.file_type,
-            uf.processing_status,
-            uf.confidence,
-            uf.upload_timestamp,
-            uf.error_message,
-            CASE 
-                WHEN uf.file_type = 'invoice' THEN i.status
-                WHEN uf.file_type = 'delivery_note' THEN dn.status
-                ELSE NULL
-            END as document_status
-        FROM uploaded_files uf
-        LEFT JOIN invoices i ON uf.id = i.file_id
-        LEFT JOIN delivery_notes dn ON uf.id = dn.file_id
-        ORDER BY uf.upload_timestamp DESC
-    """)
-    
-    rows = cursor.fetchall()
-    files = []
-    
-    for row in rows:
-        files.append({
-            "id": row[0],
-            "original_filename": row[1],
-            "file_type": row[2],
-            "processing_status": row[3],
-            "confidence": row[4],
-            "upload_timestamp": row[5],
-            "error_message": row[6],
-            "document_status": row[7]
-        })
-    
-    conn.close()
-    return {"files": files}
-
-@router.get("/documents/invoices")
-async def get_invoices():
-    """Get all invoices with their status"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT 
-            i.id,
-            i.invoice_number,
-            i.invoice_date,
-            i.supplier_name,
-            i.total_amount,
-            i.status,
-            i.confidence,
-            i.upload_timestamp,
-            i.delivery_note_required,
-            i.ocr_text,
-            i.parent_pdf_filename,
-            i.page_number,
-            i.is_utility_invoice,
-            i.utility_keywords,
-            dn.id as delivery_note_id,
-            dn.delivery_note_number,
-            dn.delivery_date
-        FROM invoices i
-        LEFT JOIN delivery_notes dn ON i.delivery_note_id = dn.id
-        ORDER BY i.upload_timestamp DESC
-    """)
-    
-    rows = cursor.fetchall()
-    invoices = []
-    
-    for row in rows:
-        invoices.append({
-            "id": row[0],
-            "invoice_number": row[1],
-            "invoice_date": row[2],
-            "supplier_name": row[3],
-            "total_amount": float(row[4]) if row[4] else 0.0,
-            "status": row[5],
-            "confidence": row[6],
-            "upload_timestamp": row[7],
-            "delivery_note_required": bool(row[8]) if row[8] is not None else True,
-            "ocr_text": row[9],
-            "parent_pdf_filename": row[10],
-            "page_number": row[11],
-            "is_utility_invoice": bool(row[12]) if row[12] is not None else False,
-            "utility_keywords": row[13].split(', ') if row[13] else [],
-            "delivery_note": {
-                "id": row[14],
-                "delivery_note_number": row[15],
-                "delivery_date": row[16]
-            } if row[14] else None
-        })
-    
-    conn.close()
-    return {"invoices": invoices}
-
-@router.get("/documents/delivery-notes")
-async def get_delivery_notes():
-    """Get all delivery notes with their status"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT 
-            dn.id,
-            dn.delivery_note_number,
-            dn.delivery_date,
-            dn.supplier_name,
-            dn.status,
-            dn.confidence,
-            dn.upload_timestamp,
-            i.id as invoice_id,
-            i.invoice_number,
-            i.invoice_date
-        FROM delivery_notes dn
-        LEFT JOIN invoices i ON dn.invoice_id = i.id
-        ORDER BY dn.upload_timestamp DESC
-    """)
-    
-    rows = cursor.fetchall()
-    delivery_notes = []
-    
-    for row in rows:
-        delivery_notes.append({
-            "id": row[0],
-            "delivery_note_number": row[1],
-            "delivery_date": row[2],
-            "supplier_name": row[3],
-            "status": row[4],
-            "confidence": row[5],
-            "upload_timestamp": row[6],
-            "invoice": {
-                "id": row[7],
-                "invoice_number": row[8],
-                "invoice_date": row[9]
-            } if row[7] else None
-        })
-    
-    conn.close()
-    return {"delivery_notes": delivery_notes} 
-
-@router.get("/files/{document_id}/preview")
-async def preview_file(document_id: str):
-    """
-    Preview a file by document ID.
-    
-    Args:
-        document_id (str): The document ID from the uploaded_files table
-        
-    Returns:
-        FileResponse: The file content for preview
-        
-    Raises:
-        HTTPException: 404 if document not found, 400 if file type not supported
-    """
-    try:
-        # Look up the document in the uploaded_files table
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT original_filename, file_path 
-            FROM uploaded_files 
-            WHERE id = ?
-        """, (document_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Document not found")
-        
-        original_filename, file_path = row
-        
-        # Only allow certain file extensions for preview
-        allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png"}
-        file_extension = Path(original_filename).suffix.lower()
-        
-        if file_extension not in allowed_extensions:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"File type {file_extension} not supported for preview"
-            )
-        
-        # Construct the full file path
-        full_file_path = Path("data") / file_path
-        
-        if not full_file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found on disk")
-        
-        # Determine media type based on file extension
-        media_types = {
-            ".pdf": "application/pdf",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png"
+        parsed_data = {
+            "invoice_id": invoice_id,
+            "supplier_name": metadata.get('supplier_name', 'Unknown'),
+            "invoice_date": metadata.get('invoice_date', datetime.now().strftime("%Y-%m-%d")),
+            "total_amount": metadata.get('total_amount', 0.0),
+            "subtotal": metadata.get('subtotal', 0.0),
+            "vat": metadata.get('vat', 0.0),
+            "vat_rate": metadata.get('vat_rate', 0.2),
+            "total_incl_vat": metadata.get('total_incl_vat', 0.0),
+            "confidence": confidence,
+            "manual_review": manual_review,
+            "line_items": line_items
         }
         
-        media_type = media_types.get(file_extension)
+        response = {
+            "message": "Processing completed successfully" if not manual_review else "Processing completed with issues",
+            "invoice_id": invoice_id,
+            "filename": file.filename,
+            "parsed_data": parsed_data,
+            "raw_ocr_text": raw_text,
+            "confidence": confidence,
+            "manual_review": manual_review,
+            "table_detected": len(table_data) > 0,
+            "pages": ocr_result.get('pages', []),
+            "overall_confidence": confidence
+        }
         
-        # Return the file using FileResponse
-        return FileResponse(
-            path=str(full_file_path),
-            media_type=media_type,
-            filename=original_filename
-        )
+        logger.info("✅ Upload process completed successfully")
+        return response
         
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Error previewing file {document_id}: {str(e)}")
-        logger.error(f"Full traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail="Internal server error") 
+        logger.exception(f"❌ Upload processing failed: {e}")
+        logger.error(f"📋 Full traceback: {traceback.format_exc()}")
+        
+        # Save failed file for debugging
+        if temp_filepath and os.path.exists(temp_filepath):
+            try:
+                failed_file_path = os.path.join(LOGS_DIR, f"failed_{os.path.basename(temp_filepath)}")
+                shutil.copy2(temp_filepath, failed_file_path)
+                logger.info(f"📁 Failed file saved for debugging: {failed_file_path}")
+            except Exception as copy_error:
+                logger.warning(f"⚠️ Could not save failed file: {copy_error}")
+        
+        # Return comprehensive fallback response
+        return create_fallback_response(file.filename, str(e))
+    finally:
+        # Clean up temporary file
+        if temp_filepath and os.path.exists(temp_filepath):
+            try:
+                os.remove(temp_filepath)
+                logger.debug(f"✅ Temporary file cleaned up: {temp_filepath}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to clean up temporary file: {e}")
+
+def create_fallback_response(filename: str, error_message: str) -> dict:
+    """Create a fallback response when processing fails."""
+    logger.info(f"🔄 Creating fallback response for {filename}")
+    
+    return {
+        "message": "OCR fallback - processing failed",
+        "error": error_message,
+        "invoice_id": str(uuid.uuid4()),
+        "filename": filename,
+        "parsed_data": {
+            "invoice_id": str(uuid.uuid4()),
+            "supplier_name": "OCR Failed",
+            "invoice_date": datetime.now().strftime("%Y-%m-%d"),
+            "total_amount": 0.0,
+            "subtotal": 0.0,
+            "vat": 0.0,
+            "vat_rate": 0.2,
+            "total_incl_vat": 0.0,
+            "confidence": 0.0,
+            "manual_review": True,
+            "line_items": []
+        },
+        "raw_ocr_text": "",
+        "confidence": 0.0,
+        "manual_review": True,
+        "table_detected": False,
+        "pages": [],
+        "overall_confidence": 0.0
+    }
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy"} 

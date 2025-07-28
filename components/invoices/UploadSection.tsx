@@ -48,9 +48,20 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
   // ✅ Get count of processed documents for submit button
   const processedCount = pendingUploads.filter(doc => doc.status === 'processed').length;
 
+  // Helper function to create a timeout promise
+  const createTimeoutPromise = (timeoutMs: number) => {
+    return new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Request timed out after ${timeoutMs / 1000} seconds`));
+      }, timeoutMs);
+    });
+  };
+
   const handleFileUpload = async (file: File) => {
     if (!file) return;
 
+    console.log(`🚀 Starting upload for file: ${file.name} (${file.size} bytes)`);
+    
     setIsUploading(true);
     setCurrentFile(file);
     setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
@@ -76,24 +87,42 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
     // ✅ Push this object into the pendingUploads state (temporary preview only)
     setPendingUploads(prev => [...prev, tempCard]);
 
+    let progressInterval: NodeJS.Timeout | null = null;
+    let timeoutId: NodeJS.Timeout | null = null;
+
     try {
       // ✅ Track upload progress using uploadProgress state
       // ✅ Simulate a 10% increment every 200ms up to 90% while waiting for backend response
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           const current = prev[file.name] || 0;
           if (current >= 90) {
-            clearInterval(progressInterval);
+            if (progressInterval) {
+              clearInterval(progressInterval);
+              progressInterval = null;
+            }
             return prev;
           }
           return { ...prev, [file.name]: current + 10 };
         });
       }, 200);
 
+      // Set up 30-second timeout
+      timeoutId = setTimeout(() => {
+        console.error(`⏰ Upload timeout for ${file.name} after 30 seconds`);
+        throw new Error('Upload timed out after 30 seconds');
+      }, 30000);
+
       // Try direct upload first (simpler OCR processing)
       let response: any;
       try {
-        response = await apiService.uploadInvoice(file);
+        console.log(`📤 Attempting direct upload for ${file.name}...`);
+        response = await Promise.race([
+          apiService.uploadInvoice(file),
+          createTimeoutPromise(30000)
+        ]);
+        
+        console.log(`✅ Direct upload successful for ${file.name}:`, response);
         
         // Convert the response to the expected format
         const processedDoc: DocumentUploadResult = {
@@ -114,25 +143,40 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
 
         // ✅ Replace temp card with processed results (still temporary preview only)
         setPendingUploads(prev => {
-          const filtered = prev.filter(doc => !doc.id.startsWith('temp-'));
+          const filtered = prev.filter(doc => doc.id !== tempCard.id);
           return [...filtered, processedDoc];
         });
 
-        clearInterval(progressInterval);
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        
         setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
         
         showToast('success', `Successfully processed ${file.name}`);
+        
       } catch (error) {
-        console.error('Direct upload failed:', error);
+        console.error(`❌ Direct upload failed for ${file.name}:`, error);
         
         // Fallback to smart processing
         try {
-          response = await apiService.uploadDocumentForReview(file);
+          console.log(`🔄 Attempting smart processing fallback for ${file.name}...`);
+          response = await Promise.race([
+            apiService.uploadDocumentForReview(file),
+            createTimeoutPromise(30000)
+          ]);
+          
+          console.log(`✅ Smart processing successful for ${file.name}:`, response);
           
           if (response.suggested_documents && response.suggested_documents.length > 0) {
             // Convert suggested documents to our format
             const processedDocs: DocumentUploadResult[] = response.suggested_documents.map((doc: any, index: number) => ({
-              id: doc.id || `doc-${Date.now()}-${index}`,
+              id: doc.invoice_id || doc.id || `doc-${Date.now()}-${index}`,
               type: doc.type || 'unknown',
               confidence: doc.confidence || 0,
               supplier_name: doc.supplier_name || 'Unknown',
@@ -145,13 +189,13 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
 
             // ✅ Replace temp card with processed results (still temporary preview only)
             setPendingUploads(prev => {
-              const filtered = prev.filter(doc => !doc.id.startsWith('temp-'));
+              const filtered = prev.filter(doc => doc.id !== tempCard.id);
               return [...filtered, ...processedDocs];
             });
           } else {
             // No documents found
             setPendingUploads(prev => {
-              const filtered = prev.filter(doc => !doc.id.startsWith('temp-'));
+              const filtered = prev.filter(doc => doc.id !== tempCard.id);
               return [...filtered, {
                 ...tempCard,
                 status: 'error',
@@ -160,11 +204,11 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
             });
           }
         } catch (smartError) {
-          console.error('Smart processing also failed:', smartError);
+          console.error(`❌ Smart processing also failed for ${file.name}:`, smartError);
           
           // Mark as error
           setPendingUploads(prev => {
-            const filtered = prev.filter(doc => !doc.id.startsWith('temp-'));
+            const filtered = prev.filter(doc => doc.id !== tempCard.id);
             return [...filtered, {
               ...tempCard,
               status: 'error',
@@ -173,15 +217,31 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
           });
         }
         
-        clearInterval(progressInterval);
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        
         setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
       }
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error(`💥 Upload completely failed for ${file.name}:`, error);
       
-      // Mark as error
+      // Clean up intervals and timeouts
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      // Mark as error and complete progress
       setPendingUploads(prev => {
-        const filtered = prev.filter(doc => !doc.id.startsWith('temp-'));
+        const filtered = prev.filter(doc => doc.id !== tempCard.id);
         return [...filtered, {
           ...tempCard,
           status: 'error',
@@ -189,33 +249,49 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         }];
       });
       
-      showToast('error', `Failed to process ${file.name}`);
+      setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showToast('error', `🚨 Upload failed for ${file.name}: ${errorMessage}`);
     } finally {
       setIsUploading(false);
       setCurrentFile(null);
-      setUploadProgress(prev => {
-        const { [file.name]: _, ...rest } = prev;
-        return rest;
-      });
+      
+      // Clean up progress after a delay
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[file.name];
+          return newProgress;
+        });
+      }, 2000);
     }
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      Array.from(files).forEach(handleFileUpload);
+      console.log("Total files selected:", files.length);
+      const filesArray = Array.from(files);
+      for (const file of filesArray) {
+        await handleFileUpload(file); // ensure async handling
+      }
     }
     // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (event.target) {
+      event.target.value = '';
     }
   };
 
-  const handleDrop = (event: React.DragEvent) => {
+  const handleDrop = async (event: React.DragEvent) => {
     event.preventDefault();
     const files = event.dataTransfer.files;
     if (files && files.length > 0) {
-      Array.from(files).forEach(handleFileUpload);
+      console.log("Total files dropped:", files.length);
+      const filesArray = Array.from(files);
+      for (const file of filesArray) {
+        await handleFileUpload(file);
+      }
     }
   };
 
@@ -331,56 +407,46 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
 
   return (
     <div className="space-y-6">
-      {/* Upload Dropzone */}
-      <div className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-400 transition-colors">
+      {/* File Upload Area */}
+      <div
+        className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
+        onClick={() => fileInputRef.current?.click()}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.jpg,.jpeg,.png"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
         <div className="space-y-4">
           <div className="text-4xl">📄</div>
           <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Upload Invoice Documents
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Upload Documents
             </h3>
-            <p className="text-gray-600 mb-4">
-              Drag and drop PDF files here, or click to browse
+            <p className="text-gray-600">
+              Drag and drop files here, or click to browse
             </p>
-            <p className="text-sm text-gray-500">
-              📄 Upload a single PDF with multiple invoices — we'll detect and split them for you automatically.
+            <p className="text-sm text-gray-500 mt-1">
+              Supports PDF, JPG, JPEG, PNG files
             </p>
           </div>
-          
-          <div className="flex justify-center">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isUploading ? 'Processing...' : 'Choose Files'}
-            </button>
-          </div>
-          
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
         </div>
-        
-        <div
-          className="absolute inset-0"
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-        />
       </div>
 
       {/* Upload Progress */}
       {Object.keys(uploadProgress).length > 0 && (
-        <div className="space-y-2">
-          {Object.entries(uploadProgress).map(([filename, progress]) => (
-            <div key={filename} className="bg-white rounded-lg p-4 border">
+        <div className="space-y-3">
+          {Object.entries(uploadProgress).map(([fileName, progress]) => (
+            <div key={fileName} className="bg-gray-50 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">{filename}</span>
+                <span className="text-sm font-medium text-gray-700 truncate">
+                  {fileName}
+                </span>
                 <span className="text-sm text-gray-500">{progress}%</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
@@ -394,70 +460,86 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         </div>
       )}
 
-      {/* ✅ Temporary Preview Cards Section */}
+      {/* Pending Uploads */}
       {pendingUploads.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">
-              📋 Upload Preview ({filteredDocuments.length})
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Pending Documents ({pendingUploads.length})
             </h3>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={showLowConfidenceOnly}
-                onChange={(e) => setShowLowConfidenceOnly(e.target.checked)}
-                className="rounded border-gray-300"
-              />
-              Show only low-confidence documents
-            </label>
+            <div className="flex items-center space-x-2">
+              <label className="flex items-center space-x-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={showLowConfidenceOnly}
+                  onChange={(e) => setShowLowConfidenceOnly(e.target.checked)}
+                  className="rounded"
+                />
+                <span>Show low confidence only</span>
+              </label>
+            </div>
           </div>
 
-          {/* ✅ Temporary Preview Cards */}
-          <div className="space-y-4">
+          <div className="grid gap-4">
             {filteredDocuments.map((doc) => (
               <div
                 key={doc.id}
-                className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
+                className={`bg-white rounded-lg border p-4 ${
+                  doc.status === 'error' ? 'border-red-200 bg-red-50' : 'border-gray-200'
+                }`}
               >
                 <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-3">
+                  <div className="flex items-start space-x-3 flex-1">
                     <div className="text-2xl">{getDocumentIcon(doc)}</div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2 mb-1">
-                        <h4 className="font-medium text-gray-900">
+                        <h4 className="font-medium text-gray-900 truncate">
                           {doc.supplier_name}
                         </h4>
-                        {doc.confidence !== undefined && (
-                          <ConfidenceBadge confidence={doc.confidence} />
+                        {doc.status === 'processed' && (
+                          <ConfidenceBadge
+                            confidence={doc.confidence}
+                          />
                         )}
                       </div>
                       <div className="text-sm text-gray-600 space-y-1">
-                        {doc.metadata.invoice_number && (
-                          <div>Invoice: {doc.metadata.invoice_number}</div>
+                        {doc.status === 'scanning' && (
+                          <div className="flex items-center space-x-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                            <span>Scanning document...</span>
+                          </div>
                         )}
-                        {doc.metadata.invoice_date && (
-                          <div>Date: {formatDate(doc.metadata.invoice_date)}</div>
+                        {doc.status === 'processed' && (
+                          <>
+                            <div>Invoice: {doc.metadata.invoice_number}</div>
+                            {doc.metadata.total_amount && (
+                              <div>Amount: {formatCurrency(doc.metadata.total_amount)}</div>
+                            )}
+                            {doc.metadata.invoice_date && (
+                              <div>Date: {formatDate(doc.metadata.invoice_date)}</div>
+                            )}
+                          </>
                         )}
-                        {doc.metadata.total_amount && (
-                          <div>Amount: {formatCurrency(doc.metadata.total_amount)}</div>
+                        {doc.status === 'error' && (
+                          <div className="text-red-600">❌ {doc.supplier_name}</div>
                         )}
                       </div>
                     </div>
                   </div>
-                  
                   <div className="flex items-center space-x-2">
-                    {doc.status === 'error' && (
-                      <span className="text-red-600 text-sm">❌ Error</span>
-                    )}
-                    {doc.status === 'scanning' && (
-                      <span className="text-blue-600 text-sm">⏳ Scanning...</span>
+                    {doc.status === 'processed' && (
+                      <button
+                        onClick={() => handleEditDocument(doc.id)}
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        Edit
+                      </button>
                     )}
                     <button
                       onClick={() => handleRemoveDocument(doc.id)}
-                      className="text-gray-400 hover:text-red-600 transition-colors"
-                      title="Remove from queue"
+                      className="text-red-600 hover:text-red-800 text-sm"
                     >
-                      ✕
+                      Remove
                     </button>
                   </div>
                 </div>
@@ -465,25 +547,30 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
             ))}
           </div>
 
-          {/* ✅ Submit and Clear Buttons - Only visible when there are pending uploads */}
-          <div className="flex gap-4 justify-center mt-6">
-            <button
-              onClick={handleSubmit}
-              className="bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 transition font-medium"
-            >
-              ✅ Submit Documents ({processedCount})
-            </button>
+          {/* Action Buttons */}
+          <div className="flex items-center justify-between pt-4 border-t border-gray-200">
             <button
               onClick={handleClear}
-              className="bg-slate-200 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-300 transition font-medium"
+              className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
             >
-              🧼 Clear All
+              Clear All
             </button>
+            <div className="flex items-center space-x-3">
+              <span className="text-sm text-gray-600">
+                {processedCount} of {pendingUploads.length} processed
+              </span>
+              <button
+                onClick={handleSubmit}
+                disabled={processedCount === 0 || isUploading}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Submit to Owlin ({processedCount})
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Review Modal */}
       <SmartDocumentReviewModal
         isOpen={showReviewModal}
         onClose={() => setShowReviewModal(false)}

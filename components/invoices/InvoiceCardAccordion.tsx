@@ -52,6 +52,7 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
   const [detailedInvoice, setDetailedInvoice] = useState<DetailedInvoice | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [editingFields, setEditingFields] = useState<{[key: string]: string}>({});
 
   const handleToggle = async () => {
     const newExpandedState = !isExpanded;
@@ -69,6 +70,25 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
     // If an onClick handler is provided, call it when the card is clicked
     if (onClick) {
       onClick();
+    }
+  };
+
+  // ✅ Handle field editing for low confidence invoices
+  const handleFieldEdit = (field: string, value: string) => {
+    setEditingFields(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // ✅ Save edited fields
+  const handleSaveEdits = async () => {
+    try {
+      // TODO: Implement API call to save edited fields
+      console.log('Saving edited fields:', editingFields);
+      setEditingFields({});
+    } catch (error) {
+      console.error('Failed to save edits:', error);
     }
   };
 
@@ -254,7 +274,15 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
     
             {/* Confidence Badge */}
             {invoice.confidence !== undefined && (
-              <ConfidenceBadge confidence={Math.round(invoice.confidence * 100)} />
+              <ConfidenceBadge confidence={Math.round(invoice.confidence)} />
+            )}
+    
+            {/* Manual Review Badge for low confidence */}
+            {invoice.confidence !== undefined && invoice.confidence < 40 && (
+              <div className="inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 border border-orange-200">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Manual review</span>
+              </div>
             )}
     
             {/* Flagged Issues Badge */}
@@ -265,6 +293,14 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
               </div>
             )}
           </div>
+          
+          {/* Loading indicator for OCR processing */}
+          {invoice.status === 'processing' && (
+            <div className="flex items-center space-x-2 text-xs text-slate-500">
+              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+              <span>Processing...</span>
+            </div>
+          )}
         </div>
       </motion.div>
     
@@ -350,6 +386,79 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
                     </div>
                   )}
 
+                  {/* ✅ Editable Fields for Low Confidence Invoices */}
+                  {invoice.confidence !== undefined && invoice.confidence < 40 && (
+                    <div className="mb-6">
+                      <h4 className="font-semibold text-slate-800 mb-4 flex items-center">
+                        <AlertTriangle className="w-4 h-4 mr-2 text-orange-600" />
+                        Manual Review Required
+                        <span className="ml-2 text-sm text-orange-600">
+                          (OCR Confidence: {Math.round(invoice.confidence)}%)
+                        </span>
+                      </h4>
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                              Supplier Name
+                            </label>
+                            <input
+                              type="text"
+                              value={editingFields.supplier_name || detailedInvoice.supplier_name || ''}
+                              onChange={(e) => handleFieldEdit('supplier_name', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="Enter supplier name"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                              Invoice Number
+                            </label>
+                            <input
+                              type="text"
+                              value={editingFields.invoice_number || detailedInvoice.invoice_number || ''}
+                              onChange={(e) => handleFieldEdit('invoice_number', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="Enter invoice number"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                              Invoice Date
+                            </label>
+                            <input
+                              type="date"
+                              value={editingFields.invoice_date || detailedInvoice.invoice_date || ''}
+                              onChange={(e) => handleFieldEdit('invoice_date', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                              Total Amount
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editingFields.total_amount || detailedInvoice.total_amount || ''}
+                              onChange={(e) => handleFieldEdit('total_amount', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            onClick={handleSaveEdits}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                          >
+                            Save Changes
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Line Items Section */}
                   <div className="mb-6">
                     <h4 className="font-semibold text-slate-800 mb-4 flex items-center">
@@ -362,14 +471,32 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
                       )}
                     </h4>
                     
-                    {/* ✅ Use enhanced InvoiceLineItemTable with VAT calculations */}
-                    <InvoiceLineItemTable 
-                      items={lineItems}
-                      subtotal={detailedInvoice.subtotal}
-                      vat={detailedInvoice.vat}
-                      vat_rate={detailedInvoice.vat_rate}
-                      total_incl_vat={detailedInvoice.total_incl_vat}
-                    />
+                    {/* ✅ Show fallback message if no line items */}
+                    {lineItems.length === 0 ? (
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-6 text-center">
+                        <div className="text-slate-500 mb-2">
+                          <FileText className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                          <p className="text-sm">No line items detected</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            OCR couldn't identify individual line items from this invoice
+                          </p>
+                        </div>
+                        {invoice.confidence !== undefined && invoice.confidence < 40 && (
+                          <p className="text-xs text-orange-600 mt-2">
+                            Consider manually reviewing the invoice details above
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      /* ✅ Use enhanced InvoiceLineItemTable with VAT calculations */
+                      <InvoiceLineItemTable 
+                        items={lineItems}
+                        subtotal={detailedInvoice.subtotal}
+                        vat={detailedInvoice.vat}
+                        vat_rate={detailedInvoice.vat_rate}
+                        total_incl_vat={detailedInvoice.total_incl_vat}
+                      />
+                    )}
                   </div>
     
                   {/* Delivery Note Section */}

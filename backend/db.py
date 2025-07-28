@@ -1,7 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 # Ensure data directory exists
 DATA_DIR = "data"
@@ -17,7 +17,7 @@ def init_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Create invoices table
+    # Create invoices table with enhanced fields for multi-invoice support
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
             id TEXT PRIMARY KEY,
@@ -29,7 +29,13 @@ def init_database():
             confidence REAL,
             upload_timestamp TEXT,
             ocr_text TEXT,
-            parent_pdf_filename TEXT
+            parent_pdf_filename TEXT,
+            page_numbers TEXT,
+            line_items TEXT,
+            subtotal REAL,
+            vat REAL,
+            vat_rate REAL,
+            total_incl_vat REAL
         )
     """)
     
@@ -63,6 +69,37 @@ def init_database():
         )
     """)
     
+    # Add new columns to existing invoices table if they don't exist
+    try:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN page_numbers TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN line_items TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN subtotal REAL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN vat REAL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN vat_rate REAL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN total_incl_vat REAL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
     conn.commit()
     conn.close()
 
@@ -75,9 +112,16 @@ def insert_invoice_record(
     ocr_text: str,
     filename: str,
     status: str = "scanned",
-    upload_time: Optional[str] = None
+    upload_time: Optional[str] = None,
+    parent_pdf_filename: Optional[str] = None,
+    page_numbers: Optional[List[int]] = None,
+    line_items: Optional[List[dict]] = None,
+    subtotal: Optional[float] = None,
+    vat: Optional[float] = None,
+    vat_rate: Optional[float] = None,
+    total_incl_vat: Optional[float] = None
 ):
-    """Insert an invoice record into the database."""
+    """Insert an invoice record into the database with enhanced multi-invoice support."""
     if upload_time is None:
         upload_time = datetime.utcnow().isoformat()
     
@@ -87,6 +131,13 @@ def insert_invoice_record(
     # Generate unique ID
     import uuid
     invoice_id = str(uuid.uuid4())
+    
+    # Convert page_numbers list to string
+    page_numbers_str = ",".join(map(str, page_numbers)) if page_numbers else None
+    
+    # Convert line_items to JSON string
+    import json
+    line_items_str = json.dumps(line_items) if line_items else None
     
     cursor.execute("""
         INSERT INTO invoices (
@@ -99,8 +150,14 @@ def insert_invoice_record(
             ocr_text,
             parent_pdf_filename,
             status,
-            upload_timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            upload_timestamp,
+            page_numbers,
+            line_items,
+            subtotal,
+            vat,
+            vat_rate,
+            total_incl_vat
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         invoice_id,
         invoice_number,
@@ -109,9 +166,15 @@ def insert_invoice_record(
         total_amount,
         confidence,
         ocr_text,
-        filename,
+        parent_pdf_filename or filename,
         status,
-        upload_time
+        upload_time,
+        page_numbers_str,
+        line_items_str,
+        subtotal,
+        vat,
+        vat_rate,
+        total_incl_vat
     ))
     
     conn.commit()
@@ -120,7 +183,7 @@ def insert_invoice_record(
     return invoice_id
 
 def get_all_invoices():
-    """Get all invoices from the database."""
+    """Get all invoices from the database with enhanced fields."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -135,7 +198,13 @@ def get_all_invoices():
             confidence,
             upload_timestamp,
             ocr_text,
-            parent_pdf_filename
+            parent_pdf_filename,
+            page_numbers,
+            line_items,
+            subtotal,
+            vat,
+            vat_rate,
+            total_incl_vat
         FROM invoices
         ORDER BY upload_timestamp DESC
     """)
@@ -145,6 +214,23 @@ def get_all_invoices():
     
     invoices = []
     for row in rows:
+        # Parse page_numbers string back to list
+        page_numbers = []
+        if row[10]:  # page_numbers
+            try:
+                page_numbers = [int(x) for x in row[10].split(",")]
+            except (ValueError, AttributeError):
+                page_numbers = []
+        
+        # Parse line_items JSON string back to list
+        line_items = []
+        if row[11]:  # line_items
+            try:
+                import json
+                line_items = json.loads(row[11])
+            except (json.JSONDecodeError, TypeError):
+                line_items = []
+        
         invoices.append({
             "id": row[0],
             "invoice_number": row[1],
@@ -155,7 +241,13 @@ def get_all_invoices():
             "confidence": row[6],
             "upload_timestamp": row[7],
             "ocr_text": row[8],
-            "parent_pdf_filename": row[9]
+            "parent_pdf_filename": row[9],
+            "page_numbers": page_numbers,
+            "line_items": line_items,
+            "subtotal": row[12],
+            "vat": row[13],
+            "vat_rate": row[14],
+            "total_incl_vat": row[15]
         })
     
     return invoices

@@ -7,6 +7,7 @@ echo "========================================"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Function to test endpoint
@@ -53,6 +54,12 @@ echo "📡 API Tests:"
 test_endpoint "http://localhost:8000/api/invoices" "Invoices API" "invoices"
 test_endpoint "http://localhost:8000/api/suppliers" "Suppliers API" "suppliers"
 
+# Test new line item functionality
+echo ""
+echo "📊 Line Item & VAT Tests:"
+test_endpoint "http://localhost:8000/api/upload/review" "Upload Review API" "upload"
+test_endpoint "http://localhost:8000/api/dev/clear-documents" "Dev Clear Documents API" "clear"
+
 # Test port availability
 echo ""
 echo "🔌 Port Tests:"
@@ -77,6 +84,42 @@ else
     echo -e "Environment file: ${RED}❌ MISSING${NC}"
 fi
 
+# Check for enhanced line item parsing files
+echo ""
+echo "🔍 Enhanced Line Item Parsing Check:"
+if [ -f "backend/ocr/parse_invoice.py" ]; then
+    echo -e "Enhanced parse_invoice.py: ${GREEN}✅ EXISTS${NC}"
+else
+    echo -e "Enhanced parse_invoice.py: ${RED}❌ MISSING${NC}"
+fi
+
+if [ -f "components/invoices/InvoiceDetailDrawer.tsx" ]; then
+    echo -e "Enhanced InvoiceDetailDrawer: ${GREEN}✅ EXISTS${NC}"
+else
+    echo -e "Enhanced InvoiceDetailDrawer: ${RED}❌ MISSING${NC}"
+fi
+
+if [ -f "components/invoices/InvoiceLineItemTable.tsx" ]; then
+    echo -e "InvoiceLineItemTable: ${GREEN}✅ EXISTS${NC}"
+else
+    echo -e "InvoiceLineItemTable: ${RED}❌ MISSING${NC}"
+fi
+
+# Check for test files
+echo ""
+echo "🧪 Test Files Check:"
+if [ -f "test_line_item_parsing.py" ]; then
+    echo -e "Line Item Parsing Test: ${GREEN}✅ EXISTS${NC}"
+else
+    echo -e "Line Item Parsing Test: ${RED}❌ MISSING${NC}"
+fi
+
+if [ -f "test_line_item_display.html" ]; then
+    echo -e "Line Item Display Test: ${GREEN}✅ EXISTS${NC}"
+else
+    echo -e "Line Item Display Test: ${RED}❌ MISSING${NC}"
+fi
+
 # Summary
 echo ""
 echo "========================================"
@@ -85,4 +128,11 @@ echo "Backend: http://localhost:8000"
 echo "Frontend: http://localhost:3000"
 echo "API Docs: http://localhost:8000/docs"
 echo "Invoice Management: http://localhost:3000/invoices"
+echo ""
+echo -e "${BLUE}🎯 Enhanced Features Available:${NC}"
+echo "• Multi-strategy line item parsing"
+echo "• Comprehensive VAT calculations"
+echo "• Responsive line item display"
+echo "• VAT toggle functionality"
+echo "• Enhanced detail drawer"
 echo "========================================" 

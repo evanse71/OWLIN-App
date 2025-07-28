@@ -2,10 +2,37 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.routes import invoices, flagged_issues, suppliers, analytics, ocr, products
-from backend.routes import document_queue, upload_review, confirm_splits
-from backend import upload_fixed
+from backend.routes import document_queue, upload_review, confirm_splits, upload_fixed
 from backend.routes import dev
 import os
+import logging
+from pathlib import Path
+
+# Configure comprehensive logging
+def setup_logging():
+    """Setup comprehensive logging for debugging upload issues."""
+    # Create logs directory
+    log_dir = Path("data/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_dir / 'ocr_errors.log'),
+            logging.StreamHandler()  # Also log to console
+        ]
+    )
+    
+    # Set specific loggers to DEBUG level
+    logging.getLogger('backend.routes.upload_fixed').setLevel(logging.DEBUG)
+    logging.getLogger('backend.ocr').setLevel(logging.DEBUG)
+    
+    logging.info("Logging configured successfully")
+
+# Setup logging
+setup_logging()
 
 app = FastAPI(title="Owlin API", version="1.0.0")
 
@@ -33,9 +60,8 @@ app.include_router(ocr.router, prefix="/api")
 app.include_router(products.router, prefix="/api/products")
 app.include_router(document_queue.router, prefix="/api")
 
-# ✅ Include dev routes only in development
-if os.getenv('NODE_ENV') == 'development' or os.getenv('ENVIRONMENT') == 'development':
-    app.include_router(dev.router, prefix="/api/dev", tags=["development"])
+# ✅ Include dev routes for testing
+app.include_router(dev.router, prefix="/api/dev", tags=["development"])
 
 @app.get("/")
 async def root():

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line Item Display Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drawer {
+            transition: transform 0.3s ease-in-out;
+        }
+        .drawer.open {
+            transform: translateX(0);
+        }
+        .drawer.closed {
+            transform: translateX(100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-8">
+        <h1 class="text-3xl font-bold mb-8">Line Item Display Test</h1>
+        
+        <!-- Test Button -->
+        <button 
+            onclick="toggleDrawer()"
+            class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+            Open Invoice Detail Drawer
+        </button>
+
+        <!-- Mock Invoice Data -->
+        <div class="mt-8 p-6 bg-white rounded-lg shadow">
+            <h2 class="text-xl font-semibold mb-4">Mock Invoice Data</h2>
+            <pre class="bg-gray-50 p-4 rounded text-sm overflow-auto">
+{
+  "invoice_number": "INV-2024-001",
+  "supplier_name": "Tesco Supermarket",
+  "invoice_date": "2024-01-15",
+  "total_amount": 227.38,
+  "subtotal": 189.48,
+  "vat": 37.90,
+  "vat_rate": 0.2,
+  "total_incl_vat": 227.38,
+  "confidence": 0.93,
+  "status": "scanned",
+  "line_items": [
+    {
+      "item": "Heinz Tomato Ketchup 1L",
+      "quantity": 3,
+      "price_excl_vat": 6.00,
+      "vat_rate": 0.2,
+      "price_incl_vat": 7.20,
+      "price_per_unit": 2.40,
+      "unit_price_excl_vat": 2.00,
+      "unit_price_incl_vat": 2.40,
+      "flagged": false
+    },
+    {
+      "item": "Milk 2L",
+      "quantity": 2,
+      "price_excl_vat": 3.00,
+      "vat_rate": 0.2,
+      "price_incl_vat": 3.60,
+      "price_per_unit": 1.80,
+      "unit_price_excl_vat": 1.50,
+      "unit_price_incl_vat": 1.80,
+      "flagged": false
+    },
+    {
+      "item": "Bread",
+      "quantity": 1,
+      "price_excl_vat": 1.20,
+      "vat_rate": 0.2,
+      "price_incl_vat": 1.44,
+      "price_per_unit": 1.44,
+      "unit_price_excl_vat": 1.20,
+      "unit_price_incl_vat": 1.44,
+      "flagged": true
+    },
+    {
+      "item": "Apples",
+      "quantity": 2,
+      "price_excl_vat": 3.00,
+      "vat_rate": 0.2,
+      "price_incl_vat": 3.60,
+      "price_per_unit": 1.80,
+      "unit_price_excl_vat": 1.50,
+      "unit_price_incl_vat": 1.80,
+      "flagged": false
+    }
+  ]
+}
+            </pre>
+        </div>
+    </div>
+
+    <!-- Invoice Detail Drawer -->
+    <div id="drawer" class="drawer closed fixed inset-y-0 right-0 w-96 bg-white shadow-xl z-50">
+        <!-- Header -->
+        <div class="flex items-center justify-between p-4 border-b border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-900">
+                Invoice Details
+            </h2>
+            <button onclick="toggleDrawer()" class="text-gray-400 hover:text-gray-600">
+                ✕
+            </button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex border-b border-gray-200">
+            <button 
+                onclick="switchTab('details')"
+                class="tab-btn flex-1 px-3 py-2 text-sm font-medium transition-colors"
+                data-tab="details"
+            >
+                📋 Details
+            </button>
+            <button 
+                onclick="switchTab('line-items')"
+                class="tab-btn flex-1 px-3 py-2 text-sm font-medium transition-colors"
+                data-tab="line-items"
+            >
+                📄 Line Items
+            </button>
+            <button 
+                onclick="switchTab('timeline')"
+                class="tab-btn flex-1 px-3 py-2 text-sm font-medium transition-colors"
+                data-tab="timeline"
+            >
+                ⏱️ Timeline
+            </button>
+            <button 
+                onclick="switchTab('comments')"
+                class="tab-btn flex-1 px-3 py-2 text-sm font-medium transition-colors"
+                data-tab="comments"
+            >
+                💬 Comments
+            </button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="flex-1 overflow-y-auto p-4">
+            <!-- Details Tab -->
+            <div id="details-tab" class="tab-content space-y-4">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-gray-700">Status: scanned</span>
+                    <span class="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">93%</span>
+                </div>
+                
+                <div class="space-y-3">
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="text-xs text-gray-500">Invoice Number</label>
+                        <div class="text-sm text-gray-900">INV-2024-001</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="text-xs text-gray-500">Supplier</label>
+                        <div class="text-sm text-gray-900">Tesco Supermarket</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="text-xs text-gray-500">Date</label>
+                        <div class="text-sm text-gray-900">2024-01-15</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="text-xs text-gray-500">Total Amount</label>
+                        <div class="text-sm text-gray-900 font-medium">£227.38</div>
+                    </div>
+                </div>
+
+                <!-- VAT Information -->
+                <div class="bg-blue-50 rounded-lg p-3 space-y-2">
+                    <div class="flex items-center text-sm font-medium text-blue-900">
+                        🧮 VAT Breakdown
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <span class="text-gray-600">Subtotal (ex. VAT):</span>
+                        <span class="text-gray-900 font-medium">£189.48</span>
+                        <span class="text-gray-600">VAT (20%):</span>
+                        <span class="text-gray-900 font-medium">£37.90</span>
+                        <span class="text-gray-600">Total (incl. VAT):</span>
+                        <span class="text-gray-900 font-medium">£227.38</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Line Items Tab -->
+            <div id="line-items-tab" class="tab-content space-y-4 hidden">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-medium text-gray-900 flex items-center">
+                        📄 Invoice Line Items
+                        <span class="ml-2 text-xs text-gray-500">(4 items)</span>
+                    </h3>
+                    <button 
+                        onclick="toggleVAT()"
+                        class="flex items-center text-xs text-blue-600 hover:text-blue-700"
+                        id="vat-toggle"
+                    >
+                        👁️ Hide VAT
+                    </button>
+                </div>
+
+                <!-- Line Items Table -->
+                <div class="space-y-3">
+                    <!-- Desktop Table -->
+                    <div class="hidden md:block">
+                        <div class="bg-gray-50 rounded-lg overflow-hidden">
+                            <table class="w-full text-xs" id="line-items-table">
+                                <thead class="bg-gray-100">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left font-medium text-gray-700">Item</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-700">Qty</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-700 vat-col">Unit (ex. VAT)</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-700 vat-col">Unit (incl. VAT)</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-700">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200" id="line-items-tbody">
+                                    <!-- Line items will be populated by JavaScript -->
+                                </tbody>
+                                <tfoot class="bg-gray-100" id="line-items-tfoot">
+                                    <!-- Totals will be populated by JavaScript -->
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Mobile Cards -->
+                    <div class="md:hidden space-y-3" id="mobile-line-items">
+                        <!-- Mobile cards will be populated by JavaScript -->
+                    </div>
+
+                    <!-- VAT Summary -->
+                    <div class="bg-blue-50 rounded-lg p-3 vat-summary">
+                        <div class="flex items-center text-sm font-medium text-blue-900 mb-2">
+                            📈 VAT Summary
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs" id="vat-summary-content">
+                            <!-- VAT summary will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeline Tab -->
+            <div id="timeline-tab" class="tab-content space-y-4 hidden">
+                <h3 class="text-sm font-medium text-gray-900">Status Timeline</h3>
+                <div class="space-y-3">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-900">Uploaded</div>
+                            <div class="text-xs text-gray-500">2024-01-15 14:20 by John Smith</div>
+                        </div>
+                    </div>
+                    <div class="flex items-start space-x-3">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-900">Processing</div>
+                            <div class="text-xs text-gray-500">2024-01-15 14:22 by System</div>
+                        </div>
+                    </div>
+                    <div class="flex items-start space-x-3">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-900">Scanned</div>
+                            <div class="text-xs text-gray-500">2024-01-15 14:25 by System</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comments Tab -->
+            <div id="comments-tab" class="tab-content space-y-4 hidden">
+                <h3 class="text-sm font-medium text-gray-900">Comments & Notes</h3>
+                
+                <!-- Add Comment -->
+                <div class="space-y-2">
+                    <textarea
+                        placeholder="Add a comment or note about this invoice..."
+                        class="w-full p-3 text-sm border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        rows="3"
+                    ></textarea>
+                    <button class="w-full px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                        Add Comment
+                    </button>
+                </div>
+
+                <!-- Comments List -->
+                <div class="space-y-3">
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-sm font-medium text-gray-900">John Smith</span>
+                            <span class="text-xs text-gray-500">2024-01-15 14:30</span>
+                        </div>
+                        <p class="text-sm text-gray-700">Invoice processed successfully</p>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-sm font-medium text-gray-900">System</span>
+                            <span class="text-xs text-gray-500">2024-01-15 14:25</span>
+                        </div>
+                        <p class="text-sm text-gray-700">OCR confidence: 93%</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock invoice data
+        const mockInvoice = {
+            invoice_number: "INV-2024-001",
+            supplier_name: "Tesco Supermarket",
+            invoice_date: "2024-01-15",
+            total_amount: 227.38,
+            subtotal: 189.48,
+            vat: 37.90,
+            vat_rate: 0.2,
+            total_incl_vat: 227.38,
+            confidence: 0.93,
+            status: "scanned",
+            line_items: [
+                {
+                    item: "Heinz Tomato Ketchup 1L",
+                    quantity: 3,
+                    price_excl_vat: 6.00,
+                    vat_rate: 0.2,
+                    price_incl_vat: 7.20,
+                    price_per_unit: 2.40,
+                    unit_price_excl_vat: 2.00,
+                    unit_price_incl_vat: 2.40,
+                    flagged: false
+                },
+                {
+                    item: "Milk 2L",
+                    quantity: 2,
+                    price_excl_vat: 3.00,
+                    vat_rate: 0.2,
+                    price_incl_vat: 3.60,
+                    price_per_unit: 1.80,
+                    unit_price_excl_vat: 1.50,
+                    unit_price_incl_vat: 1.80,
+                    flagged: false
+                },
+                {
+                    item: "Bread",
+                    quantity: 1,
+                    price_excl_vat: 1.20,
+                    vat_rate: 0.2,
+                    price_incl_vat: 1.44,
+                    price_per_unit: 1.44,
+                    unit_price_excl_vat: 1.20,
+                    unit_price_incl_vat: 1.44,
+                    flagged: true
+                },
+                {
+                    item: "Apples",
+                    quantity: 2,
+                    price_excl_vat: 3.00,
+                    vat_rate: 0.2,
+                    price_incl_vat: 3.60,
+                    price_per_unit: 1.80,
+                    unit_price_excl_vat: 1.50,
+                    unit_price_incl_vat: 1.80,
+                    flagged: false
+                }
+            ]
+        };
+
+        let showVAT = true;
+        let currentTab = 'details';
+
+        function toggleDrawer() {
+            const drawer = document.getElementById('drawer');
+            drawer.classList.toggle('open');
+            drawer.classList.toggle('closed');
+            
+            if (drawer.classList.contains('open')) {
+                populateLineItems();
+            }
+        }
+
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            
+            // Remove active state from all tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+                btn.classList.add('text-gray-500', 'hover:text-gray-700');
+            });
+            
+            // Show selected tab content
+            document.getElementById(`${tabName}-tab`).classList.remove('hidden');
+            
+            // Add active state to selected tab button
+            const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+            activeBtn.classList.remove('text-gray-500', 'hover:text-gray-700');
+            activeBtn.classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+            
+            currentTab = tabName;
+        }
+
+        function toggleVAT() {
+            showVAT = !showVAT;
+            const toggleBtn = document.getElementById('vat-toggle');
+            toggleBtn.innerHTML = showVAT ? '👁️ Hide VAT' : '👁️ Show VAT';
+            
+            // Toggle VAT columns visibility
+            document.querySelectorAll('.vat-col').forEach(col => {
+                col.style.display = showVAT ? 'table-cell' : 'none';
+            });
+            
+            // Toggle VAT summary visibility
+            document.querySelector('.vat-summary').style.display = showVAT ? 'block' : 'none';
+            
+            populateLineItems();
+        }
+
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('en-GB', {
+                style: 'currency',
+                currency: 'GBP',
+            }).format(amount);
+        }
+
+        function populateLineItems() {
+            const tbody = document.getElementById('line-items-tbody');
+            const tfoot = document.getElementById('line-items-tfoot');
+            const mobileContainer = document.getElementById('mobile-line-items');
+            const vatSummary = document.getElementById('vat-summary-content');
+            
+            // Calculate totals
+            const totals = mockInvoice.line_items.reduce((acc, item) => {
+                const priceExclVAT = item.price_excl_vat || 0;
+                const priceInclVAT = item.price_incl_vat || (priceExclVAT * 1.2);
+                const vatAmount = priceInclVAT - priceExclVAT;
+                
+                return {
+                    subtotal: acc.subtotal + priceExclVAT,
+                    vat: acc.vat + vatAmount,
+                    total: acc.total + priceInclVAT
+                };
+            }, { subtotal: 0, vat: 0, total: 0 });
+
+            // Populate desktop table
+            tbody.innerHTML = mockInvoice.line_items.map(item => {
+                const itemName = item.item || 'Unknown Item';
+                const unitPriceExclVAT = item.unit_price_excl_vat || 0;
+                const unitPriceInclVAT = item.unit_price_incl_vat || (unitPriceExclVAT * 1.2);
+                const lineTotal = item.price_excl_vat || 0;
+                const lineTotalInclVAT = item.price_incl_vat || (lineTotal * 1.2);
+                
+                return `
+                    <tr class="${item.flagged ? 'bg-red-50' : 'hover:bg-gray-100'}">
+                        <td class="px-3 py-2 text-gray-900">
+                            <div class="flex items-center">
+                                <span class="truncate max-w-32">${itemName}</span>
+                                ${item.flagged ? '⚠️' : ''}
+                            </div>
+                        </td>
+                        <td class="px-3 py-2 text-right text-gray-900 font-medium">${item.quantity}</td>
+                        <td class="px-3 py-2 text-right text-gray-600 vat-col">${formatCurrency(unitPriceExclVAT)}</td>
+                        <td class="px-3 py-2 text-right text-gray-600 vat-col">${formatCurrency(unitPriceInclVAT)}</td>
+                        <td class="px-3 py-2 text-right text-gray-900 font-medium">${formatCurrency(showVAT ? lineTotalInclVAT : lineTotal)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Populate table footer
+            tfoot.innerHTML = `
+                <tr class="border-t border-gray-200">
+                    <td colspan="${showVAT ? 2 : 1}" class="px-3 py-2 text-sm font-medium text-gray-700 text-right">
+                        Subtotal (ex. VAT):
+                    </td>
+                    <td class="px-3 py-2 text-sm font-medium text-gray-900 text-right">
+                        ${formatCurrency(totals.subtotal)}
+                    </td>
+                </tr>
+                ${showVAT ? `
+                    <tr>
+                        <td colspan="3" class="px-3 py-1 text-xs font-medium text-gray-700 text-right">
+                            VAT (20%):
+                        </td>
+                        <td class="px-3 py-1 text-xs font-medium text-gray-900 text-right">
+                            ${formatCurrency(totals.vat)}
+                        </td>
+                    </tr>
+                    <tr class="border-t border-gray-200">
+                        <td colspan="3" class="px-3 py-2 text-sm font-bold text-gray-900 text-right">
+                            Total (incl. VAT):
+                        </td>
+                        <td class="px-3 py-2 text-sm font-bold text-gray-900 text-right">
+                            ${formatCurrency(totals.total)}
+                        </td>
+                    </tr>
+                ` : ''}
+            `;
+
+            // Populate mobile cards
+            mobileContainer.innerHTML = mockInvoice.line_items.map(item => {
+                const itemName = item.item || 'Unknown Item';
+                const unitPriceExclVAT = item.unit_price_excl_vat || 0;
+                const unitPriceInclVAT = item.unit_price_incl_vat || (unitPriceExclVAT * 1.2);
+                const lineTotal = item.price_excl_vat || 0;
+                const lineTotalInclVAT = item.price_incl_vat || (lineTotal * 1.2);
+                
+                return `
+                    <div class="p-3 rounded-lg border ${item.flagged ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="flex-1">
+                                <div class="font-medium text-sm text-gray-900 flex items-center">
+                                    ${itemName}
+                                    ${item.flagged ? '⚠️' : ''}
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    Qty: ${item.quantity}
+                                </div>
+                            </div>
+                            <div class="text-sm font-medium text-gray-900">
+                                ${formatCurrency(showVAT ? lineTotalInclVAT : lineTotal)}
+                            </div>
+                        </div>
+                        
+                        ${showVAT ? `
+                            <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                <div>
+                                    <span>Unit (ex. VAT):</span>
+                                    <div class="font-medium text-gray-900">
+                                        ${formatCurrency(unitPriceExclVAT)}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span>Unit (incl. VAT):</span>
+                                    <div class="font-medium text-gray-900">
+                                        ${formatCurrency(unitPriceInclVAT)}
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            // Populate VAT summary
+            vatSummary.innerHTML = `
+                <div>
+                    <span class="text-gray-600">Subtotal (ex. VAT):</span>
+                    <div class="font-medium text-gray-900">
+                        ${formatCurrency(totals.subtotal)}
+                    </div>
+                </div>
+                <div>
+                    <span class="text-gray-600">VAT (20%):</span>
+                    <div class="font-medium text-gray-900">
+                        ${formatCurrency(totals.vat)}
+                    </div>
+                </div>
+                <div class="col-span-2">
+                    <span class="text-gray-600">Total (incl. VAT):</span>
+                    <div class="font-bold text-gray-900">
+                        ${formatCurrency(totals.total)}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set initial tab
+            switchTab('details');
+        });
+    </script>
+</body>
+</html> 
