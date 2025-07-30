@@ -245,9 +245,33 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
     
             {/* Supplier and Amount */}
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-800 text-lg truncate">
-                {invoice.supplier_name || 'Unknown Supplier'}
-              </h3>
+              {/* Header block: Supplier, Filename, Confidence, Page Range */}
+              <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-base text-gray-900 truncate">
+                      {invoice.supplier_name || 'Unknown Supplier'}
+                    </span>
+                    <div className="flex items-center space-x-2 mt-1">
+                      {/* Page Range Badge (if available) */}
+                      {invoice.page_range && (
+                        <span className="inline-block bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200">
+                          Pages {invoice.page_range}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* ✅ Confidence Badge (always visible, top-right) */}
+                  {invoice.confidence !== undefined && (
+                    <div className="flex-shrink-0 ml-2">
+                      <ConfidenceBadge confidence={Math.round(invoice.confidence)} />
+                    </div>
+                  )}
+                </div>
+                <span className="text-sm text-gray-500 truncate mt-1">
+                  {invoice.parent_pdf_filename || invoice.invoice_number || invoice.id.slice(0, 8) + '...'}
+                </span>
+              </div>
               <div className="text-right">
                 <div className="font-bold text-slate-900 text-lg">
                   {formatCurrency(invoice.total_amount)}
@@ -481,23 +505,94 @@ const InvoiceCardAccordion: React.FC<InvoiceCardAccordionProps> = ({
                             OCR couldn't identify individual line items from this invoice
                           </p>
                         </div>
-                        {invoice.confidence !== undefined && invoice.confidence < 40 && (
-                          <p className="text-xs text-orange-600 mt-2">
-                            Consider manually reviewing the invoice details above
-                          </p>
-                        )}
                       </div>
                     ) : (
-                      /* ✅ Use enhanced InvoiceLineItemTable with VAT calculations */
-                      <InvoiceLineItemTable 
-                        items={lineItems}
-                        subtotal={detailedInvoice.subtotal}
-                        vat={detailedInvoice.vat}
-                        vat_rate={detailedInvoice.vat_rate}
-                        total_incl_vat={detailedInvoice.total_incl_vat}
-                      />
+                      <InvoiceLineItemTable items={lineItems} />
                     )}
                   </div>
+
+                  {/* ✅ OCR Debug Panel - Show for low confidence or dev mode */}
+                  {(invoice.confidence !== undefined && invoice.confidence < 70) && (
+                    <div className="mb-6">
+                      <h4 className="font-semibold text-slate-800 mb-4 flex items-center">
+                        <AlertTriangle className="w-4 h-4 mr-2 text-orange-600" />
+                        OCR Debug Information
+                        <span className="ml-2 text-sm text-orange-600">
+                          (Low Confidence: {Math.round(invoice.confidence)}%)
+                        </span>
+                      </h4>
+                      
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                        {/* Real OCR data from backend */}
+                        <div className="space-y-4">
+                          {/* OCR Quality Metrics */}
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="text-slate-500">OCR Confidence:</span>
+                              <span className="ml-2 font-mono">{invoice.confidence?.toFixed(1)}%</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Word Count:</span>
+                              <span className="ml-2 font-mono">{invoice.word_count || 'Unknown'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">PSM Used:</span>
+                              <span className="ml-2 font-mono">{invoice.psm_used === 'paddle' ? 'PaddleOCR' : invoice.psm_used || 'Unknown'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Was Retried:</span>
+                              <span className="ml-2 font-mono text-orange-600">
+                                {invoice.was_retried ? 'Yes' : 'No'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Raw OCR Text Preview */}
+                          {invoice.raw_ocr_text && (
+                            <div className="mt-4 pt-4 border-t border-slate-200">
+                              <h6 className="font-medium text-slate-700 mb-2">Raw OCR Text Preview</h6>
+                              <div className="bg-slate-100 rounded p-3 max-h-32 overflow-y-auto">
+                                <p className="text-xs font-mono text-slate-600 leading-relaxed">
+                                  {invoice.raw_ocr_text.slice(0, 500)}
+                                  {invoice.raw_ocr_text.length > 500 && '...'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Per-Page Details (if available) */}
+                          {invoice.ocr_pages && invoice.ocr_pages.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-slate-200">
+                              <h6 className="font-medium text-slate-700 mb-2">Per-Page Details</h6>
+                              <div className="space-y-2">
+                                {invoice.ocr_pages.map((page: any, index: number) => (
+                                  <div key={index} className="border-l-4 border-blue-500 pl-4">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <h5 className="font-medium text-slate-700 text-sm">Page {page.page}</h5>
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-xs text-slate-500">
+                                          {page.avg_confidence?.toFixed(1)}% confidence
+                                        </span>
+                                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                          {page.psm_used === 'paddle' ? 'PaddleOCR' : page.psm_used || 'Unknown'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="bg-slate-100 rounded p-2">
+                                      <p className="text-xs font-mono text-slate-600 leading-relaxed">
+                                        {page.text?.slice(0, 200) || 'No text extracted'}
+                                        {page.text && page.text.length > 200 && '...'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
     
                   {/* Delivery Note Section */}
                   {detailedInvoice.delivery_note_match && (

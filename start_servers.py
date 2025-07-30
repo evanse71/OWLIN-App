@@ -41,6 +41,7 @@ def kill_existing_processes():
 def start_backend():
     """Start the FastAPI backend server."""
     print("🚀 Starting FastAPI backend server...")
+    print("⏳ This may take a moment while PaddleOCR models load...")
     
     # Set environment variables for development
     env = os.environ.copy()
@@ -55,13 +56,14 @@ def start_backend():
             "--port", BACKEND_PORT
         ], env=env)
         
-        # Wait a moment for the server to start
-        time.sleep(3)
+        # Wait longer for the server to start (PaddleOCR loading takes time)
+        print("⏳ Waiting for backend server to initialize...")
+        time.sleep(10)
         
-        # Test if the server is responding
+        # Test if the server is responding with increased timeout
         try:
             import requests
-            response = requests.get(f"http://localhost:{BACKEND_PORT}/", timeout=5)
+            response = requests.get(f"http://localhost:{BACKEND_PORT}/", timeout=30)
             if response.status_code == 200:
                 print(f"✅ Backend server started on http://localhost:{BACKEND_PORT}")
                 print(f"   External access: http://{BACKEND_HOST}:{BACKEND_PORT}")

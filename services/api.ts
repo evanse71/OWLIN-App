@@ -15,26 +15,39 @@ export interface FileStatus {
 
 export interface Invoice {
   id: string;
-  invoice_number?: string;
-  invoice_date?: string;
-  supplier_name?: string;
-  total_amount?: number;
-  status: string;
-  confidence?: number;
-  upload_timestamp?: string;
-  line_items?: any[];
+  invoice_number: string;
+  invoice_date: string;
+  supplier_name: string;
+  total_amount: number;
   subtotal?: number;
   vat?: number;
   vat_rate?: number;
   total_incl_vat?: number;
+  status: 'scanned' | 'processed' | 'error' | 'manual_review' | 'unmatched' | 'waiting' | 'utility' | 'matched' | 'processing';
+  confidence?: number;
+  upload_timestamp?: string;
+  parent_pdf_filename?: string;
+  line_items?: any[];
+  page_range?: string;
+  // ✅ Updated OCR debug properties for PaddleOCR
+  word_count?: number;
+  psm_used?: string; // Changed from number to string for "paddle"
+  was_retried?: boolean;
+  raw_ocr_text?: string;
+  ocr_pages?: Array<{
+    page: number;
+    text: string;
+    avg_confidence: number;
+    word_count: number;
+    psm_used?: string; // Changed from number to string
+  }>;
+  // ✅ Add missing properties
   price_mismatches?: Array<{
     description: string;
     invoice_amount: number;
     delivery_amount: number;
     difference: number;
   }>;
-  // Add missing properties for matching
-  delivery_note?: DeliveryNote;
 }
 
 export interface DeliveryNote {
@@ -160,27 +173,70 @@ class ApiService {
         },
       };
 
-      const response = await fetch(fullUrl, requestOptions);
-
-      console.log(`📡 API Response: ${response.status} ${response.statusText}`);
-
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      // Add timeout for file uploads (PaddleOCR processing can take time)
+      if (isFileUpload) {
+        // Create an AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
         
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorData.message || errorMessage;
-        } catch (parseError) {
-          console.warn('Could not parse error response:', parseError);
-        }
-        
-        console.error(`❌ API Error: ${errorMessage}`);
-        throw new Error(errorMessage);
-      }
+          const response = await fetch(fullUrl, {
+            ...requestOptions,
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          console.log(`📡 API Response: ${response.status} ${response.statusText}`);
 
-      const data = await response.json() as T;
-      console.log(`✅ API Success:`, data);
-      return data;
+          if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            
+            try {
+              const errorData = await response.json();
+              errorMessage = errorData.detail || errorData.message || errorMessage;
+            } catch (parseError) {
+              console.warn('Could not parse error response:', parseError);
+            }
+            
+            console.error(`❌ API Error: ${errorMessage}`);
+            throw new Error(errorMessage);
+          }
+
+          const data = await response.json() as T;
+          console.log(`✅ API Success:`, data);
+          return data;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error('Request timed out after 2 minutes');
+          }
+          throw error;
+        }
+      } else {
+        // Regular requests without timeout
+        const response = await fetch(fullUrl, requestOptions);
+
+        console.log(`📡 API Response: ${response.status} ${response.statusText}`);
+
+        if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.detail || errorData.message || errorMessage;
+          } catch (parseError) {
+            console.warn('Could not parse error response:', parseError);
+          }
+          
+          console.error(`❌ API Error: ${errorMessage}`);
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json() as T;
+        console.log(`✅ API Success:`, data);
+        return data;
+      }
     } catch (error) {
       console.error(`💥 API Request failed:`, error);
       throw error;

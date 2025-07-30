@@ -18,8 +18,21 @@ interface DocumentUploadResult {
     invoice_number?: string;
     delivery_note_number?: string;
   };
-  status: 'scanning' | 'processed' | 'error';
+  status: 'scanning' | 'processed' | 'error' | 'manual_review';
   originalFile: File;
+  page_range?: string; // Page range for multi-invoice PDFs
+  // ✅ New OCR debug properties
+  word_count?: number;
+  psm_used?: string; // Changed from number to string for PaddleOCR
+  was_retried?: boolean;
+  raw_ocr_text?: string;
+  ocr_pages?: Array<{
+    page: number;
+    text: string;
+    avg_confidence: number;
+    word_count: number;
+    psm_used?: number;
+  }>;
 }
 
 interface UploadSectionProps {
@@ -67,7 +80,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
     setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
 
     // ✅ Create small preview card (ChatGPT-style)
-    const tempDocId = `temp-${Date.now()}`;
+    const tempDocId = crypto.randomUUID();
     const tempCard: DocumentUploadResult = {
       id: tempDocId,
       type: 'unknown',
@@ -106,11 +119,11 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         });
       }, 200);
 
-      // Set up 30-second timeout
+      // Set up 90-second timeout (increased from 30s for PaddleOCR)
       timeoutId = setTimeout(() => {
-        console.error(`⏰ Upload timeout for ${file.name} after 30 seconds`);
-        throw new Error('Upload timed out after 30 seconds');
-      }, 30000);
+        console.error(`⏰ Upload timeout for ${file.name} after 90 seconds`);
+        throw new Error('Upload timed out after 90 seconds');
+      }, 90000);
 
       // Try direct upload first
       let response: any;
@@ -118,33 +131,79 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         console.log(`📤 Attempting direct upload for ${file.name}...`);
         response = await Promise.race([
           apiService.uploadInvoice(file),
-          createTimeoutPromise(30000)
+          createTimeoutPromise(90000) // Increased timeout to 90 seconds
         ]);
         
         console.log(`✅ Direct upload successful for ${file.name}:`, response);
         
-        // ✅ Convert to processed document format
-        const processedDoc: DocumentUploadResult = {
-          id: response.invoice_id || tempDocId,
-          type: 'invoice',
-          confidence: Math.round(response.parsed_data?.confidence || response.confidence || 0),
-          supplier_name: response.parsed_data?.supplier_name || 'Unknown',
-          pages: [1],
-          preview_urls: [],
-          metadata: {
-            invoice_number: response.parsed_data?.invoice_number || 'Unknown',
-            total_amount: response.parsed_data?.total_amount || 0,
-            invoice_date: response.parsed_data?.invoice_date || new Date().toISOString().split('T')[0]
-          },
-          status: 'processed',
-          originalFile: file
-        };
+        // ✅ Handle multi-invoice PDF response
+        if (response.saved_invoices && response.saved_invoices.length > 1) {
+          console.log(`📄 Multi-invoice PDF detected! Processing ${response.saved_invoices.length} invoices`);
+          
+          // Convert each invoice to DocumentUploadResult format
+          const processedDocs: DocumentUploadResult[] = response.saved_invoices.map((invoice: any, index: number) => ({
+            id: invoice.invoice_id || `invoice-${Date.now()}-${index}`,
+            type: 'invoice',
+            confidence: Math.round(invoice.confidence || 0),
+            supplier_name: invoice.supplier_name || 'Unknown Supplier',
+            pages: invoice.page_numbers || [1],
+            preview_urls: [],
+            metadata: {
+              invoice_number: invoice.metadata?.invoice_number || 'Unknown',
+              total_amount: invoice.metadata?.total_amount || 0,
+              invoice_date: invoice.metadata?.invoice_date || new Date().toISOString().split('T')[0]
+            },
+            status: response.status || 'processed',
+            originalFile: file,
+            // Add page range for display
+            page_range: invoice.page_range,
+            // ✅ Add OCR debug data
+            word_count: response.word_count,
+            psm_used: response.psm_used,
+            was_retried: response.was_retried,
+            raw_ocr_text: response.raw_ocr_text,
+            ocr_pages: response.pages
+          }));
 
-        // ✅ Replace temp card with processed results
-        setPendingUploads(prev => {
-          const filtered = prev.filter(doc => doc.id !== tempCard.id);
-          return [...filtered, processedDoc];
-        });
+          // ✅ Replace temp card with multiple processed results
+          setPendingUploads(prev => {
+            const filtered = prev.filter(doc => doc.id !== tempCard.id);
+            return [...filtered, ...processedDocs];
+          });
+
+          showToast('success', `Successfully processed ${response.saved_invoices.length} invoices from ${file.name}`);
+        } else {
+          // ✅ Convert to processed document format (single invoice)
+          const processedDoc: DocumentUploadResult = {
+            id: response.invoice_id || tempDocId,
+            type: 'invoice',
+            confidence: Math.round(response.parsed_data?.confidence || response.confidence || 0),
+            supplier_name: response.parsed_data?.supplier_name || 'Unknown',
+            pages: [1],
+            preview_urls: [],
+            metadata: {
+              invoice_number: response.parsed_data?.invoice_number || 'Unknown',
+              total_amount: response.parsed_data?.total_amount || 0,
+              invoice_date: response.parsed_data?.invoice_date || new Date().toISOString().split('T')[0]
+            },
+            status: response.status || 'processed',
+            originalFile: file,
+            // ✅ Add OCR debug data
+            word_count: response.word_count,
+            psm_used: response.psm_used,
+            was_retried: response.was_retried,
+            raw_ocr_text: response.raw_ocr_text,
+            ocr_pages: response.pages
+          };
+
+          // ✅ Replace temp card with processed results
+          setPendingUploads(prev => {
+            const filtered = prev.filter(doc => doc.id !== tempCard.id);
+            return [...filtered, processedDoc];
+          });
+
+          showToast('success', `Successfully processed ${file.name}`);
+        }
 
         if (progressInterval) {
           clearInterval(progressInterval);
@@ -157,8 +216,6 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         
         // ✅ Ensure progress reaches 100%
         setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
-        
-        showToast('success', `Successfully processed ${file.name}`);
         
       } catch (error) {
         console.error(`❌ Direct upload failed for ${file.name}:`, error);
@@ -178,7 +235,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
           console.log(`🔄 Attempting smart processing fallback for ${file.name}...`);
           response = await Promise.race([
             apiService.uploadDocumentForReview(file),
-            createTimeoutPromise(30000)
+            createTimeoutPromise(90000) // Increased timeout to 90 seconds for PaddleOCR
           ]);
           
           console.log(`✅ Smart processing successful for ${file.name}:`, response);
@@ -502,107 +559,122 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
             </div>
           </div>
 
-          <div className="grid gap-4">
-            {filteredDocuments.map((doc) => (
-              <div
-                key={doc.id}
-                className={`bg-white rounded-lg border p-4 ${
-                  doc.status === 'error' ? 'border-red-200 bg-red-50' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-3 flex-1">
+          {/* ✅ Improved card layout with horizontal scroll */}
+          <div className="overflow-x-auto">
+            <div className="flex space-x-4 min-w-max pb-2">
+              {filteredDocuments.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="relative bg-white rounded-lg border border-gray-200 p-4 min-w-[280px] max-w-[320px] shadow-sm hover:shadow-md transition-shadow group"
+                >
+                  {/* ✅ Delete button on hover */}
+                  <button
+                    onClick={() => handleRemoveDocument(doc.id)}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-red-50 text-red-500 hover:text-red-700"
+                    title="Remove document"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+
+                  {/* Card Header */}
+                  <div className="flex items-start space-x-3 mb-3">
                     <div className="text-2xl">{getDocumentIcon(doc)}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h4 className="font-medium text-gray-900 truncate">
-                          {doc.status === 'scanning' ? doc.supplier_name : doc.supplier_name}
-                        </h4>
-                        {doc.status === 'processed' && (
-                          <ConfidenceBadge
-                            confidence={doc.confidence}
-                          />
-                        )}
+                      {/* ✅ Enhanced supplier name and filename display */}
+                      <h4 className="text-sm font-semibold text-gray-900 truncate">
+                        {doc.supplier_name || 'Unknown Supplier'}
+                      </h4>
+                      <p className="text-xs text-gray-500 truncate">
+                        {doc.originalFile?.name || doc.metadata.invoice_number || 'Processing...'}
+                      </p>
+                      {/* Page Range Badge (if available) */}
+                      {doc.page_range && (
+                        <span className="inline-block bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200 mt-1">
+                          {doc.page_range}
+                        </span>
+                      )}
+                    </div>
+                    {/* ✅ Confidence Badge (always visible, top-right) */}
+                    {doc.confidence !== undefined && (
+                      <div className="flex-shrink-0">
+                        <ConfidenceBadge confidence={Math.round(doc.confidence)} />
                       </div>
-                      <div className="text-sm text-gray-600 space-y-1">
-                        {doc.status === 'scanning' && (
-                          <div className="flex items-center space-x-2">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                            <span>Processing document...</span>
+                    )}
+                  </div>
+
+                  {/* Card Content */}
+                  <div className="space-y-2">
+                    {/* Card Status */}
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        doc.status === 'processed' 
+                          ? 'bg-green-100 text-green-800' 
+                          : doc.status === 'error'
+                          ? 'bg-red-100 text-red-800'
+                          : doc.status === 'manual_review'
+                          ? 'bg-orange-100 text-orange-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {doc.status === 'processed' ? 'Processed' : 
+                         doc.status === 'error' ? 'Error' :
+                         doc.status === 'manual_review' ? 'Review Required' :
+                         'Processing...'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {doc.type}
+                      </span>
+                    </div>
+                    
+                    {/* ✅ Enhanced metadata display */}
+                    {doc.metadata && (
+                      <div className="mb-3">
+                        {doc.metadata.total_amount && (
+                          <div className="text-sm font-semibold text-gray-900">
+                            Total: £{doc.metadata.total_amount.toFixed(2)}
                           </div>
                         )}
-                        {doc.status === 'processed' && (
-                          <>
-                            <div>Invoice: {doc.metadata.invoice_number}</div>
-                            {doc.metadata.total_amount && (
-                              <div>Amount: {formatCurrency(doc.metadata.total_amount)}</div>
-                            )}
-                            {doc.metadata.invoice_date && (
-                              <div>Date: {formatDate(doc.metadata.invoice_date)}</div>
-                            )}
-                          </>
+                        {doc.metadata.invoice_number && doc.metadata.invoice_number !== 'Unknown' && (
+                          <div className="text-xs text-gray-500">
+                            Invoice: {doc.metadata.invoice_number}
+                          </div>
                         )}
-                        {doc.status === 'error' && (
-                          <div className="text-red-600">❌ {doc.supplier_name}</div>
+                        {doc.metadata.invoice_date && doc.metadata.invoice_date !== 'Unknown' && (
+                          <div className="text-xs text-gray-500">
+                            Date: {doc.metadata.invoice_date}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {doc.status === 'processed' && (
-                      <button
-                        onClick={() => handleEditDocument(doc.id)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        Edit
-                      </button>
                     )}
-                    <button
-                      onClick={() => handleRemoveDocument(doc.id)}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Remove
-                    </button>
                   </div>
-                </div>
-                
-                {/* ✅ Show progress bar for scanning documents */}
-                {doc.status === 'scanning' && (
-                  <div className="mt-3">
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${uploadProgress[doc.originalFile.name] || 0}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {uploadProgress[doc.originalFile.name] || 0}% complete
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-            <button
-              onClick={handleClear}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
-            >
-              Clear All
-            </button>
-            <div className="flex items-center space-x-3">
-              <span className="text-sm text-gray-600">
-                {processedCount} of {pendingUploads.length} processed
-              </span>
-              <button
-                onClick={handleSubmit}
-                disabled={processedCount === 0 || isUploading}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Submit to Owlin ({processedCount})
-              </button>
+                  {/* Confidence Badge */}
+                  {doc.status === 'processed' && (
+                    <div className="mt-3 space-y-2">
+                      <ConfidenceBadge
+                        confidence={doc.confidence}
+                      />
+                      {/* Page Range Badge for Multi-Invoice PDFs */}
+                      {doc.page_range && (
+                        <div className="inline-block bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200">
+                          {doc.page_range}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Progress Bar for Processing */}
+                  {doc.status === 'scanning' && (
+                    <div className="mt-3">
+                      <div className="w-full bg-gray-200 rounded-full h-1">
+                        <div className="bg-blue-600 h-1 rounded-full transition-all duration-300 animate-pulse" style={{ width: '60%' }} />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Processing...</p>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>

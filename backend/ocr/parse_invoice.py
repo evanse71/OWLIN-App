@@ -34,22 +34,34 @@ def extract_invoice_metadata(text: str) -> Dict[str, Any]:
         r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})'
     ]
     
-    # Supplier patterns
+    # ✅ Enhanced supplier patterns for better detection
     supplier_patterns = [
-        r'from\s*:?\s*([A-Za-z\s&.,]+)',
-        r'supplier\s*:?\s*([A-Za-z\s&.,]+)',
-        r'vendor\s*:?\s*([A-Za-z\s&.,]+)',
-        r'company\s*:?\s*([A-Za-z\s&.,]+)',
-        r'business\s*:?\s*([A-Za-z\s&.,]+)'
+        # Company name patterns
+        r'(?:from|supplier|vendor|company|business)\s*:?\s*([A-Za-z\s&.,\-]+(?:Ltd|Limited|Inc|Corp|Company|Brewery|Restaurant|Cafe|Bar|Pub|Store|Shop))',
+        r'([A-Za-z\s&.,\-]+(?:Ltd|Limited|Inc|Corp|Company|Brewery|Restaurant|Cafe|Bar|Pub|Store|Shop))\s*(?:Ltd|Limited|Inc|Corp|Company)',
+        # Generic patterns
+        r'from\s*:?\s*([A-Za-z\s&.,\-]+)',
+        r'supplier\s*:?\s*([A-Za-z\s&.,\-]+)',
+        r'vendor\s*:?\s*([A-Za-z\s&.,\-]+)',
+        r'company\s*:?\s*([A-Za-z\s&.,\-]+)',
+        r'business\s*:?\s*([A-Za-z\s&.,\-]+)',
+        # Invoice header patterns
+        r'^([A-Za-z\s&.,\-]+)\s*invoice',
+        r'invoice\s*from\s*([A-Za-z\s&.,\-]+)',
+        # Address-based patterns
+        r'([A-Za-z\s&.,\-]+)\s*\n\s*(?:address|street|road|lane)',
     ]
     
-    # ✅ Enhanced amount patterns for better detection
+    # ✅ Enhanced amount patterns for better detection with fuzzy matching
     amount_patterns = [
-        r'total\s*(?:\(ex\.?\s*vat\))?\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'amount\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+        # Prefer gross totals (incl. VAT)
+        r'total\s*(?:amount\s*)?(?:payable|due|incl\.?\s*vat|including\s*vat)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+        r'amount\s*(?:payable|due)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
         r'grand\s*total\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
         r'balance\s*due\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'total\s*\(incl\.?\s*vat\)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+        # Fallback to any total
+        r'total\s*(?:\(ex\.?\s*vat\))?\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+        r'amount\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
         r'[£$€]\s*([\d,]+\.?\d*)\s*$'
     ]
     
@@ -119,17 +131,35 @@ def extract_invoice_metadata(text: str) -> Dict[str, Any]:
             supplier_name = match.group(1).strip()
             break
     
-    # ✅ Enhanced amount extraction
+    # ✅ Enhanced amount extraction with preference for gross totals
     total_amount = 0.0
-    for pattern in amount_patterns:
+    total_found = False
+    
+    # First, try to find gross totals (incl. VAT)
+    for i, pattern in enumerate(amount_patterns[:4]):  # First 4 patterns prefer gross
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             try:
                 amount_str = match.group(1).replace(',', '')
                 total_amount = float(amount_str)
+                total_found = True
+                logger.debug(f"Found gross total: £{total_amount} (pattern {i+1})")
                 break
             except ValueError:
                 continue
+    
+    # If no gross total found, try any total
+    if not total_found:
+        for pattern in amount_patterns[4:]:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    total_amount = float(amount_str)
+                    logger.debug(f"Found fallback total: £{total_amount}")
+                    break
+                except ValueError:
+                    continue
     
     # ✅ Enhanced VAT extraction
     vat_amount = 0.0
@@ -139,6 +169,7 @@ def extract_invoice_metadata(text: str) -> Dict[str, Any]:
             try:
                 vat_str = match.group(1).replace(',', '')
                 vat_amount = float(vat_str)
+                logger.debug(f"Found VAT amount: £{vat_amount}")
                 break
             except ValueError:
                 continue
@@ -151,6 +182,7 @@ def extract_invoice_metadata(text: str) -> Dict[str, Any]:
             try:
                 subtotal_str = match.group(1).replace(',', '')
                 subtotal = float(subtotal_str)
+                logger.debug(f"Found subtotal: £{subtotal}")
                 break
             except ValueError:
                 continue
@@ -162,20 +194,48 @@ def extract_invoice_metadata(text: str) -> Dict[str, Any]:
         if match:
             try:
                 vat_rate = float(match.group(1))
+                logger.debug(f"Found VAT rate: {vat_rate}%")
                 break
             except ValueError:
                 continue
     
-    # ✅ Calculate missing values if possible
-    if subtotal == 0.0 and total_amount > 0.0 and vat_amount > 0.0:
-        subtotal = total_amount - vat_amount
-    elif vat_amount == 0.0 and subtotal > 0.0:
+    # ✅ Improved calculation logic
+    if total_amount > 0.0:
+        # We have a total, calculate missing values
+        if subtotal > 0.0 and vat_amount > 0.0:
+            # All three values exist, verify consistency
+            calculated_total = subtotal + vat_amount
+            if abs(calculated_total - total_amount) < 0.01:  # Within 1p tolerance
+                logger.debug("All three values consistent")
+            else:
+                # Prefer the total we found, recalculate others
+                if total_amount > subtotal:
+                    vat_amount = total_amount - subtotal
+                else:
+                    subtotal = total_amount - vat_amount
+        elif subtotal > 0.0:
+            # Have total and subtotal, calculate VAT
+            vat_amount = total_amount - subtotal
+        elif vat_amount > 0.0:
+            # Have total and VAT, calculate subtotal
+            subtotal = total_amount - vat_amount
+        else:
+            # Only have total, assume it's gross and calculate VAT
+            vat_amount = total_amount * (vat_rate / 100)
+            subtotal = total_amount - vat_amount
+    elif subtotal > 0.0:
+        # Only have subtotal, calculate VAT and total
         vat_amount = subtotal * (vat_rate / 100)
-    elif total_amount == 0.0 and subtotal > 0.0:
+        total_amount = subtotal + vat_amount
+    elif vat_amount > 0.0:
+        # Only have VAT, calculate subtotal and total
+        subtotal = vat_amount / (vat_rate / 100)
         total_amount = subtotal + vat_amount
     
-    # ✅ Calculate total incl VAT
+    # ✅ Calculate total incl VAT (prefer the found total)
     total_incl_vat = total_amount if total_amount > 0.0 else (subtotal + vat_amount)
+    
+    logger.debug(f"Final values - Total: £{total_amount}, Subtotal: £{subtotal}, VAT: £{vat_amount}, Total incl VAT: £{total_incl_vat}")
     
     return {
         'invoice_number': invoice_number,
@@ -680,3 +740,174 @@ def calculate_confidence(parsed: Dict) -> float:
     confidence = min(max(confidence, 0.0), 100.0)
     
     return round(confidence, 1) 
+
+def parse_invoice_text(text: str) -> Dict:
+    """
+    Parse invoice text and extract structured data with enhanced fallback handling.
+    
+    Args:
+        text: Raw OCR text from invoice
+        
+    Returns:
+        Dictionary with parsed invoice data
+    """
+    try:
+        # Initialize with safe defaults
+        parsed = {
+            'supplier_name': 'Unknown',
+            'invoice_number': 'Unknown',
+            'invoice_date': 'Unknown',
+            'total_amount': 0.0,
+            'subtotal': 0.0,
+            'vat': 0.0,
+            'vat_rate': 20.0,
+            'total_incl_vat': 0.0,
+            'line_items': [],  # Always return empty list, never None
+            'currency': 'GBP'
+        }
+        
+        if not text or not text.strip():
+            logger.warning("Empty text provided to parse_invoice_text")
+            return parsed
+        
+        # Extract metadata using safe methods
+        try:
+            metadata = extract_invoice_metadata(text)
+            if metadata:
+                # Use .get() with defaults for all fields
+                parsed['supplier_name'] = metadata.get('supplier_name', 'Unknown')
+                parsed['invoice_number'] = metadata.get('invoice_number', 'Unknown')
+                parsed['invoice_date'] = metadata.get('invoice_date', 'Unknown')
+                parsed['total_amount'] = float(metadata.get('total_amount', 0))
+                parsed['subtotal'] = float(metadata.get('subtotal', 0))
+                parsed['vat'] = float(metadata.get('vat', 0))
+                parsed['vat_rate'] = float(metadata.get('vat_rate', 20.0))
+                parsed['total_incl_vat'] = float(metadata.get('total_incl_vat', 0))
+                parsed['currency'] = metadata.get('currency', 'GBP')
+        except Exception as metadata_error:
+            logger.warning(f"Metadata extraction failed: {metadata_error}")
+        
+        # Extract line items with safe fallback
+        try:
+            line_items = extract_line_items(text)
+            if line_items and isinstance(line_items, list):
+                parsed['line_items'] = line_items
+            else:
+                parsed['line_items'] = []  # Ensure it's always a list
+                logger.warning("Line items extraction returned invalid data, using empty list")
+        except Exception as line_items_error:
+            logger.warning(f"Line items extraction failed: {line_items_error}")
+            parsed['line_items'] = []  # Ensure it's always a list
+        
+        # Calculate totals if missing
+        if parsed['total_incl_vat'] == 0 and parsed['subtotal'] > 0 and parsed['vat'] > 0:
+            parsed['total_incl_vat'] = parsed['subtotal'] + parsed['vat']
+            logger.debug(f"Calculated total_incl_vat: {parsed['total_incl_vat']}")
+        
+        if parsed['total_amount'] == 0 and parsed['total_incl_vat'] > 0:
+            parsed['total_amount'] = parsed['total_incl_vat']
+            logger.debug(f"Set total_amount from total_incl_vat: {parsed['total_amount']}")
+        
+        if parsed['vat'] == 0 and parsed['subtotal'] > 0 and parsed['vat_rate'] > 0:
+            parsed['vat'] = parsed['subtotal'] * (parsed['vat_rate'] / 100)
+            logger.debug(f"Calculated VAT: {parsed['vat']}")
+        
+        logger.debug(f"Parsed metadata: {parsed}")
+        logger.debug(f"Line items: {parsed.get('line_items', [])}")
+        
+        return parsed
+        
+    except Exception as e:
+        logger.error(f"❌ parse_invoice_text failed: {e}")
+        # Return safe fallback
+        return {
+            'supplier_name': 'Unknown',
+            'invoice_number': 'Unknown',
+            'invoice_date': 'Unknown',
+            'total_amount': 0.0,
+            'subtotal': 0.0,
+            'vat': 0.0,
+            'vat_rate': 20.0,
+            'total_incl_vat': 0.0,
+            'line_items': [],  # Always empty list, never None
+            'currency': 'GBP'
+        } 
+
+def extract_line_items_from_text(text: str) -> List[Dict[str, Any]]:
+    """
+    Extract line items from raw OCR text using pattern matching.
+    
+    Args:
+        text: Raw OCR text from invoice
+        
+    Returns:
+        List of line item dictionaries
+    """
+    line_items = []
+    
+    if not text:
+        return line_items
+    
+    # Common line item patterns
+    line_patterns = [
+        # Pattern: "2 x £108.50 Camden Hells 30L"
+        r'(\d+)\s*x\s*[£$€]?(\d+\.?\d*)\s+([A-Za-z\s\-]+)',
+        # Pattern: "Camden Hells 30L 2 £108.50"
+        r'([A-Za-z\s\-]+)\s+(\d+)\s+[£$€]?(\d+\.?\d*)',
+        # Pattern: "Description Qty Price Total"
+        r'([A-Za-z\s\-]+)\s+(\d+)\s+[£$€]?(\d+\.?\d*)\s+[£$€]?(\d+\.?\d*)',
+        # Pattern: "Item - Quantity x Price"
+        r'([A-Za-z\s\-]+)\s*-\s*(\d+)\s*x\s*[£$€]?(\d+\.?\d*)',
+    ]
+    
+    lines = text.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line or len(line) < 5:
+            continue
+            
+        # Skip header lines
+        if any(header in line.lower() for header in ['description', 'item', 'qty', 'quantity', 'price', 'total', 'amount']):
+            continue
+            
+        # Try each pattern
+        for pattern in line_patterns:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                try:
+                    if len(match.groups()) == 3:
+                        # Pattern 1 or 2: quantity, price, description
+                        quantity = float(match.group(1))
+                        price = float(match.group(2))
+                        description = match.group(3).strip()
+                        total = quantity * price
+                    elif len(match.groups()) == 4:
+                        # Pattern 3: description, quantity, price, total
+                        description = match.group(1).strip()
+                        quantity = float(match.group(2))
+                        price = float(match.group(3))
+                        total = float(match.group(4))
+                    else:
+                        continue
+                    
+                    # Validate the line item
+                    if quantity > 0 and price > 0 and description and len(description) > 2:
+                        line_item = {
+                            'description': description,
+                            'quantity': quantity,
+                            'unit_price': price,
+                            'total_price': total,
+                            'line_total_excl_vat': total,
+                            'vat_rate': 20.0
+                        }
+                        line_items.append(line_item)
+                        logger.debug(f"✅ Extracted line item: {description} - {quantity} x £{price}")
+                        break
+                        
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"⚠️ Failed to parse line item: {line} - {e}")
+                    continue
+    
+    logger.info(f"✅ Extracted {len(line_items)} line items from text")
+    return line_items 

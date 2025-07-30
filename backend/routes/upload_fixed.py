@@ -30,14 +30,14 @@ logger = logging.getLogger(__name__)
 
 # Import working OCR functions with detailed error handling
 try:
-    from backend.ocr.ocr_engine import run_ocr
-    logger.debug("✅ run_ocr imported successfully")
+    from backend.ocr.ocr_engine import run_paddle_ocr, calculate_display_confidence
+    logger.debug("✅ run_paddle_ocr imported successfully")
 except ImportError as e:
-    logger.error(f"❌ Failed to import run_ocr: {e}")
-    run_ocr = None
+    logger.error(f"❌ Failed to import run_paddle_ocr: {e}")
+    run_paddle_ocr = None
 
 try:
-    from backend.ocr.parse_invoice import extract_invoice_metadata, extract_line_items
+    from backend.ocr.parse_invoice import extract_invoice_metadata, extract_line_items, extract_line_items_from_text
     logger.debug("✅ extract_invoice_metadata and extract_line_items imported successfully")
 except ImportError as e:
     logger.error(f"❌ Failed to import parse_invoice functions: {e}")
@@ -52,8 +52,27 @@ except ImportError as e:
     extract_table_data = None
     extract_line_items_from_text = None
 
+# Import SmartUploadProcessor for multi-invoice PDF processing
+try:
+    from backend.ocr.smart_upload_processor import SmartUploadProcessor
+    logger.debug("✅ SmartUploadProcessor imported successfully")
+    SMART_UPLOAD_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"❌ Failed to import SmartUploadProcessor: {e}")
+    SmartUploadProcessor = None
+    SMART_UPLOAD_AVAILABLE = False
+
+# Import Owlin Agent for intelligent analysis
+try:
+    from backend.agent import run_owlin_agent, get_agent_info
+    logger.debug("✅ Owlin Agent imported successfully")
+    OWLIN_AGENT_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"❌ Failed to import Owlin Agent: {e}")
+    OWLIN_AGENT_AVAILABLE = False
+
 # Check if all required functions are available
-ENHANCED_OCR_AVAILABLE = all([run_ocr, extract_invoice_metadata, extract_line_items, extract_table_data])
+ENHANCED_OCR_AVAILABLE = all([run_paddle_ocr, extract_invoice_metadata, extract_line_items, extract_table_data])
 if ENHANCED_OCR_AVAILABLE:
     logger.info("✅ Enhanced OCR pipeline available")
 else:
@@ -142,15 +161,15 @@ def save_file_with_timestamp(file: UploadFile, directory: Path) -> str:
         logger.error(f"❌ Failed to save file: {str(e)}")
         raise Exception(f"File save failed: {str(e)}")
 
-async def process_upload_with_timeout(filepath: str, filename: str, timeout_seconds: int = 30):
+async def process_upload_with_timeout(filepath: str, filename: str, timeout_seconds: int = 60):
     """Process upload with timeout to prevent hanging."""
     logger.debug(f"🔄 Starting OCR processing for {filename} with {timeout_seconds}s timeout")
     logger.debug(f"📁 File path: {filepath}")
     
     try:
-        # Check if run_ocr function is available
-        if run_ocr is None:
-            logger.error("❌ run_ocr function is not available")
+        # Check if run_paddle_ocr function is available
+        if run_paddle_ocr is None:
+            logger.error("❌ run_paddle_ocr function is not available")
             raise Exception("OCR engine not available")
         
         # Check if file exists
@@ -161,9 +180,9 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
         logger.debug(f"📊 File size: {os.path.getsize(filepath)} bytes")
         
         # Run OCR with timeout
-        logger.debug("🔄 Calling run_ocr function...")
+        logger.debug("🔄 Calling run_paddle_ocr function...")
         ocr_result = await asyncio.wait_for(
-            asyncio.to_thread(run_ocr, filepath),
+            asyncio.to_thread(run_paddle_ocr, filepath),
             timeout=timeout_seconds
         )
         
@@ -174,12 +193,26 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
         
     except asyncio.TimeoutError:
         logger.error(f"❌ OCR processing timed out after {timeout_seconds}s for {filename}")
-        raise HTTPException(status_code=408, detail=f"OCR processing timed out after {timeout_seconds} seconds")
+        logger.error(f"📋 Timeout details: File may be too large or PaddleOCR may be slow on this system")
+        logger.error(f"📋 System info: Intel Mac detected - PaddleOCR may need more time")
+        raise HTTPException(
+            status_code=408, 
+            detail=f"OCR processing timed out after {timeout_seconds} seconds. This may be due to large file size or system performance. Try uploading a smaller file or image instead of PDF."
+        )
     except Exception as e:
         logger.exception(f"❌ OCR processing failed for {filename}")
         logger.error(f"📋 Error details: {str(e)}")
         logger.error(f"📋 Error type: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+        
+        # Provide more helpful error messages
+        if "PaddleOCR" in str(e):
+            error_msg = f"OCR processing failed: PaddleOCR not available or failed to initialize. Please install PaddleOCR or try a different file format."
+        elif "timeout" in str(e).lower():
+            error_msg = f"OCR processing timed out. Try uploading a smaller file or image instead of PDF."
+        else:
+            error_msg = f"OCR processing failed: {str(e)}"
+        
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @router.post("/upload")
 async def upload_invoice(file: UploadFile = File(...)):
@@ -221,11 +254,130 @@ async def upload_invoice(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
         logger.info(f"✅ File saved as: {temp_filename}")
         
+        # Step 2.5: Check for multi-invoice PDF
+        logger.info("🔄 Step 2.5: Checking for multi-invoice PDF...")
+        multi_invoice_result = None
+        if file.filename.lower().endswith(".pdf"):
+            try:
+                processor = SmartUploadProcessor()
+                multi_invoice_result = processor.process_multi_invoice_pdf(temp_filepath)
+                
+                if multi_invoice_result and "suggested_documents" in multi_invoice_result:
+                    suggested_docs = multi_invoice_result["suggested_documents"]
+                    if len(suggested_docs) > 1:
+                        logger.info(f"✅ Multi-invoice PDF detected! Found {len(suggested_docs)} invoices")
+                        
+                        # Process each invoice separately
+                        invoices = []
+                        for doc in suggested_docs:
+                            if doc.get("type") == "invoice":
+                                invoice_text = doc.get("ocr_text", "")
+                                page_numbers = doc.get("pages", [])
+                                confidence = calculate_display_confidence(doc.get("confidence", 0.0))
+                                
+                                # Extract supplier name from text
+                                supplier_name = "Unknown Supplier"
+                                if invoice_text:
+                                    try:
+                                        temp_metadata = extract_invoice_metadata(invoice_text)
+                                        supplier_name = temp_metadata.get("supplier_name", "Unknown Supplier")
+                                    except:
+                                        pass
+                                
+                                invoice_id = str(uuid.uuid4())
+                                page_range = f"{min(page_numbers)}–{max(page_numbers)}" if page_numbers else "Unknown"
+                                
+                                # Save to database
+                                conn = get_db_connection()
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    INSERT INTO invoices (
+                                        id, invoice_number, invoice_date, supplier_name, total_amount,
+                                        status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
+                                        subtotal, vat, vat_rate, total_incl_vat, page_range
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (
+                                    invoice_id,
+                                    doc.get("metadata", {}).get("invoice_number", "Unknown"),
+                                    doc.get("metadata", {}).get("invoice_date", datetime.now().strftime("%Y-%m-%d")),
+                                    supplier_name,
+                                    doc.get("metadata", {}).get("total_amount", 0.0),
+                                    'scanned',
+                                    confidence,
+                                    datetime.now().isoformat(),
+                                    invoice_text,
+                                    file.filename,
+                                    doc.get("metadata", {}).get("subtotal", 0.0),
+                                    doc.get("metadata", {}).get("vat", 0.0),
+                                    doc.get("metadata", {}).get("vat_rate", 20.0),
+                                    doc.get("metadata", {}).get("total_incl_vat", 0.0),
+                                    page_range
+                                ))
+                                conn.commit()
+                                conn.close()
+                                
+                                invoices.append({
+                                    "invoice_id": invoice_id,
+                                    "supplier_name": supplier_name,
+                                    "confidence": confidence,
+                                    "page_range": f"Pages {page_range}",
+                                    "invoice_text": invoice_text,
+                                    "page_numbers": page_numbers,
+                                    "metadata": doc.get("metadata", {}),
+                                    "line_items": doc.get("line_items", [])
+                                })
+                        
+                        if invoices:
+                            logger.info(f"✅ Successfully processed {len(invoices)} invoices from multi-invoice PDF")
+                            return {
+                                "message": f"Multi-invoice PDF processed successfully",
+                                "saved_invoices": invoices,
+                                "total_invoices": len(invoices),
+                                "original_filename": file.filename
+                            }
+                    else:
+                        logger.info("ℹ️ Single invoice PDF detected - proceeding with normal processing")
+                else:
+                    logger.info("ℹ️ No multi-invoice structure detected - proceeding with normal processing")
+            except Exception as multi_error:
+                logger.warning(f"⚠️ Multi-invoice detection failed: {multi_error}")
+                logger.info("ℹ️ Proceeding with normal single-invoice processing")
+        
         # Step 3: Run OCR with timeout
         logger.info("🔄 Step 3: Running OCR processing...")
         try:
             ocr_result = await process_upload_with_timeout(temp_filepath, file.filename)
             logger.info("✅ OCR processing completed")
+            
+            # Check if OCR needs retry
+            overall_confidence = ocr_result.get('overall_confidence', 0.0)
+            total_words = ocr_result.get('total_words', 0)
+            was_retried = ocr_result.get('was_retried', False)
+            
+            logger.info(f"📊 OCR Results: {overall_confidence:.1f}% confidence, {total_words} words, retried: {was_retried}")
+            
+            # If confidence is very low and we haven't retried yet, try again
+            if overall_confidence < 15 and not was_retried:
+                logger.warning(f"⚠️ Very low confidence ({overall_confidence:.1f}%), attempting retry...")
+                try:
+                    # Retry with different settings
+                    retry_result = await process_upload_with_timeout(temp_filepath, file.filename)
+                    retry_confidence = retry_result.get('overall_confidence', 0.0)
+                    retry_words = retry_result.get('total_words', 0)
+                    
+                    logger.info(f"📊 Retry Results: {retry_confidence:.1f}% confidence, {retry_words} words")
+                    
+                    # Use retry result if it's better
+                    if retry_confidence > overall_confidence or retry_words > total_words:
+                        ocr_result = retry_result
+                        logger.info("✅ Retry improved OCR results")
+                    else:
+                        logger.info("ℹ️ Retry did not improve results, using original")
+                        
+                except Exception as retry_error:
+                    logger.warning(f"⚠️ OCR retry failed: {retry_error}")
+                    # Continue with original result
+                    
         except Exception as ocr_error:
             logger.exception("❌ OCR processing failed - using fallback")
             # Save failed PDF for debugging
@@ -257,6 +409,16 @@ async def upload_invoice(file: UploadFile = File(...)):
         logger.info("🔄 Step 5: Extracting metadata and line items...")
         raw_text = ocr_result.get('raw_ocr_text', '')
         
+        # Log per-page OCR details for debugging
+        if ocr_result.get('pages'):
+            logger.info("📄 Per-page OCR details:")
+            for page in ocr_result['pages']:
+                page_num = page.get('page', 'Unknown')
+                confidence = page.get('avg_confidence', 0.0)
+                word_count = page.get('word_count', 0)
+                psm_used = page.get('psm_used', 'Unknown')
+                logger.info(f"   Page {page_num}: {confidence:.1f}% confidence, {word_count} words, PSM {psm_used}")
+        
         # Check if OCR text is mostly noise
         if raw_text:
             # Count meaningful characters vs noise
@@ -275,23 +437,40 @@ async def upload_invoice(file: UploadFile = File(...)):
             if extract_invoice_metadata and raw_text:
                 metadata = extract_invoice_metadata(raw_text)
                 logger.info(f"✅ Metadata extracted: {metadata}")
+                
+                # ✅ Improved supplier name fallback
+                supplier_name = metadata.get('supplier_name', 'Unknown')
+                if supplier_name in (None, "", "Unknown"):
+                    # Use filename as fallback supplier name
+                    supplier_name = os.path.splitext(file.filename)[0]
+                    metadata['supplier_name'] = supplier_name
+                    logger.info(f"✅ Using filename as supplier name: {supplier_name}")
             else:
                 metadata = create_fallback_metadata()
+                # ✅ Ensure fallback metadata has supplier name
+                if metadata.get('supplier_name') in (None, "", "Unknown"):
+                    metadata['supplier_name'] = os.path.splitext(file.filename)[0]
                 logger.warning("⚠️ Using fallback metadata")
         except Exception as metadata_error:
             logger.warning(f"⚠️ Metadata extraction failed: {metadata_error}")
             metadata = create_fallback_metadata()
+            # ✅ Ensure fallback metadata has supplier name
+            if metadata.get('supplier_name') in (None, "", "Unknown"):
+                metadata['supplier_name'] = os.path.splitext(file.filename)[0]
         
         # ✅ Enhanced line item extraction
         line_items = []
         try:
-            if extract_line_items and table_data:
+            if extract_line_items and table_data and len(table_data) > 0:
                 line_items = extract_line_items(table_data)
                 logger.info(f"✅ Line items extracted from table: {len(line_items)} items")
-            elif extract_line_items_from_text and raw_text:
-                # Fallback to text-based extraction
+            elif raw_text:
+                # Use text-based extraction as fallback
+                from backend.ocr.parse_invoice import extract_line_items_from_text
                 line_items = extract_line_items_from_text(raw_text)
                 logger.info(f"✅ Line items extracted from text: {len(line_items)} items")
+            else:
+                logger.warning("⚠️ No text available for line item extraction")
         except Exception as line_items_error:
             logger.warning(f"⚠️ Line items extraction failed: {line_items_error}")
             line_items = []
@@ -313,27 +492,83 @@ async def upload_invoice(file: UploadFile = File(...)):
             
             logger.info(f"✅ Calculated totals from line items: subtotal={metadata['subtotal']}, vat={metadata['vat']}, total={metadata['total_amount']}")
         
+        # Log detailed information for debugging
+        logger.debug(f"Parsed metadata: {metadata}")
+        logger.debug(f"Line items: {line_items}")
+        logger.debug(f"Raw OCR text length: {len(raw_text) if raw_text else 0}")
+        
+        # Log any fallback being used
+        if not line_items:
+            logger.warning("⚠️ No line items found - using fallback")
+        if metadata.get('supplier_name') == 'Unknown':
+            logger.warning("⚠️ Supplier name not detected - using fallback")
+        if metadata.get('total_amount', 0) == 0:
+            logger.warning("⚠️ Total amount not detected - using fallback")
+        
         # Step 6: Calculate confidence and manual review flag
         logger.info("🔄 Step 6: Calculating confidence...")
-        
-        # ✅ Fix confidence calculation - ensure it's 0-100 scale
+        # Use standardized display confidence calculation
         overall_confidence = ocr_result.get('overall_confidence', 0.0)
-        if overall_confidence > 1.0:
-            # If confidence is already a percentage, cap at 100
-            confidence = min(100.0, overall_confidence)
-        else:
-            # Convert decimal to percentage
-            confidence = min(100.0, overall_confidence * 100)
-        
-        # ✅ Enhanced manual review logic
+        display_confidence = calculate_display_confidence(overall_confidence)
+        confidence = display_confidence
+        # Enhanced manual review logic
         manual_review = (
-            confidence < 60.0 or 
+            display_confidence < 60.0 or 
             not line_items or 
             metadata.get('supplier_name') == 'Unknown' or
             metadata.get('total_amount', 0) == 0.0
         )
+        logger.debug(f"OCR confidence: {overall_confidence}")
+        logger.debug(f"Display confidence (0-100%): {display_confidence}%")
+        logger.debug(f"Manual review required: {manual_review}")
+        logger.info(f"✅ Confidence calculated: {display_confidence}%, Manual review: {manual_review}")
         
-        logger.info(f"✅ Confidence calculated: {confidence:.1f}%, Manual review: {manual_review}")
+        # ✅ Determine document status based on OCR quality
+        total_words = ocr_result.get('total_words', 0)
+        
+        # Set status based on OCR quality
+        if overall_confidence < 10 or total_words == 0:
+            document_status = 'manual_review'
+            logger.warning(f"⚠️ Low OCR quality - confidence: {overall_confidence:.1f}%, words: {total_words} - marking for manual review")
+        elif overall_confidence < 50:
+            document_status = 'processed'  # Processed but low confidence
+            logger.info(f"ℹ️ Moderate OCR quality - confidence: {overall_confidence:.1f}%")
+        else:
+            document_status = 'processed'  # Good quality
+            logger.info(f"✅ Good OCR quality - confidence: {overall_confidence:.1f}%")
+        
+        # Step 6.5: Run Owlin Agent analysis
+        logger.info("🔄 Step 6.5: Running Owlin Agent analysis...")
+        agent_analysis = None
+        if OWLIN_AGENT_AVAILABLE:
+            try:
+                # Prepare invoice data for agent analysis
+                invoice_data = {
+                    "metadata": metadata,
+                    "line_items": line_items,
+                    "delivery_note_attached": False,  # Will be updated when delivery notes are matched
+                    "confidence": confidence
+                }
+                
+                # Run agent analysis (no historical prices for now)
+                agent_analysis = run_owlin_agent(invoice_data, historical_prices={})
+                
+                logger.info(f"✅ Agent analysis completed:")
+                logger.info(f"   Confidence Score: {agent_analysis.get('confidence_score', 0):.1f}%")
+                logger.info(f"   Manual Review Required: {agent_analysis.get('manual_review_required', True)}")
+                logger.info(f"   Flags Found: {len(agent_analysis.get('flags', []))}")
+                logger.info(f"   Summary Messages: {len(agent_analysis.get('summary', []))}")
+                
+                # Update manual review flag based on agent analysis
+                if agent_analysis.get('manual_review_required', True):
+                    manual_review = True
+                    logger.info("🔄 Manual review flag updated by agent analysis")
+                
+            except Exception as agent_error:
+                logger.warning(f"⚠️ Owlin Agent analysis failed: {agent_error}")
+                agent_analysis = None
+        else:
+            logger.info("ℹ️ Owlin Agent not available - skipping intelligent analysis")
         
         # Step 7: Save to database
         logger.info("🔄 Step 7: Saving to database...")
@@ -373,38 +608,36 @@ async def upload_invoice(file: UploadFile = File(...)):
             logger.warning(f"⚠️ Database save failed: {db_error}")
             invoice_id = str(uuid.uuid4())  # Generate ID anyway
         
-        # Step 8: Prepare response
-        logger.info("🔄 Step 8: Preparing response...")
-        
-        parsed_data = {
+        # ✅ Enhanced response with status and quality metrics
+        response_data = {
+            "message": "Invoice processed successfully",
             "invoice_id": invoice_id,
             "supplier_name": metadata.get('supplier_name', 'Unknown'),
+            "invoice_number": metadata.get('invoice_number', 'Unknown'),
             "invoice_date": metadata.get('invoice_date', datetime.now().strftime("%Y-%m-%d")),
             "total_amount": metadata.get('total_amount', 0.0),
             "subtotal": metadata.get('subtotal', 0.0),
             "vat": metadata.get('vat', 0.0),
             "vat_rate": metadata.get('vat_rate', 20.0),
             "total_incl_vat": metadata.get('total_incl_vat', 0.0),
-            "confidence": confidence,
-            "manual_review": manual_review,
-            "line_items": line_items
-        }
-        
-        response = {
-            "message": "Processing completed successfully" if not manual_review else "Processing completed with issues",
-            "invoice_id": invoice_id,
-            "filename": file.filename,
-            "parsed_data": parsed_data,
+            "confidence": overall_confidence,
+            "word_count": total_words,
+            "status": document_status,
+            "was_retried": ocr_result.get('was_retried', False),
+            "psm_used": ocr_result.get('pages', [{}])[0].get('psm_used') if ocr_result.get('pages') else None,
+            "parsed_data": metadata,
+            "line_items": line_items,
+            "table_data": table_data,
+            "original_filename": file.filename,
+            # ✅ Add OCR debug data
             "raw_ocr_text": raw_text,
-            "confidence": confidence,
-            "manual_review": manual_review,
-            "table_detected": len(table_data) > 0,
             "pages": ocr_result.get('pages', []),
-            "overall_confidence": confidence
+            "overall_confidence": overall_confidence,
+            "total_words": total_words
         }
         
         logger.info("✅ Upload process completed successfully")
-        return response
+        return response_data
         
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -476,6 +709,91 @@ def create_fallback_metadata() -> Dict[str, Any]:
         'vat_rate': 20.0,
         'total_incl_vat': 0.0
     }
+
+@router.get("/files")
+def list_uploaded_files():
+    """List all uploaded files with their metadata."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get all invoices with their file information
+        cursor.execute("""
+            SELECT id, parent_pdf_filename, upload_timestamp, invoice_number, 
+                   supplier_name, total_amount, status, confidence
+            FROM invoices 
+            ORDER BY upload_timestamp DESC
+        """)
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        files = []
+        for row in rows:
+            invoice_id, filename, upload_timestamp, invoice_number, supplier_name, total_amount, status, confidence = row
+            
+            files.append({
+                "id": invoice_id,
+                "filename": filename,
+                "upload_timestamp": upload_timestamp,
+                "invoice_number": invoice_number,
+                "supplier_name": supplier_name,
+                "total_amount": total_amount,
+                "status": status,
+                "confidence": confidence,
+                "preview_url": f"/api/files/{invoice_id}/preview"
+            })
+        
+        return {"files": files}
+        
+    except Exception as e:
+        logger.error(f"Error listing files: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/files/{document_id}/preview")
+def preview_file(document_id: str):
+    """Preview a specific uploaded file by document ID."""
+    try:
+        # Look up the file path in the invoices table
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT parent_pdf_filename FROM invoices WHERE id = ?", (document_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        filename = row[0]
+        
+        if not filename:
+            raise HTTPException(status_code=404, detail="No file associated with this document")
+        
+        # Only allow certain extensions for preview
+        allowed_exts = {".pdf", ".jpg", ".jpeg", ".png"}
+        ext = Path(filename).suffix.lower()
+        
+        if ext not in allowed_exts:
+            raise HTTPException(status_code=400, detail="File type not supported for preview")
+        
+        # Construct absolute path to the file
+        abs_path = Path(UPLOAD_DIR) / filename
+        
+        if not abs_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
+        
+        # Return the file as a response
+        return FileResponse(
+            str(abs_path), 
+            media_type=None, 
+            filename=filename
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing file {document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/health")
 async def health_check():

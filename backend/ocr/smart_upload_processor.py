@@ -1,5 +1,5 @@
 import fitz  # PyMuPDF
-import pytesseract
+from paddleocr import PaddleOCR
 from PIL import Image
 import io
 import re
@@ -8,11 +8,26 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import os
 import uuid
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Initialize PaddleOCR model
+try:
+    ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
+    logger.info("✅ PaddleOCR model initialized for smart upload processor")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize PaddleOCR: {e}")
+    ocr_model = None
+
 class SmartUploadProcessor:
+    """
+    Intelligent PDF processor that can detect and split multi-invoice PDFs.
+    """
+    
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("✅ SmartUploadProcessor initialized")
         # Enhanced invoice keywords for better detection
         self.invoice_keywords = [
             'invoice', 'tax', 'total', 'vat', 'subtotal', 'net', 'amount due',
@@ -54,34 +69,46 @@ class SmartUploadProcessor:
 
     def process_multi_invoice_pdf(self, filepath: str) -> Dict[str, Any]:
         """
-        Process a PDF that may contain multiple invoices and intelligently split them.
-        Returns individual invoice documents with full metadata and line items.
+        Process a PDF that may contain multiple invoices and split them intelligently.
+        
+        Args:
+            filepath: Path to the PDF file
+            
+        Returns:
+            Dictionary with suggested documents and processing summary
         """
         try:
-            # Open the PDF
+            self.logger.info(f"🔄 Processing multi-invoice PDF: {filepath}")
+            
+            # Open PDF
             doc = fitz.open(filepath)
             pages_data = []
             
-            # Process each page individually
+            # Process each page
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                page_data = self._process_single_page(page, page_num + 1)
-                pages_data.append(page_data)
+                
+                # Convert page to image
+                pix = page.get_pixmap(dpi=300)
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Run OCR
+                ocr_text = self._run_ocr(img)
+                
+                # Analyze page content
+                page_info = self._analyze_page_content(ocr_text, page_num + 1)
+                pages_data.append(page_info)
+                
+                self.logger.debug(f"Page {page_num + 1}: {page_info.get('confidence', 0):.1f}% confidence, "
+                                f"{page_info.get('word_count', 0)} words")
             
             doc.close()
             
-            # Group pages into logical invoice documents
-            grouped_documents = self._group_pages_into_invoices(pages_data)
+            # Group pages into invoices
+            processed_documents = self._group_pages_into_invoices(pages_data)
             
-            # Process each group to extract full invoice data
-            processed_documents = []
-            for group in grouped_documents:
-                if group.get('type') == 'invoice':
-                    processed_doc = self._process_invoice_group(group, pages_data)
-                    if processed_doc:
-                        processed_documents.append(processed_doc)
-            
-            return {
+            result = {
                 "suggested_documents": processed_documents,
                 "total_pages": len(pages_data),
                 "processing_summary": {
@@ -91,26 +118,78 @@ class SmartUploadProcessor:
                 }
             }
             
+            self.logger.info(f"✅ Multi-invoice processing complete: {len(processed_documents)} documents found")
+            return result
+            
         except Exception as e:
-            logger.error(f"Error processing multi-invoice PDF {filepath}: {str(e)}")
+            self.logger.error(f"❌ Multi-invoice processing failed: {str(e)}")
             raise
-
-    def _process_single_page(self, page, page_number: int) -> Dict[str, Any]:
+    
+    def _run_ocr(self, img: Image.Image) -> str:
         """
-        Process a single page and extract metadata.
+        Run OCR on an image using PaddleOCR.
+        
+        Args:
+            img: PIL Image to process
+            
+        Returns:
+            Extracted text as string
         """
         try:
-            # Get page image
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # Higher resolution for better OCR
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
+            if ocr_model is None:
+                self.logger.error("❌ PaddleOCR model not initialized")
+                return ""
             
-            # Run OCR
-            ocr_text = pytesseract.image_to_string(img)
+            self.logger.info(f"🔄 Starting PaddleOCR OCR")
+            self.logger.debug(f"📊 Input image shape: {img.size}")
             
-            # Calculate text density
+            # Run PaddleOCR
+            result = ocr_model.predict(np.array(img))
+            
+            # Extract text
+            text = ""
+            line_count = 0
+            
+            if result and len(result) > 0:
+                self.logger.debug(f"📊 PaddleOCR returned {len(result)} result groups")
+                
+                # Handle PaddleOCR result structure (list containing OCRResult object)
+                if isinstance(result, (list, tuple)) and len(result) > 0:
+                    ocr_result = result[0]  # Get the first (and usually only) result
+                    
+                    # Handle PaddleOCR result structure (OCRResult object)
+                    if hasattr(ocr_result, 'rec_texts'):
+                        rec_texts = ocr_result.rec_texts
+                        self.logger.debug(f"📊 Found {len(rec_texts)} text items")
+                        
+                        for i, text_item in enumerate(rec_texts):
+                            extracted_text = str(text_item)
+                            text += extracted_text + " "
+                            line_count += 1
+                            self.logger.debug(f"   → Extracted: '{extracted_text}'")
+            
+            text = text.strip()
+            word_count = len([word for word in text.split() if len(word) > 1])
+            
+            self.logger.info(f"✅ PaddleOCR completed: {word_count} words, {line_count} lines")
+            self.logger.debug(f"📝 Final text: '{text[:100]}{'...' if len(text) > 100 else ''}'")
+            
+            return text
+            
+        except Exception as e:
+            self.logger.error(f"❌ OCR failed: {str(e)}")
+            return ""
+
+    def _analyze_page_content(self, ocr_text: str, page_number: int) -> Dict[str, Any]:
+        """
+        Analyze a single page's content and return relevant metadata.
+        """
+        try:
+            # Calculate text density (simplified approach)
             word_count = len(ocr_text.split())
-            text_density = word_count / (pix.width * pix.height / 1000000)  # words per megapixel
+            # Use a reasonable default for text density calculation
+            estimated_pixels = 2000000  # Assume 2MP image
+            text_density = word_count / (estimated_pixels / 1000000)  # words per megapixel
             
             # Skip pages with very low text density (likely blank or terms pages)
             if word_count < 10 or text_density < 50:
@@ -148,7 +227,7 @@ class SmartUploadProcessor:
             }
             
         except Exception as e:
-            logger.error(f"Error processing page {page_number}: {str(e)}")
+            self.logger.error(f"❌ Error analyzing page {page_number}: {str(e)}")
             return {
                 "page_number": page_number,
                 "skip_page": True,
@@ -410,7 +489,7 @@ class SmartUploadProcessor:
             return invoice_doc
             
         except Exception as e:
-            logger.error(f"Error processing invoice group: {str(e)}")
+            self.logger.error(f"❌ Error processing invoice group: {str(e)}")
             return None
 
     def _is_valid_invoice(self, parsed_data: Dict[str, Any], ocr_text: str) -> bool:
