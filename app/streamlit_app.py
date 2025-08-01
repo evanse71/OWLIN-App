@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OWLIN Production Application
+OWLIN Streamlit Production Application
 
 This is the main Streamlit application for the OWLIN platform,
 integrating all the new modules for production use.
@@ -10,10 +10,6 @@ import streamlit as st
 import os
 import sys
 from pathlib import Path
-
-# Add the backend directory to the path
-backend_path = Path(__file__).parent.parent / "backend"
-sys.path.insert(0, str(backend_path))
 
 # Import the integrated modules
 from multi_upload_ui import create_streamlit_app

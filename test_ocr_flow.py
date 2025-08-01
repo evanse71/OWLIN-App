@@ -8,7 +8,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 
 from ocr.ocr_engine import calculate_display_confidence, run_enhanced_ocr
-from ocr.parse_invoice import extract_invoice_metadata, extract_line_items_from_text
+from ocr.field_extractor import extract_invoice_metadata
+from ocr.parse_invoice import extract_line_items_from_text
 from PIL import Image
 import logging
 

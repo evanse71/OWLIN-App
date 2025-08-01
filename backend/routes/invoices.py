@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from typing import List, Dict, Optional
 from backend.db import get_all_invoices, get_all_delivery_notes, get_db_connection
-from backend.ocr.parse_invoice import extract_invoice_metadata, extract_line_items
+from backend.ocr.parse_invoice import parse_invoice, extract_line_items
+from backend.ocr.field_extractor import extract_invoice_metadata
 import os
 import logging
 from datetime import datetime

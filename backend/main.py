@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.routes import invoices, flagged_issues, suppliers, analytics, ocr, products
 from backend.routes import document_queue, upload_review, confirm_splits, upload_fixed
-from backend.routes import dev, agent
+from backend.routes import dev, agent, test_ocr, upload_enhanced, matching, upload_validation
 import os
 import logging
 from pathlib import Path
@@ -61,9 +61,32 @@ app.include_router(ocr.router, prefix="/api")
 app.include_router(products.router, prefix="/api/products")
 app.include_router(document_queue.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")
+app.include_router(test_ocr.router)
+
+# ✅ Include enhanced upload routes
+app.include_router(upload_enhanced.router, prefix="/api", tags=["enhanced-upload"])
+
+# ✅ Include matching routes
+app.include_router(matching.router, prefix="/api", tags=["matching"])
+
+# ✅ Include upload validation routes
+app.include_router(upload_validation.router, prefix="/api", tags=["upload-validation"])
 
 # ✅ Include dev routes for testing
 app.include_router(dev.router, prefix="/api/dev", tags=["development"])
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize PaddleOCR model at FastAPI startup."""
+    from backend.ocr import ocr_engine
+    if ocr_engine.ocr_model is None:
+        try:
+            from paddleocr import PaddleOCR
+            ocr_engine.ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
+            logging.info("✅ PaddleOCR model initialized at startup")
+        except Exception as e:
+            logging.error(f"❌ Failed to initialize PaddleOCR at startup: {e}")
+            ocr_engine.ocr_model = None
 
 @app.get("/")
 async def root():

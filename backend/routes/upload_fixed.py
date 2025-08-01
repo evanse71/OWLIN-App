@@ -30,14 +30,17 @@ logger = logging.getLogger(__name__)
 
 # Import working OCR functions with detailed error handling
 try:
-    from backend.ocr.ocr_engine import run_paddle_ocr, calculate_display_confidence
-    logger.debug("✅ run_paddle_ocr imported successfully")
+    from backend.ocr.ocr_engine import run_invoice_ocr, calculate_display_confidence
+    logger.debug("✅ run_invoice_ocr imported successfully")
+    # Create alias for backward compatibility
+    run_paddle_ocr = run_invoice_ocr
 except ImportError as e:
-    logger.error(f"❌ Failed to import run_paddle_ocr: {e}")
+    logger.error(f"❌ Failed to import run_invoice_ocr: {e}")
     run_paddle_ocr = None
 
 try:
-    from backend.ocr.parse_invoice import extract_invoice_metadata, extract_line_items, extract_line_items_from_text
+    from backend.ocr.parse_invoice import extract_line_items
+    from backend.ocr.field_extractor import extract_invoice_metadata
     logger.debug("✅ extract_invoice_metadata and extract_line_items imported successfully")
 except ImportError as e:
     logger.error(f"❌ Failed to import parse_invoice functions: {e}")
@@ -346,7 +349,7 @@ async def upload_invoice(file: UploadFile = File(...)):
         # Step 3: Run OCR with timeout
         logger.info("🔄 Step 3: Running OCR processing...")
         try:
-            ocr_result = await process_upload_with_timeout(temp_filepath, file.filename)
+            ocr_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=90)
             logger.info("✅ OCR processing completed")
             
             # Check if OCR needs retry
@@ -361,7 +364,7 @@ async def upload_invoice(file: UploadFile = File(...)):
                 logger.warning(f"⚠️ Very low confidence ({overall_confidence:.1f}%), attempting retry...")
                 try:
                     # Retry with different settings
-                    retry_result = await process_upload_with_timeout(temp_filepath, file.filename)
+                    retry_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=90)
                     retry_confidence = retry_result.get('overall_confidence', 0.0)
                     retry_words = retry_result.get('total_words', 0)
                     

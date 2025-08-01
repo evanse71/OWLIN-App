@@ -1,913 +1,590 @@
+"""
+Invoice Template Parser
+
+This module provides comprehensive invoice parsing functionality with structured output.
+It uses heuristic parsing with regular expressions and pattern matching to extract
+invoice metadata including supplier, dates, totals, and line items.
+
+Key Features:
+- Supplier name inference from top-of-page bounding boxes
+- Date recognition with multiple format support
+- Net/VAT/Gross total detection
+- Line item detection and parsing
+- Confidence scoring for extracted data
+- Structured output with dataclasses
+
+Author: OWLIN Development Team
+Version: 1.0.0
+"""
+
 import re
-from typing import List, Dict, Any
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+
+from .field_extractor import extract_invoice_fields
 
 logger = logging.getLogger(__name__)
 
-def extract_invoice_metadata(text: str) -> Dict[str, Any]:
-    """
-    Extract invoice metadata from OCR text with enhanced VAT and total detection.
-    
-    Args:
-        text: OCR text to parse
-        
-    Returns:
-        Dictionary with invoice metadata
-    """
-    # Invoice number patterns
-    invoice_patterns = [
-        r'invoice\s*#?\s*:?\s*([A-Z0-9\-_/]+)',
-        r'invoice\s*number\s*:?\s*([A-Z0-9\-_/]+)',
-        r'inv\s*#?\s*:?\s*([A-Z0-9\-_/]+)',
-        r'bill\s*#?\s*:?\s*([A-Z0-9\-_/]+)',
-        r'order\s*#?\s*:?\s*([A-Z0-9\-_/]+)',
-        r'reference\s*:?\s*([A-Z0-9\-_/]+)',
-        r'ref\s*:?\s*([A-Z0-9\-_/]+)'
-    ]
-    
-    # Date patterns
-    date_patterns = [
-        r'date\s*:?\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
-        r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
-        r'(\d{4}[/\-]\d{1,2}[/\-]\d{1,2})',
-        r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})'
-    ]
-    
-    # ✅ Enhanced supplier patterns for better detection
-    supplier_patterns = [
-        # Company name patterns
-        r'(?:from|supplier|vendor|company|business)\s*:?\s*([A-Za-z\s&.,\-]+(?:Ltd|Limited|Inc|Corp|Company|Brewery|Restaurant|Cafe|Bar|Pub|Store|Shop))',
-        r'([A-Za-z\s&.,\-]+(?:Ltd|Limited|Inc|Corp|Company|Brewery|Restaurant|Cafe|Bar|Pub|Store|Shop))\s*(?:Ltd|Limited|Inc|Corp|Company)',
-        # Generic patterns
-        r'from\s*:?\s*([A-Za-z\s&.,\-]+)',
-        r'supplier\s*:?\s*([A-Za-z\s&.,\-]+)',
-        r'vendor\s*:?\s*([A-Za-z\s&.,\-]+)',
-        r'company\s*:?\s*([A-Za-z\s&.,\-]+)',
-        r'business\s*:?\s*([A-Za-z\s&.,\-]+)',
-        # Invoice header patterns
-        r'^([A-Za-z\s&.,\-]+)\s*invoice',
-        r'invoice\s*from\s*([A-Za-z\s&.,\-]+)',
-        # Address-based patterns
-        r'([A-Za-z\s&.,\-]+)\s*\n\s*(?:address|street|road|lane)',
-    ]
-    
-    # ✅ Enhanced amount patterns for better detection with fuzzy matching
-    amount_patterns = [
-        # Prefer gross totals (incl. VAT)
-        r'total\s*(?:amount\s*)?(?:payable|due|incl\.?\s*vat|including\s*vat)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'amount\s*(?:payable|due)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'grand\s*total\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'balance\s*due\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        # Fallback to any total
-        r'total\s*(?:\(ex\.?\s*vat\))?\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'amount\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'[£$€]\s*([\d,]+\.?\d*)\s*$'
-    ]
-    
-    # ✅ Enhanced VAT patterns
-    vat_patterns = [
-        r'vat\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'tax\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'gst\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'vat\s*20%\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'20%\s*vat\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)'
-    ]
-    
-    # ✅ Enhanced subtotal patterns
-    subtotal_patterns = [
-        r'subtotal\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'sub\s*total\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'net\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
-        r'total\s*\(ex\.?\s*vat\)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)'
-    ]
-    
-    # VAT rate patterns
-    vat_rate_patterns = [
-        r'vat\s*rate\s*:?\s*(\d+(?:\.\d+)?)\s*%',
-        r'(\d+(?:\.\d+)?)\s*%\s*vat',
-        r'vat\s*(\d+(?:\.\d+)?)\s*%'
-    ]
-    
-    # Extract invoice number
-    invoice_number = "Unknown"
-    for pattern in invoice_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            invoice_number = match.group(1).strip()
-            break
-    
-    # Extract date
-    invoice_date = datetime.now().strftime("%Y-%m-%d")
-    for pattern in date_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                date_str = match.group(1).strip()
-                # Try to parse the date
-                if '/' in date_str:
-                    parts = date_str.split('/')
-                    if len(parts) == 3:
-                        if len(parts[2]) == 2:
-                            parts[2] = '20' + parts[2]
-                        invoice_date = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
-                elif '-' in date_str:
-                    parts = date_str.split('-')
-                    if len(parts) == 3:
-                        if len(parts[0]) == 4:  # YYYY-MM-DD
-                            invoice_date = f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
-                        else:  # DD-MM-YYYY
-                            invoice_date = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
-                break
-            except Exception as e:
-                logger.debug(f"Date parsing failed: {e}")
-                continue
-    
-    # Extract supplier name
-    supplier_name = "Unknown"
-    for pattern in supplier_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            supplier_name = match.group(1).strip()
-            break
-    
-    # ✅ Enhanced amount extraction with preference for gross totals
-    total_amount = 0.0
-    total_found = False
-    
-    # First, try to find gross totals (incl. VAT)
-    for i, pattern in enumerate(amount_patterns[:4]):  # First 4 patterns prefer gross
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                amount_str = match.group(1).replace(',', '')
-                total_amount = float(amount_str)
-                total_found = True
-                logger.debug(f"Found gross total: £{total_amount} (pattern {i+1})")
-                break
-            except ValueError:
-                continue
-    
-    # If no gross total found, try any total
-    if not total_found:
-        for pattern in amount_patterns[4:]:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                try:
-                    amount_str = match.group(1).replace(',', '')
-                    total_amount = float(amount_str)
-                    logger.debug(f"Found fallback total: £{total_amount}")
-                    break
-                except ValueError:
-                    continue
-    
-    # ✅ Enhanced VAT extraction
-    vat_amount = 0.0
-    for pattern in vat_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                vat_str = match.group(1).replace(',', '')
-                vat_amount = float(vat_str)
-                logger.debug(f"Found VAT amount: £{vat_amount}")
-                break
-            except ValueError:
-                continue
-    
-    # ✅ Enhanced subtotal extraction
-    subtotal = 0.0
-    for pattern in subtotal_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                subtotal_str = match.group(1).replace(',', '')
-                subtotal = float(subtotal_str)
-                logger.debug(f"Found subtotal: £{subtotal}")
-                break
-            except ValueError:
-                continue
-    
-    # Extract VAT rate
-    vat_rate = 20.0  # Default UK VAT rate
-    for pattern in vat_rate_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                vat_rate = float(match.group(1))
-                logger.debug(f"Found VAT rate: {vat_rate}%")
-                break
-            except ValueError:
-                continue
-    
-    # ✅ Improved calculation logic
-    if total_amount > 0.0:
-        # We have a total, calculate missing values
-        if subtotal > 0.0 and vat_amount > 0.0:
-            # All three values exist, verify consistency
-            calculated_total = subtotal + vat_amount
-            if abs(calculated_total - total_amount) < 0.01:  # Within 1p tolerance
-                logger.debug("All three values consistent")
-            else:
-                # Prefer the total we found, recalculate others
-                if total_amount > subtotal:
-                    vat_amount = total_amount - subtotal
-                else:
-                    subtotal = total_amount - vat_amount
-        elif subtotal > 0.0:
-            # Have total and subtotal, calculate VAT
-            vat_amount = total_amount - subtotal
-        elif vat_amount > 0.0:
-            # Have total and VAT, calculate subtotal
-            subtotal = total_amount - vat_amount
-        else:
-            # Only have total, assume it's gross and calculate VAT
-            vat_amount = total_amount * (vat_rate / 100)
-            subtotal = total_amount - vat_amount
-    elif subtotal > 0.0:
-        # Only have subtotal, calculate VAT and total
-        vat_amount = subtotal * (vat_rate / 100)
-        total_amount = subtotal + vat_amount
-    elif vat_amount > 0.0:
-        # Only have VAT, calculate subtotal and total
-        subtotal = vat_amount / (vat_rate / 100)
-        total_amount = subtotal + vat_amount
-    
-    # ✅ Calculate total incl VAT (prefer the found total)
-    total_incl_vat = total_amount if total_amount > 0.0 else (subtotal + vat_amount)
-    
-    logger.debug(f"Final values - Total: £{total_amount}, Subtotal: £{subtotal}, VAT: £{vat_amount}, Total incl VAT: £{total_incl_vat}")
-    
-    return {
-        'invoice_number': invoice_number,
-        'invoice_date': invoice_date,
-        'supplier_name': supplier_name,
-        'total_amount': total_amount,
-        'subtotal': subtotal,
-        'vat': vat_amount,
-        'vat_rate': vat_rate,
-        'total_incl_vat': total_incl_vat
-    }
+@dataclass
+class LineItem:
+    """Individual line item from invoice"""
+    description: str
+    quantity: float
+    unit_price: float
+    total_price: float
+    confidence: float = 0.0
 
-def extract_line_items(table_data: List[List[str]]) -> List[Dict[str, Any]]:
-    """
-    Extract line items from table data with enhanced pattern matching.
-    
-    Args:
-        table_data: Table data as list of rows
-        
-    Returns:
-        List of line item dictionaries
-    """
-    line_items = []
-    
-    if not table_data or len(table_data) < 2:
-        return line_items
-    
-    # ✅ Enhanced header detection for common invoice formats
-    header_keywords = [
-        'qty', 'quantity', 'code', 'item', 'description', 'desc', 
-        'unit', 'price', 'unit price', 'discount', 'vat', 'line', 'total',
-        'amount', 'rate', 'net', 'gross'
-    ]
-    
-    # Find header row
-    header_row = None
-    for i, row in enumerate(table_data):
-        row_text = ' '.join(row).lower()
-        if any(keyword in row_text for keyword in header_keywords):
-            header_row = i
-            logger.info(f"Found header row at index {i}: {row}")
-            break
-    
-    if header_row is None:
-        logger.warning("No header row found in table data")
-        return line_items
-    
-    # ✅ Enhanced line item parsing
-    for i in range(header_row + 1, len(table_data)):
-        row = table_data[i]
-        if len(row) < 2:
-            continue
-        
-        # Skip total/subtotal rows
-        row_text = ' '.join(row).lower()
-        if any(keyword in row_text for keyword in ['total', 'subtotal', 'balance', 'due', 'grand']):
-            continue
-        
-        # Try to extract line item data
-        line_item = parse_line_item_row(row)
-        if line_item and line_item.get('item'):
-            line_items.append(line_item)
-            logger.debug(f"Extracted line item: {line_item.get('item')} - {line_item.get('total_price')}")
-    
-    logger.info(f"Extracted {len(line_items)} line items from table")
-    return line_items
+@dataclass
+class ParsedInvoice:
+    """Structured invoice data with confidence scoring"""
+    invoice_number: str
+    date: str
+    supplier: str
+    net_total: float
+    vat_total: float
+    gross_total: float
+    line_items: List[LineItem]
+    confidence: float
+    currency: str = "GBP"
+    vat_rate: Optional[float] = None
 
-def parse_line_item_row(row: List[str]) -> Dict[str, Any]:
+def parse_invoice(text: str, overall_confidence: float = 0.0, ocr_results: Optional[List[Dict[str, Any]]] = None) -> ParsedInvoice:
     """
-    Parse a single row as a line item with enhanced pattern matching.
+    Parse invoice text and extract structured data
     
     Args:
-        row: List of cell strings
+        text: Full OCR text from invoice
+        overall_confidence: Overall OCR confidence score
+        ocr_results: Optional OCR results with bounding boxes for enhanced field extraction
         
     Returns:
-        Line item dictionary or None if invalid
-    """
-    if len(row) < 2:
-        return None
-    
-    # ✅ Enhanced parsing strategies for invoice format
-    strategies = [
-        parse_enhanced_tabular_line_item,  # New enhanced strategy
-        parse_tabular_line_item,
-        parse_space_separated_line_item,
-        parse_pattern_based_line_item
-    ]
-    
-    for strategy in strategies:
-        try:
-            result = strategy(row)
-            if result and result.get('item'):
-                return result
-        except Exception as e:
-            logger.debug(f"Strategy {strategy.__name__} failed: {str(e)}")
-            continue
-    
-    return None
-
-def parse_tabular_line_item(row: List[str]) -> Dict[str, Any]:
-    """
-    Parse line item from tabular format.
-    
-    Args:
-        row: List of cell strings
-        
-    Returns:
-        Line item dictionary
-    """
-    # Look for quantity, description, unit price, total
-    qty = 1.0
-    description = ""
-    unit_price = 0.0
-    line_total = 0.0
-    
-    for i, cell in enumerate(row):
-        cell = cell.strip()
-        if not cell:
-            continue
-        
-        # Try to identify quantity
-        qty_match = re.search(r'^(\d+(?:\.\d+)?)$', cell)
-        if qty_match and qty == 1.0:
-            qty = float(qty_match.group(1))
-            continue
-        
-        # Try to identify prices
-        price_match = re.search(r'[£$€]?\s*(\d+(?:,\d+)*(?:\.\d{2})?)', cell)
-        if price_match:
-            price_val = float(price_match.group(1).replace(',', ''))
-            
-            # If we have a unit price, this might be line total
-            if unit_price > 0 and line_total == 0:
-                line_total = price_val
-            elif unit_price == 0:
-                unit_price = price_val
-            continue
-        
-        # If not quantity or price, it's description
-        if not description:
-            description = cell
-        else:
-            description += " " + cell
-    
-    # Calculate missing values
-    if unit_price > 0 and line_total == 0:
-        line_total = unit_price * qty
-    elif line_total > 0 and unit_price == 0 and qty > 0:
-        unit_price = line_total / qty
-    
-    if not description:
-        description = "Unknown Item"
-    
-    return create_line_item_dict(
-        item=description,
-        quantity=qty,
-        unit_price_excl_vat=unit_price,
-        line_total_excl_vat=line_total,
-        vat_rate=0.2
-    )
-
-def parse_space_separated_line_item(row: List[str]) -> Dict[str, Any]:
-    """
-    Parse line item from space-separated format.
-    
-    Args:
-        row: List of cell strings
-        
-    Returns:
-        Line item dictionary
-    """
-    # Join all cells and split by spaces
-    text = ' '.join(row)
-    parts = text.split()
-    
-    qty = 1.0
-    description = ""
-    unit_price = 0.0
-    line_total = 0.0
-    
-    i = 0
-    while i < len(parts):
-        part = parts[i]
-        
-        # Check for quantity (e.g., "5 x")
-        if part.isdigit() and i + 1 < len(parts) and parts[i + 1].lower() in ['x', 'of', 'units']:
-            qty = float(part)
-            i += 2
-            continue
-        
-        # Check for prices
-        price_match = re.search(r'[£$€]?\s*(\d+(?:,\d+)*(?:\.\d{2})?)', part)
-        if price_match:
-            price_val = float(price_match.group(1).replace(',', ''))
-            
-            if unit_price > 0 and line_total == 0:
-                line_total = price_val
-            elif unit_price == 0:
-                unit_price = price_val
-            i += 1
-            continue
-        
-        # Add to description
-        if not description:
-            description = part
-        else:
-            description += " " + part
-        i += 1
-    
-    # Calculate missing values
-    if unit_price > 0 and line_total == 0:
-        line_total = unit_price * qty
-    elif line_total > 0 and unit_price == 0 and qty > 0:
-        unit_price = line_total / qty
-    
-    if not description:
-        description = "Unknown Item"
-    
-    return create_line_item_dict(
-        item=description,
-        quantity=qty,
-        unit_price_excl_vat=unit_price,
-        line_total_excl_vat=line_total,
-        vat_rate=0.2
-    )
-
-def parse_pattern_based_line_item(row: List[str]) -> Dict[str, Any]:
-    """
-    Parse line item using pattern matching.
-    
-    Args:
-        row: List of cell strings
-        
-    Returns:
-        Line item dictionary
-    """
-    text = ' '.join(row)
-    
-    # Pattern: "Item Name X x £Y.YY £Z.ZZ"
-    pattern1 = r'^(.+?)\s+(\d+(?:\.\d+)?)\s*x\s*[£$€]?\s*(\d+(?:,\d+)*(?:\.\d{2})?)\s*[£$€]?\s*(\d+(?:,\d+)*(?:\.\d{2})?)'
-    match = re.search(pattern1, text)
-    if match:
-        description = match.group(1).strip()
-        qty = float(match.group(2))
-        unit_price = float(match.group(3).replace(',', ''))
-        line_total = float(match.group(4).replace(',', ''))
-        
-        return create_line_item_dict(
-            item=description,
-            quantity=qty,
-            unit_price_excl_vat=unit_price,
-            line_total_excl_vat=line_total,
-            vat_rate=0.2
-        )
-    
-    # Pattern: "Item Name £Y.YY each X units £Z.ZZ"
-    pattern2 = r'^(.+?)\s+[£$€]?\s*(\d+(?:,\d+)*(?:\.\d{2})?)\s+each\s+(\d+(?:\.\d+)?)\s+units\s+[£$€]?\s*(\d+(?:,\d+)*(?:\.\d{2})?)'
-    match = re.search(pattern2, text)
-    if match:
-        description = match.group(1).strip()
-        unit_price = float(match.group(2).replace(',', ''))
-        qty = float(match.group(3))
-        line_total = float(match.group(4).replace(',', ''))
-        
-        return create_line_item_dict(
-            item=description,
-            quantity=qty,
-            unit_price_excl_vat=unit_price,
-            line_total_excl_vat=line_total,
-            vat_rate=0.2
-        )
-    
-    return None
-
-def parse_enhanced_tabular_line_item(row: List[str]) -> Dict[str, Any]:
-    """
-    Enhanced parsing for common invoice line item format:
-    QTY CODE ITEM UNIT PRICE DISCOUNT VAT LINE PRICE
-    
-    Args:
-        row: List of cell strings
-        
-    Returns:
-        Line item dictionary
-    """
-    if len(row) < 3:
-        return None
-    
-    # Clean and normalize row data
-    cleaned_row = [cell.strip() for cell in row if cell.strip()]
-    if len(cleaned_row) < 3:
-        return None
-    
-    # Try to identify components based on patterns
-    qty = 1.0
-    code = ""
-    item = ""
-    unit_price = 0.0
-    discount = 0.0
-    vat_rate = 20.0
-    line_total = 0.0
-    
-    # ✅ Enhanced pattern matching for invoice format
-    for i, cell in enumerate(cleaned_row):
-        cell_lower = cell.lower()
-        
-        # Quantity detection (first column often)
-        if i == 0 and re.match(r'^\d+(?:\.\d+)?$', cell):
-            qty = float(cell)
-            continue
-        
-        # Code detection (alphanumeric, often second column)
-        if (i == 1 or i == 0) and re.match(r'^[A-Z0-9\-_]+$', cell):
-            code = cell
-            continue
-        
-        # Price detection patterns
-        price_match = re.search(r'[£$€]?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)', cell)
-        if price_match:
-            price_str = price_match.group(1).replace(',', '')
-            price_value = float(price_str)
-            
-            # Determine which price this is based on position and context
-            if 'unit' in cell_lower or 'price' in cell_lower:
-                unit_price = price_value
-            elif 'line' in cell_lower or 'total' in cell_lower:
-                line_total = price_value
-            elif 'discount' in cell_lower:
-                discount = price_value
-            elif 'vat' in cell_lower:
-                # This might be VAT amount, not rate
-                continue
-            else:
-                # Default to line total if no other price found
-                if line_total == 0.0:
-                    line_total = price_value
-                elif unit_price == 0.0:
-                    unit_price = price_value
-        
-        # VAT rate detection
-        vat_match = re.search(r'(\d+(?:\.\d+)?)\s*%', cell)
-        if vat_match and 'vat' in cell_lower:
-            vat_rate = float(vat_match.group(1))
-            continue
-        
-        # Item description (longest text, not a price or code)
-        if (len(cell) > 3 and 
-            not re.match(r'^\d+(?:\.\d+)?$', cell) and
-            not re.match(r'^[A-Z0-9\-_]+$', cell) and
-            not re.search(r'[£$€]?\s*\d+', cell) and
-            not item):  # Only take first long text as item
-            item = cell
-    
-    # ✅ Fallback item detection if not found
-    if not item:
-        # Find the longest text that's not a price or code
-        for cell in cleaned_row:
-            if (len(cell) > 3 and 
-                not re.match(r'^\d+(?:\.\d+)?$', cell) and
-                not re.match(r'^[A-Z0-9\-_]+$', cell) and
-                not re.search(r'[£$€]?\s*\d+', cell)):
-                item = cell
-                break
-    
-    # ✅ Calculate missing values
-    if unit_price == 0.0 and line_total > 0.0 and qty > 0.0:
-        unit_price = line_total / qty
-    
-    if line_total == 0.0 and unit_price > 0.0 and qty > 0.0:
-        line_total = unit_price * qty
-    
-    # ✅ Create line item if we have essential data
-    if item and (unit_price > 0.0 or line_total > 0.0):
-        return create_enhanced_line_item_dict(
-            item=item,
-            code=code,
-            quantity=qty,
-            unit_price_excl_vat=unit_price,
-            line_total_excl_vat=line_total,
-            discount=discount,
-            vat_rate=vat_rate
-        )
-    
-    return None
-
-def create_line_item_dict(item: str, quantity: float, unit_price_excl_vat: float, 
-                         line_total_excl_vat: float, vat_rate: float) -> Dict[str, Any]:
-    """
-    Create a standardized line item dictionary.
-    
-    Args:
-        item: Item description
-        quantity: Quantity
-        unit_price_excl_vat: Unit price excluding VAT
-        line_total_excl_vat: Line total excluding VAT
-        vat_rate: VAT rate
-        
-    Returns:
-        Line item dictionary
-    """
-    # Calculate VAT-inclusive values
-    unit_price_incl_vat = unit_price_excl_vat * (1 + vat_rate)
-    line_total_incl_vat = line_total_excl_vat * (1 + vat_rate)
-    
-    # Calculate price per unit (VAT-inclusive)
-    price_per_unit = unit_price_incl_vat
-    
-    return {
-        "item": item,
-        "description": item,  # Backward compatibility
-        "quantity": quantity,
-        "unit_price": unit_price_excl_vat,  # Backward compatibility
-        "total_price": line_total_excl_vat,  # Backward compatibility
-        "unit_price_excl_vat": round(unit_price_excl_vat, 2),
-        "unit_price_incl_vat": round(unit_price_incl_vat, 2),
-        "line_total_excl_vat": round(line_total_excl_vat, 2),
-        "line_total_incl_vat": round(line_total_incl_vat, 2),
-        "price_excl_vat": round(unit_price_excl_vat, 2),
-        "price_incl_vat": round(unit_price_incl_vat, 2),
-        "price_per_unit": round(price_per_unit, 2),
-        "vat_rate": round(vat_rate, 3),
-        "line_position": 0,
-        "flagged": False
-    }
-
-def create_enhanced_line_item_dict(item: str, code: str, quantity: float, unit_price_excl_vat: float, 
-                                  line_total_excl_vat: float, discount: float, vat_rate: float) -> Dict[str, Any]:
-    """
-    Create a standardized line item dictionary for enhanced parsing.
-    
-    Args:
-        item: Item description
-        code: Item code (e.g., SKU)
-        quantity: Quantity
-        unit_price_excl_vat: Unit price excluding VAT
-        line_total_excl_vat: Line total excluding VAT
-        discount: Discount amount
-        vat_rate: VAT rate
-        
-    Returns:
-        Line item dictionary
-    """
-    # Calculate VAT-inclusive values
-    unit_price_incl_vat = unit_price_excl_vat * (1 + vat_rate / 100)
-    line_total_incl_vat = line_total_excl_vat * (1 + vat_rate / 100)
-    
-    # Calculate price per unit (VAT-inclusive)
-    price_per_unit = unit_price_incl_vat
-    
-    return {
-        "item": item,
-        "code": code,
-        "quantity": quantity,
-        "unit_price_excl_vat": round(unit_price_excl_vat, 2),
-        "unit_price_incl_vat": round(unit_price_incl_vat, 2),
-        "line_total_excl_vat": round(line_total_excl_vat, 2),
-        "line_total_incl_vat": round(line_total_incl_vat, 2),
-        "discount": round(discount, 2),
-        "vat_rate": round(vat_rate, 1),
-        "price_per_unit": round(price_per_unit, 2),
-        "line_position": 0,
-        "flagged": False
-    }
-
-def calculate_confidence(parsed: Dict) -> float:
-    """
-    Calculate confidence score based on parsed data quality.
-    
-    Args:
-        parsed: Parsed invoice data
-        
-    Returns:
-        Confidence score (0-100)
-    """
-    confidence = 0.0
-    
-    # Base confidence from metadata completeness
-    if parsed.get('supplier_name') and parsed.get('supplier_name') != 'Unknown':
-        confidence += 20.0
-    
-    if parsed.get('invoice_number') and parsed.get('invoice_number') != 'Unknown':
-        confidence += 15.0
-    
-    if parsed.get('invoice_date'):
-        confidence += 10.0
-    
-    if parsed.get('total_amount', 0) > 0:
-        confidence += 15.0
-    
-    if parsed.get('subtotal', 0) > 0:
-        confidence += 10.0
-    
-    if parsed.get('vat', 0) > 0:
-        confidence += 10.0
-    
-    # Line items bonus
-    line_items = parsed.get('line_items', [])
-    if line_items:
-        confidence += min(len(line_items) * 5.0, 20.0)  # Max 20 points for line items
-    
-    # ✅ Ensure confidence is 0-100 scale
-    confidence = min(max(confidence, 0.0), 100.0)
-    
-    return round(confidence, 1) 
-
-def parse_invoice_text(text: str) -> Dict:
-    """
-    Parse invoice text and extract structured data with enhanced fallback handling.
-    
-    Args:
-        text: Raw OCR text from invoice
-        
-    Returns:
-        Dictionary with parsed invoice data
+        ParsedInvoice object with extracted data
     """
     try:
-        # Initialize with safe defaults
-        parsed = {
-            'supplier_name': 'Unknown',
-            'invoice_number': 'Unknown',
-            'invoice_date': 'Unknown',
-            'total_amount': 0.0,
-            'subtotal': 0.0,
-            'vat': 0.0,
-            'vat_rate': 20.0,
-            'total_incl_vat': 0.0,
-            'line_items': [],  # Always return empty list, never None
-            'currency': 'GBP'
-        }
+        logger.info("🔄 Starting invoice parsing")
         
-        if not text or not text.strip():
-            logger.warning("Empty text provided to parse_invoice_text")
-            return parsed
+        # Split text into lines for analysis
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        # Extract metadata using safe methods
-        try:
-            metadata = extract_invoice_metadata(text)
-            if metadata:
-                # Use .get() with defaults for all fields
-                parsed['supplier_name'] = metadata.get('supplier_name', 'Unknown')
-                parsed['invoice_number'] = metadata.get('invoice_number', 'Unknown')
-                parsed['invoice_date'] = metadata.get('invoice_date', 'Unknown')
-                parsed['total_amount'] = float(metadata.get('total_amount', 0))
-                parsed['subtotal'] = float(metadata.get('subtotal', 0))
-                parsed['vat'] = float(metadata.get('vat', 0))
-                parsed['vat_rate'] = float(metadata.get('vat_rate', 20.0))
-                parsed['total_incl_vat'] = float(metadata.get('total_incl_vat', 0))
-                parsed['currency'] = metadata.get('currency', 'GBP')
-        except Exception as metadata_error:
-            logger.warning(f"Metadata extraction failed: {metadata_error}")
+        # Extract basic fields using traditional parsing
+        invoice_number = extract_invoice_number(lines)
+        date = extract_invoice_date(lines)
+        supplier = extract_supplier_name(lines)
         
-        # Extract line items with safe fallback
-        try:
-            line_items = extract_line_items(text)
-            if line_items and isinstance(line_items, list):
-                parsed['line_items'] = line_items
-            else:
-                parsed['line_items'] = []  # Ensure it's always a list
-                logger.warning("Line items extraction returned invalid data, using empty list")
-        except Exception as line_items_error:
-            logger.warning(f"Line items extraction failed: {line_items_error}")
-            parsed['line_items'] = []  # Ensure it's always a list
+        # Extract totals
+        net_total, vat_total, gross_total = extract_totals(lines)
         
-        # Calculate totals if missing
-        if parsed['total_incl_vat'] == 0 and parsed['subtotal'] > 0 and parsed['vat'] > 0:
-            parsed['total_incl_vat'] = parsed['subtotal'] + parsed['vat']
-            logger.debug(f"Calculated total_incl_vat: {parsed['total_incl_vat']}")
+        # Extract line items
+        line_items = extract_line_items(lines)
         
-        if parsed['total_amount'] == 0 and parsed['total_incl_vat'] > 0:
-            parsed['total_amount'] = parsed['total_incl_vat']
-            logger.debug(f"Set total_amount from total_incl_vat: {parsed['total_amount']}")
+        # Determine currency
+        currency = extract_currency(lines)
         
-        if parsed['vat'] == 0 and parsed['subtotal'] > 0 and parsed['vat_rate'] > 0:
-            parsed['vat'] = parsed['subtotal'] * (parsed['vat_rate'] / 100)
-            logger.debug(f"Calculated VAT: {parsed['vat']}")
+        # Calculate VAT rate if possible
+        vat_rate = calculate_vat_rate(net_total, vat_total)
         
-        logger.debug(f"Parsed metadata: {parsed}")
-        logger.debug(f"Line items: {parsed.get('line_items', [])}")
+        # Enhanced field extraction using field_extractor if OCR results are available
+        if ocr_results:
+            logger.info("🔍 Using enhanced field extraction with OCR results")
+            try:
+                field_extraction_result = extract_invoice_fields(ocr_results)
+                
+                # Use field extractor results to validate and improve our parsing
+                field_supplier = field_extraction_result.get('supplier_name', 'Unknown')
+                field_invoice_number = field_extraction_result.get('invoice_number', 'Unknown')
+                field_date = field_extraction_result.get('invoice_date', 'Unknown')
+                field_net = field_extraction_result.get('net_amount', 'Unknown')
+                field_vat = field_extraction_result.get('vat_amount', 'Unknown')
+                field_total = field_extraction_result.get('total_amount', 'Unknown')
+                field_currency = field_extraction_result.get('currency', 'Unknown')
+                
+                # Confidence scores from field extractor
+                confidence_scores = field_extraction_result.get('confidence_scores', {})
+                
+                # Use field extractor results if they have higher confidence or our parsing failed
+                if field_supplier != 'Unknown' and supplier == 'Unknown Supplier':
+                    supplier = field_supplier
+                    logger.info(f"✅ Enhanced supplier extraction: {supplier}")
+                
+                if field_invoice_number != 'Unknown' and invoice_number == 'Unknown':
+                    invoice_number = field_invoice_number
+                    logger.info(f"✅ Enhanced invoice number extraction: {invoice_number}")
+                
+                if field_date != 'Unknown' and date == 'Unknown':
+                    date = field_date
+                    logger.info(f"✅ Enhanced date extraction: {date}")
+                
+                # Use field extractor monetary values if they're valid numbers
+                if isinstance(field_net, (int, float)) and net_total == 0.0:
+                    net_total = float(field_net)
+                    logger.info(f"✅ Enhanced net total extraction: £{net_total:.2f}")
+                
+                if isinstance(field_vat, (int, float)) and vat_total == 0.0:
+                    vat_total = float(field_vat)
+                    logger.info(f"✅ Enhanced VAT total extraction: £{vat_total:.2f}")
+                
+                if isinstance(field_total, (int, float)) and gross_total == 0.0:
+                    gross_total = float(field_total)
+                    logger.info(f"✅ Enhanced gross total extraction: £{gross_total:.2f}")
+                
+                if field_currency != 'Unknown' and currency == 'GBP':
+                    currency = field_currency
+                    logger.info(f"✅ Enhanced currency extraction: {currency}")
+                
+                # Check for warnings from field extractor
+                warnings = field_extraction_result.get('warnings', [])
+                if warnings:
+                    logger.warning(f"⚠️ Field extraction warnings: {warnings}")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Enhanced field extraction failed: {e}, using traditional parsing")
         
-        return parsed
+        # Calculate parsing confidence
+        parsing_confidence = calculate_parsing_confidence(
+            invoice_number, date, supplier, net_total, gross_total, line_items
+        )
+        
+        result = ParsedInvoice(
+            invoice_number=invoice_number,
+            date=date,
+            supplier=supplier,
+            net_total=net_total,
+            vat_total=vat_total,
+            gross_total=gross_total,
+            line_items=line_items,
+            confidence=parsing_confidence,
+            currency=currency,
+            vat_rate=vat_rate
+        )
+        
+        logger.info(f"✅ Invoice parsing completed: {supplier}, {invoice_number}, £{gross_total:.2f}")
+        return result
         
     except Exception as e:
-        logger.error(f"❌ parse_invoice_text failed: {e}")
-        # Return safe fallback
-        return {
-            'supplier_name': 'Unknown',
-            'invoice_number': 'Unknown',
-            'invoice_date': 'Unknown',
-            'total_amount': 0.0,
-            'subtotal': 0.0,
-            'vat': 0.0,
-            'vat_rate': 20.0,
-            'total_incl_vat': 0.0,
-            'line_items': [],  # Always empty list, never None
-            'currency': 'GBP'
-        } 
+        logger.error(f"❌ Invoice parsing failed: {e}")
+        # Return default invoice with error information
+        return ParsedInvoice(
+            invoice_number="Unknown",
+            date="Unknown",
+            supplier="Unknown Supplier",
+            net_total=0.0,
+            vat_total=0.0,
+            gross_total=0.0,
+            line_items=[],
+            confidence=0.0
+        )
 
-def extract_line_items_from_text(text: str) -> List[Dict[str, Any]]:
+def extract_invoice_number(lines: List[str]) -> str:
     """
-    Extract line items from raw OCR text using pattern matching.
+    Extract invoice number using regex patterns
     
     Args:
-        text: Raw OCR text from invoice
+        lines: List of text lines
         
     Returns:
-        List of line item dictionaries
+        Extracted invoice number or "Unknown"
+    """
+    # Invoice number patterns
+    patterns = [
+        r'invoice\s*#?\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+        r'invoice\s*number\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+        r'inv\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+        r'bill\s*#?\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+        r'reference\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+        r'ref\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+        r'order\s*#?\s*[:.]?\s*([A-Za-z0-9\-_/]+)',
+    ]
+    
+    for line in lines:
+        for pattern in patterns:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                invoice_num = match.group(1).strip()
+                if invoice_num and len(invoice_num) > 2:
+                    logger.debug(f"📄 Found invoice number: {invoice_num}")
+                    return invoice_num
+    
+    logger.warning("⚠️ No invoice number found")
+    return "Unknown"
+
+def extract_invoice_date(lines: List[str]) -> str:
+    """
+    Extract invoice date using multiple format patterns
+    
+    Args:
+        lines: List of text lines
+        
+    Returns:
+        Extracted date in YYYY-MM-DD format or "Unknown"
+    """
+    # Date patterns
+    date_patterns = [
+        # DD/MM/YYYY or DD-MM-YYYY
+        r'(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})',
+        # MM/DD/YYYY or MM-DD-YYYY
+        r'(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})',
+        # YYYY-MM-DD
+        r'(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})',
+        # DD Month YYYY
+        r'(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+(\d{4})',
+        # Month DD, YYYY
+        r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+(\d{1,2}),?\s+(\d{4})',
+    ]
+    
+    month_map = {
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+    }
+    
+    for line in lines:
+        # Look for date keywords
+        if any(keyword in line.lower() for keyword in ['date', 'issued', 'created', 'invoice date']):
+            for pattern in date_patterns:
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    try:
+                        groups = match.groups()
+                        if len(groups) == 3:
+                            if groups[0].isdigit() and len(groups[0]) == 4:
+                                # YYYY-MM-DD format
+                                year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+                            elif groups[2].isdigit() and len(groups[2]) == 4:
+                                # DD/MM/YYYY or MM/DD/YYYY format
+                                if int(groups[0]) > 12:
+                                    # DD/MM/YYYY
+                                    day, month, year = int(groups[0]), int(groups[1]), int(groups[2])
+                                else:
+                                    # MM/DD/YYYY
+                                    month, day, year = int(groups[0]), int(groups[1]), int(groups[2])
+                            else:
+                                # Month DD, YYYY format
+                                month_name, day, year = groups[0], int(groups[1]), int(groups[2])
+                                month = month_map.get(month_name.lower()[:3], 1)
+                            
+                            # Validate date
+                            if 1 <= month <= 12 and 1 <= day <= 31 and 1900 <= year <= 2100:
+                                date_str = f"{year:04d}-{month:02d}-{day:02d}"
+                                logger.debug(f"📅 Found invoice date: {date_str}")
+                                return date_str
+                    except (ValueError, IndexError):
+                        continue
+    
+    logger.warning("⚠️ No invoice date found")
+    return "Unknown"
+
+def extract_supplier_name(lines: List[str]) -> str:
+    """
+    Extract supplier name from top-of-page text
+    
+    Args:
+        lines: List of text lines
+        
+    Returns:
+        Extracted supplier name or "Unknown Supplier"
+    """
+    # Look for supplier in first few lines (top of page)
+    top_lines = lines[:10]
+    
+    # Common supplier keywords
+    supplier_keywords = ['ltd', 'limited', 'plc', 'company', 'co', 'corp', 'corporation']
+    
+    for line in top_lines:
+        # Skip lines that are likely not supplier names
+        if any(skip in line.lower() for skip in ['invoice', 'bill', 'total', 'amount', 'date', 'page']):
+            continue
+        
+        # Check if line contains supplier keywords
+        if any(keyword in line.lower() for keyword in supplier_keywords):
+            # Clean up the line
+            supplier = re.sub(r'[^\w\s\-&]', '', line).strip()
+            if len(supplier) > 3:
+                logger.debug(f"🏢 Found supplier: {supplier}")
+                return supplier
+        
+        # Check for company-like patterns
+        if re.search(r'[A-Z][a-z]+\s+(Ltd|Limited|PLC|Company|Corp)', line):
+            supplier = re.sub(r'[^\w\s\-&]', '', line).strip()
+            if len(supplier) > 3:
+                logger.debug(f"🏢 Found supplier: {supplier}")
+                return supplier
+    
+    # Fallback: look for any capitalized line that might be a company name
+    for line in top_lines[:5]:
+        if len(line) > 5 and line[0].isupper() and not any(skip in line.lower() for skip in ['invoice', 'bill', 'total']):
+            supplier = re.sub(r'[^\w\s\-&]', '', line).strip()
+            if len(supplier) > 3:
+                logger.debug(f"🏢 Found supplier (fallback): {supplier}")
+                return supplier
+    
+    logger.warning("⚠️ No supplier name found")
+    return "Unknown Supplier"
+
+def extract_totals(lines: List[str]) -> Tuple[float, float, float]:
+    """
+    Extract net, VAT, and gross totals from invoice
+    
+    Args:
+        lines: List of text lines
+        
+    Returns:
+        Tuple of (net_total, vat_total, gross_total)
+    """
+    net_total = 0.0
+    vat_total = 0.0
+    gross_total = 0.0
+    
+    # Find all monetary values
+    money_values = []
+    for line in lines:
+        # Look for currency amounts
+        amounts = re.findall(r'[£$€]?\s*(\d+[,\d]*\.?\d*)', line)
+        for amount in amounts:
+            try:
+                # Clean up amount string
+                clean_amount = amount.replace(',', '')
+                value = float(clean_amount)
+                money_values.append((value, line.lower()))
+            except ValueError:
+                continue
+    
+    if not money_values:
+        return net_total, vat_total, gross_total
+    
+    # Sort by value (largest first)
+    money_values.sort(key=lambda x: x[0], reverse=True)
+    
+    # Extract totals based on context
+    for value, line in money_values:
+        line_lower = line.lower()
+        
+        # Gross total (usually the largest amount)
+        if any(keyword in line_lower for keyword in ['total', 'amount due', 'grand total', 'sum']):
+            if gross_total == 0.0:
+                gross_total = value
+                logger.debug(f"💰 Found gross total: £{value:.2f}")
+        
+        # VAT total
+        elif any(keyword in line_lower for keyword in ['vat', 'tax', 'gst']):
+            if vat_total == 0.0:
+                vat_total = value
+                logger.debug(f"💰 Found VAT total: £{value:.2f}")
+        
+        # Net total
+        elif any(keyword in line_lower for keyword in ['net', 'subtotal', 'amount']):
+            if net_total == 0.0:
+                net_total = value
+                logger.debug(f"💰 Found net total: £{value:.2f}")
+    
+    # If we found gross but not net, estimate net
+    if gross_total > 0 and net_total == 0:
+        net_total = gross_total - vat_total
+    
+    # If we found net but not gross, estimate gross
+    if net_total > 0 and gross_total == 0:
+        gross_total = net_total + vat_total
+    
+    # If we only found one total, use it as gross
+    if gross_total == 0 and net_total == 0 and vat_total == 0 and money_values:
+        gross_total = money_values[0][0]
+        logger.debug(f"💰 Using largest amount as gross total: £{gross_total:.2f}")
+    
+    return net_total, vat_total, gross_total
+
+def extract_line_items(lines: List[str]) -> List[LineItem]:
+    """
+    Extract line items from invoice text
+    
+    Args:
+        lines: List of text lines
+        
+    Returns:
+        List of LineItem objects
     """
     line_items = []
     
-    if not text:
-        return line_items
+    # Look for line item patterns
+    for i, line in enumerate(lines):
+        # Skip header lines
+        if i < 5:  # Skip first few lines (likely headers)
+            continue
+        
+        # Look for line item patterns
+        line_item = extract_single_line_item(line)
+        if line_item:
+            line_items.append(line_item)
     
-    # Common line item patterns
-    line_patterns = [
-        # Pattern: "2 x £108.50 Camden Hells 30L"
-        r'(\d+)\s*x\s*[£$€]?(\d+\.?\d*)\s+([A-Za-z\s\-]+)',
-        # Pattern: "Camden Hells 30L 2 £108.50"
-        r'([A-Za-z\s\-]+)\s+(\d+)\s+[£$€]?(\d+\.?\d*)',
-        # Pattern: "Description Qty Price Total"
-        r'([A-Za-z\s\-]+)\s+(\d+)\s+[£$€]?(\d+\.?\d*)\s+[£$€]?(\d+\.?\d*)',
-        # Pattern: "Item - Quantity x Price"
-        r'([A-Za-z\s\-]+)\s*-\s*(\d+)\s*x\s*[£$€]?(\d+\.?\d*)',
+    logger.debug(f"📋 Found {len(line_items)} line items")
+    return line_items
+
+def extract_single_line_item(line: str) -> Optional[LineItem]:
+    """
+    Extract a single line item from a text line
+    
+    Args:
+        line: Text line to parse
+        
+    Returns:
+        LineItem object or None if not a line item
+    """
+    # Skip lines that are likely not line items
+    if any(skip in line.lower() for skip in ['total', 'subtotal', 'vat', 'tax', 'invoice', 'page']):
+        return None
+    
+    # Look for quantity patterns
+    quantity_patterns = [
+        r'(\d+)\s*x\s*[£$€]?\s*(\d+\.?\d*)',  # "2 x £10.50"
+        r'(\d+)\s*@\s*[£$€]?\s*(\d+\.?\d*)',  # "2 @ £10.50"
+        r'qty\s*:\s*(\d+)',                     # "Qty: 2"
+        r'quantity\s*:\s*(\d+)',                # "Quantity: 2"
     ]
     
-    lines = text.split('\n')
+    quantity = 1.0
+    unit_price = 0.0
+    total_price = 0.0
+    description = ""
     
+    # Try to extract quantity and unit price
+    for pattern in quantity_patterns:
+        match = re.search(pattern, line, re.IGNORECASE)
+        if match:
+            try:
+                quantity = float(match.group(1))
+                if len(match.groups()) > 1:
+                    unit_price = float(match.group(2))
+                break
+            except ValueError:
+                continue
+    
+    # Look for total price
+    price_match = re.search(r'[£$€]?\s*(\d+\.?\d*)', line)
+    if price_match:
+        try:
+            total_price = float(price_match.group(1))
+        except ValueError:
+            pass
+    
+    # Extract description (everything except quantities and prices)
+    description = re.sub(r'\d+\s*x\s*[£$€]?\s*\d+\.?\d*', '', line)
+    description = re.sub(r'\d+\s*@\s*[£$€]?\s*\d+\.?\d*', '', description)
+    description = re.sub(r'qty\s*:\s*\d+', '', description)
+    description = re.sub(r'quantity\s*:\s*\d+', '', description)
+    description = re.sub(r'[£$€]?\s*\d+\.?\d*', '', description)
+    description = description.strip()
+    
+    # Only return if we have a meaningful description
+    if description and len(description) > 3:
+        # Calculate unit price if not found
+        if unit_price == 0.0 and total_price > 0 and quantity > 0:
+            unit_price = total_price / quantity
+        
+        # Calculate total price if not found
+        if total_price == 0.0 and unit_price > 0 and quantity > 0:
+            total_price = unit_price * quantity
+        
+        return LineItem(
+            description=description,
+            quantity=quantity,
+            unit_price=unit_price,
+            total_price=total_price,
+            confidence=0.8  # Default confidence for line items
+        )
+    
+    return None
+
+def extract_currency(lines: List[str]) -> str:
+    """
+    Extract currency from invoice text
+    
+    Args:
+        lines: List of text lines
+        
+    Returns:
+        Currency code (GBP, USD, EUR, etc.)
+    """
     for line in lines:
-        line = line.strip()
-        if not line or len(line) < 5:
-            continue
-            
-        # Skip header lines
-        if any(header in line.lower() for header in ['description', 'item', 'qty', 'quantity', 'price', 'total', 'amount']):
-            continue
-            
-        # Try each pattern
-        for pattern in line_patterns:
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                try:
-                    if len(match.groups()) == 3:
-                        # Pattern 1 or 2: quantity, price, description
-                        quantity = float(match.group(1))
-                        price = float(match.group(2))
-                        description = match.group(3).strip()
-                        total = quantity * price
-                    elif len(match.groups()) == 4:
-                        # Pattern 3: description, quantity, price, total
-                        description = match.group(1).strip()
-                        quantity = float(match.group(2))
-                        price = float(match.group(3))
-                        total = float(match.group(4))
-                    else:
-                        continue
-                    
-                    # Validate the line item
-                    if quantity > 0 and price > 0 and description and len(description) > 2:
-                        line_item = {
-                            'description': description,
-                            'quantity': quantity,
-                            'unit_price': price,
-                            'total_price': total,
-                            'line_total_excl_vat': total,
-                            'vat_rate': 20.0
-                        }
-                        line_items.append(line_item)
-                        logger.debug(f"✅ Extracted line item: {description} - {quantity} x £{price}")
-                        break
-                        
-                except (ValueError, IndexError) as e:
-                    logger.debug(f"⚠️ Failed to parse line item: {line} - {e}")
-                    continue
+        if '£' in line:
+            return "GBP"
+        elif '$' in line:
+            return "USD"
+        elif '€' in line:
+            return "EUR"
     
-    logger.info(f"✅ Extracted {len(line_items)} line items from text")
-    return line_items 
+    return "GBP"  # Default to GBP
+
+def calculate_vat_rate(net_total: float, vat_total: float) -> Optional[float]:
+    """
+    Calculate VAT rate from net and VAT totals
+    
+    Args:
+        net_total: Net total amount
+        vat_total: VAT total amount
+        
+    Returns:
+        VAT rate as percentage or None if cannot calculate
+    """
+    if net_total > 0 and vat_total > 0:
+        try:
+            vat_rate = (vat_total / net_total) * 100
+            # Round to common VAT rates
+            common_rates = [0, 5, 20, 21, 22, 23]
+            closest_rate = min(common_rates, key=lambda x: abs(x - vat_rate))
+            if abs(closest_rate - vat_rate) < 2:  # Within 2% tolerance
+                return closest_rate
+        except (ZeroDivisionError, ValueError):
+            pass
+    
+    return None
+
+def calculate_parsing_confidence(invoice_number: str, date: str, supplier: str, 
+                               net_total: float, gross_total: float, 
+                               line_items: List[LineItem]) -> float:
+    """
+    Calculate confidence score for parsed invoice data
+    
+    Args:
+        invoice_number: Extracted invoice number
+        date: Extracted date
+        supplier: Extracted supplier name
+        net_total: Net total amount
+        gross_total: Gross total amount
+        line_items: List of line items
+        
+    Returns:
+        Confidence score (0.0 to 1.0)
+    """
+    confidence = 0.0
+    total_fields = 0
+    
+    # Invoice number confidence
+    if invoice_number != "Unknown":
+        confidence += 0.2
+    total_fields += 1
+    
+    # Date confidence
+    if date != "Unknown":
+        confidence += 0.2
+    total_fields += 1
+    
+    # Supplier confidence
+    if supplier != "Unknown Supplier":
+        confidence += 0.2
+    total_fields += 1
+    
+    # Totals confidence
+    if gross_total > 0:
+        confidence += 0.2
+    total_fields += 1
+    
+    # Line items confidence
+    if line_items:
+        confidence += 0.2
+    total_fields += 1
+    
+    # Normalize to 0-1 scale
+    if total_fields > 0:
+        confidence = confidence / total_fields
+    
+    return round(confidence, 3) 

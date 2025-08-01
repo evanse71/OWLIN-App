@@ -7,7 +7,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from .pairing import match_documents
 from .ocr import parse_with_ocr
-from backend.matching import score_invoice_delivery_match as score_match
+from backend.matching import match_documents as score_match
 import sqlite3
 
 router = APIRouter()
