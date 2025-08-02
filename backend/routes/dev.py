@@ -10,9 +10,11 @@ async def clear_all_documents():
     Development-only endpoint to clear all document records from the database.
     This should only be accessible in development mode.
     """
-    # ✅ Only allow in development mode
-    if os.getenv('NODE_ENV') != 'development' and os.getenv('ENVIRONMENT') != 'development':
-        raise HTTPException(status_code=403, detail="This endpoint is only available in development mode")
+    # ✅ Allow in development mode or when explicitly enabled
+    if (os.getenv('NODE_ENV') != 'development' and 
+        os.getenv('ENVIRONMENT') != 'development' and 
+        os.getenv('ENABLE_DEV_ROUTES') != 'true'):
+        raise HTTPException(status_code=403, detail="This endpoint is only available in development mode. Set ENABLE_DEV_ROUTES=true to enable.")
     
     try:
         conn = get_db_connection()

@@ -199,11 +199,10 @@ def get_all_invoices():
             invoice_date,
             supplier_name,
             total_amount,
-            status,
-            confidence,
-            upload_timestamp,
-            ocr_text,
-            parent_pdf_filename,
+            processing_status,
+            ocr_confidence,
+            uploaded_at,
+            file_path,
             page_numbers,
             line_items,
             subtotal,
@@ -211,7 +210,7 @@ def get_all_invoices():
             vat_rate,
             total_incl_vat
         FROM invoices
-        ORDER BY upload_timestamp DESC
+        ORDER BY uploaded_at DESC
     """)
     
     rows = cursor.fetchall()
@@ -221,18 +220,18 @@ def get_all_invoices():
     for row in rows:
         # Parse page_numbers string back to list
         page_numbers = []
-        if row[10]:  # page_numbers
+        if row[9]:  # page_numbers
             try:
-                page_numbers = [int(x) for x in row[10].split(",")]
+                page_numbers = [int(x) for x in row[9].split(",")]
             except (ValueError, AttributeError):
                 page_numbers = []
         
         # Parse line_items JSON string back to list
         line_items = []
-        if row[11]:  # line_items
+        if row[10]:  # line_items
             try:
                 import json
-                line_items = json.loads(row[11])
+                line_items = json.loads(row[10])
             except (json.JSONDecodeError, TypeError):
                 line_items = []
         
@@ -242,17 +241,16 @@ def get_all_invoices():
             "invoice_date": row[2],
             "supplier_name": row[3],
             "total_amount": row[4],
-            "status": row[5],
+            "status": row[5],  # Map processing_status to status
             "confidence": row[6],
             "upload_timestamp": row[7],
-            "ocr_text": row[8],
-            "parent_pdf_filename": row[9],
+            "parent_pdf_filename": row[8],
             "page_numbers": page_numbers,
             "line_items": line_items,
-            "subtotal": row[12],
-            "vat": row[13],
-            "vat_rate": row[14],
-            "total_incl_vat": row[15]
+            "subtotal": row[11],
+            "vat": row[12],
+            "vat_rate": row[13],
+            "total_incl_vat": row[14]
         })
     
     return invoices
@@ -265,17 +263,16 @@ def get_all_delivery_notes():
     cursor.execute("""
         SELECT 
             id,
-            delivery_note_number,
+            delivery_number,
             delivery_date,
             supplier_name,
-            total_amount,
-            status,
-            confidence,
-            upload_timestamp,
-            ocr_text,
-            parent_pdf_filename
+            total_items,
+            processing_status,
+            ocr_confidence,
+            uploaded_at,
+            file_path
         FROM delivery_notes
-        ORDER BY upload_timestamp DESC
+        ORDER BY uploaded_at DESC
     """)
     
     rows = cursor.fetchall()
@@ -288,12 +285,11 @@ def get_all_delivery_notes():
             "delivery_note_number": row[1],
             "delivery_date": row[2],
             "supplier_name": row[3],
-            "total_amount": row[4],
-            "status": row[5],
+            "total_amount": row[4],  # Map total_items to total_amount for consistency
+            "status": row[5],  # Map processing_status to status
             "confidence": row[6],
             "upload_timestamp": row[7],
-            "ocr_text": row[8],
-            "parent_pdf_filename": row[9]
+            "parent_pdf_filename": row[8]
         })
     
     return delivery_notes
