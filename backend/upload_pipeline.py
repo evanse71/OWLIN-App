@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 CONFIDENCE_RERUN_THRESHOLD = 0.70  # Trigger pre-processing if below this
 CONFIDENCE_REVIEW_THRESHOLD = 0.65  # Flag for manual review if below this
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB limit
+SKIP_SECOND_OCR_PASS = True  # Skip preprocessed OCR for faster processing
 
 # Global PaddleOCR model (lazy initialization)
 _ocr_model = None
@@ -135,8 +136,8 @@ def convert_pdf_to_images(file_path: str) -> List[Image.Image]:
             # Get page
             page = pdf.get_page(page_num)
             
-            # Render page to image (300 DPI for high quality)
-            bitmap = page.render(scale=300/72)  # 72 DPI is default
+            # Render page to image (reduced DPI to speed up processing)
+            bitmap = page.render(scale=150/72)  # 150 DPI instead of 300 DPI for faster processing
             pil_image = bitmap.to_pil()
             
             images.append(pil_image)
@@ -202,7 +203,16 @@ def run_invoice_ocr(image: Image.Image, page_number: int = 1) -> List[OCRResult]
             except Exception as e:
                 logger.warning(f"⚠️ PaddleOCR failed: {e}")
         
-        # Second pass: Pre-processed image
+        # Second pass: Pre-processed image (skip if configured)
+        if SKIP_SECOND_OCR_PASS:
+            logger.info("⏭️ Skipping second OCR pass for faster processing")
+            if raw_results:
+                logger.info("✅ Using raw results (second pass skipped)")
+                return raw_results
+            else:
+                logger.warning("⚠️ No raw results, falling back to Tesseract")
+                return _extract_with_tesseract(image, page_number)
+        
         logger.info("🔄 Running pre-processed OCR")
         processed_img = preprocess_image(image)
         processed_array = np.array(processed_img)
@@ -402,23 +412,30 @@ def process_document(file_path: str, parse_templates: bool = True,
         - processing_time: Processing duration
         - upload_validation: Validation results (if validate_upload=True)
     """
-    start_time = datetime.now()
+    import time
+    start_time = time.time()
+    step_times = {}
     
     try:
         logger.info(f"🔄 Starting document processing: {file_path}")
         
         # Initialize database
+        db_start = time.time()
         init_db(db_path)
+        step_times['db_init'] = time.time() - db_start
         
         # Validate file
+        validation_start = time.time()
         if not os.path.exists(file_path):
             raise Exception(f"File not found: {file_path}")
         
         file_size = os.path.getsize(file_path)
         if file_size > MAX_FILE_SIZE:
             raise Exception(f"File too large: {file_size} bytes (max: {MAX_FILE_SIZE})")
+        step_times['validation'] = time.time() - validation_start
         
         # Determine file type and convert to images
+        conversion_start = time.time()
         file_ext = Path(file_path).suffix.lower()
         images = []
         
@@ -431,13 +448,16 @@ def process_document(file_path: str, parse_templates: bool = True,
             images = [image]
         else:
             raise Exception(f"Unsupported file type: {file_ext}")
+        step_times['conversion'] = time.time() - conversion_start
         
         # Process each page
         all_ocr_results = []
         page_confidence_scores = []
+        ocr_total_time = 0
         
         for page_num, image in enumerate(images):
             logger.info(f"📄 Processing page {page_num + 1} of {len(images)}")
+            page_start = time.time()
             
             # Run OCR with fallback
             page_results = run_invoice_ocr(image, page_num + 1)
@@ -477,7 +497,13 @@ def process_document(file_path: str, parse_templates: bool = True,
             if save_debug:
                 save_debug_artifacts(image, page_results, page_num + 1, Path(file_path).name)
             
+            page_time = time.time() - page_start
+            ocr_total_time += page_time
+            logger.info(f"⏱️ Page {page_num + 1} processing took {page_time:.2f} seconds")
+            
             all_ocr_results.extend(page_results)
+        
+        step_times['ocr_processing'] = ocr_total_time
         
         # Calculate overall confidence and manual review flag
         overall_confidence = sum(page_confidence_scores) / len(page_confidence_scores) if page_confidence_scores else 0.0
@@ -674,6 +700,12 @@ def process_document(file_path: str, parse_templates: bool = True,
         logger.info(f"✅ Document processing completed in {processing_time:.2f}s")
         logger.info(f"📊 Overall confidence: {overall_confidence:.3f}")
         logger.info(f"🔍 Manual review required: {manual_review_required}")
+        
+        # Log detailed timing breakdown
+        logger.info("⏱️ Processing time breakdown:")
+        for step, duration in step_times.items():
+            percentage = (duration / processing_time) * 100 if processing_time > 0 else 0
+            logger.info(f"   {step}: {duration:.2f}s ({percentage:.1f}%)")
         
         return result
         

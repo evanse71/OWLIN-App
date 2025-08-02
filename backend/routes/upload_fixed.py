@@ -349,7 +349,12 @@ async def upload_invoice(file: UploadFile = File(...)):
         # Step 3: Run OCR with timeout
         logger.info("🔄 Step 3: Running OCR processing...")
         try:
-            ocr_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=90)
+            # Get timeout from environment variable or use default
+            import os
+            timeout_seconds = int(os.getenv('OCR_TIMEOUT_SECONDS', '120'))  # Increased from 90 to 120 seconds
+            logger.info(f"⏱️ Using OCR timeout: {timeout_seconds} seconds")
+            
+            ocr_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=timeout_seconds)
             logger.info("✅ OCR processing completed")
             
             # Check if OCR needs retry
@@ -364,7 +369,7 @@ async def upload_invoice(file: UploadFile = File(...)):
                 logger.warning(f"⚠️ Very low confidence ({overall_confidence:.1f}%), attempting retry...")
                 try:
                     # Retry with different settings
-                    retry_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=90)
+                    retry_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=timeout_seconds)
                     retry_confidence = retry_result.get('overall_confidence', 0.0)
                     retry_words = retry_result.get('total_words', 0)
                     

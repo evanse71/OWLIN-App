@@ -77,20 +77,35 @@ app.include_router(dev.router, prefix="/api/dev", tags=["development"])
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize PaddleOCR model at FastAPI startup."""
+    """Preload OCR models at FastAPI startup to prevent first-upload delays."""
     try:
-        from backend.ocr import ocr_engine
-        # Check if ocr_model attribute exists, if not, initialize it
-        if not hasattr(ocr_engine, 'ocr_model') or ocr_engine.ocr_model is None:
-            try:
-                from paddleocr import PaddleOCR
-                ocr_engine.ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
-                logging.info("✅ PaddleOCR model initialized at startup")
-            except Exception as e:
-                logging.error(f"❌ Failed to initialize PaddleOCR at startup: {e}")
-                ocr_engine.ocr_model = None
+        import asyncio
+        import time
+        
+        logging.info("🔄 Preloading OCR models at startup...")
+        start_time = time.time()
+        
+        # Import and preload PaddleOCR model
+        from backend.upload_pipeline import get_paddle_ocr_model
+        
+        # Run model initialization in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, get_paddle_ocr_model)
+        
+        elapsed_time = time.time() - start_time
+        logging.info(f"✅ OCR models preloaded successfully in {elapsed_time:.2f} seconds")
+        
+        # Also initialize Tesseract availability check
+        try:
+            import pytesseract
+            pytesseract.get_tesseract_version()
+            logging.info("✅ Tesseract fallback available")
+        except Exception as e:
+            logging.warning(f"⚠️ Tesseract not available: {e}")
+            
     except Exception as e:
-        logging.error(f"❌ Failed to import ocr_engine at startup: {e}")
+        logging.error(f"❌ Failed to preload OCR models at startup: {e}")
+        logging.error("⚠️ First upload may experience delays due to model loading")
 
 @app.get("/")
 async def root():
