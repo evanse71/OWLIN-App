@@ -174,18 +174,24 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
         data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
         
         results = []
+        minus_one_count = 0  # Track "-1" confidence values
+        
         for i in range(len(data['text'])):
             text = data['text'][i].strip()
             if text:  # Only process non-empty text
                 # ✅ Fix confidence calculation: convert string to float and handle "-1"
                 raw_confidence = data['conf'][i]
                 if raw_confidence == "-1":
-                    confidence = 0.0  # Low confidence items
+                    minus_one_count += 1
+                    # Skip "-1" confidence results entirely instead of converting to 0.0
+                    logger.debug(f"🟡 Skipping low-confidence text: '{text[:20]}...' (confidence: -1)")
+                    continue
                 else:
                     try:
                         confidence = float(raw_confidence) / 100.0  # Convert 0-100 to 0-1 scale
                     except (ValueError, TypeError):
-                        confidence = 0.0  # Fallback for invalid values
+                        logger.warning(f"⚠️ Invalid confidence value: {raw_confidence}, skipping")
+                        continue
                 
                 # Create bounding box from Tesseract data
                 left = data['left'][i]
@@ -206,6 +212,15 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
                     bounding_box=bbox,
                     page_number=page_number
                 ))
+        
+        # ✅ Log "-1" confidence count for diagnostics
+        if minus_one_count > 0:
+            logger.warning(f"⚠️ Skipped {minus_one_count} low-confidence results (confidence: -1)")
+        
+        # ✅ Raise error if no usable results found
+        if not results and minus_one_count > 0:
+            logger.error(f"❌ Tesseract found {minus_one_count} text segments but all had low confidence (-1)")
+            raise Exception("OCR failed - all detected text had low confidence. Image may be too poor quality.")
         
         # Log fallback usage
         os.makedirs("data/logs", exist_ok=True)

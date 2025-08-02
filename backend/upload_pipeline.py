@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 CONFIDENCE_RERUN_THRESHOLD = 0.70  # Trigger pre-processing if below this
 CONFIDENCE_REVIEW_THRESHOLD = 0.65  # Flag for manual review if below this
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB limit
-SKIP_SECOND_OCR_PASS = True  # Skip preprocessed OCR for faster processing
+SKIP_SECOND_OCR_PASS = False  # Enable preprocessed OCR for better low-quality scan handling
 
 # Global PaddleOCR model (lazy initialization)
 _ocr_model = None
@@ -112,6 +112,47 @@ def get_paddle_ocr_model() -> Optional[PaddleOCR]:
             _ocr_model = None
     
     return _ocr_model
+
+def check_ocr_engines() -> Dict[str, bool]:
+    """Check availability of OCR engines and provide diagnostic information."""
+    diagnostics = {}
+    
+    # Check PaddleOCR
+    try:
+        if PADDLEOCR_AVAILABLE:
+            model = get_paddle_ocr_model()
+            diagnostics['paddleocr'] = model is not None
+            if model:
+                logger.info("✅ PaddleOCR: Available and initialized")
+            else:
+                logger.warning("⚠️ PaddleOCR: Available but failed to initialize")
+        else:
+            diagnostics['paddleocr'] = False
+            logger.warning("⚠️ PaddleOCR: Not available (package not installed)")
+    except Exception as e:
+        diagnostics['paddleocr'] = False
+        logger.error(f"❌ PaddleOCR: Error checking availability: {e}")
+    
+    # Check Tesseract
+    try:
+        import pytesseract
+        version = pytesseract.get_tesseract_version()
+        diagnostics['tesseract'] = True
+        logger.info(f"✅ Tesseract: Available (version {version})")
+    except Exception as e:
+        diagnostics['tesseract'] = False
+        logger.error(f"❌ Tesseract: Not available or not configured: {e}")
+    
+    # Log overall status
+    available_engines = sum(diagnostics.values())
+    if available_engines == 0:
+        logger.error("❌ No OCR engines available! Install PaddleOCR or Tesseract.")
+    elif available_engines == 1:
+        logger.warning("⚠️ Only one OCR engine available - limited fallback capability")
+    else:
+        logger.info("✅ Multiple OCR engines available - good fallback capability")
+    
+    return diagnostics
 
 def convert_pdf_to_images(file_path: str) -> List[Image.Image]:
     """
@@ -280,6 +321,7 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
         
         results = []
         confidence_values = []  # Track confidence values for debugging
+        minus_one_count = 0  # Track "-1" confidence values
         
         for i in range(len(data['text'])):
             text = data['text'][i].strip()
@@ -287,12 +329,16 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
                 # ✅ Fix confidence calculation: convert string to float and handle "-1"
                 raw_confidence = data['conf'][i]
                 if raw_confidence == "-1":
-                    confidence = 0.0  # Low confidence items
+                    minus_one_count += 1
+                    # Skip "-1" confidence results entirely instead of converting to 0.0
+                    logger.debug(f"🟡 Skipping low-confidence text: '{text[:20]}...' (confidence: -1)")
+                    continue
                 else:
                     try:
                         confidence = float(raw_confidence) / 100.0  # Convert 0-100 to 0-1 scale
                     except (ValueError, TypeError):
-                        confidence = 0.0  # Fallback for invalid values
+                        logger.warning(f"⚠️ Invalid confidence value: {raw_confidence}, skipping")
+                        continue
                 
                 confidence_values.append(confidence)
                 
@@ -326,6 +372,15 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
             logger.debug(f"🟡 Tesseract fallback average confidence: {avg_confidence:.2f}")
         else:
             logger.warning("⚠️ No confidence values calculated from Tesseract")
+        
+        # ✅ Log "-1" confidence count for diagnostics
+        if minus_one_count > 0:
+            logger.warning(f"⚠️ Skipped {minus_one_count} low-confidence results (confidence: -1)")
+        
+        # ✅ Raise error if no usable results found
+        if not results and minus_one_count > 0:
+            logger.error(f"❌ Tesseract found {minus_one_count} text segments but all had low confidence (-1)")
+            raise Exception("OCR failed - all detected text had low confidence. Image may be too poor quality.")
         
         # Log fallback usage
         with open("data/logs/ocr_fallback.log", "a") as f:
@@ -442,6 +497,10 @@ def process_document(file_path: str, parse_templates: bool = True,
     try:
         logger.info(f"🔄 Starting document processing: {file_path}")
         
+        # ✅ Check OCR engines availability
+        logger.info("🔍 Checking OCR engines availability...")
+        ocr_diagnostics = check_ocr_engines()
+        
         # Initialize database
         db_start = time.time()
         init_db(db_path)
@@ -485,6 +544,9 @@ def process_document(file_path: str, parse_templates: bool = True,
             # Run OCR with fallback
             page_results = run_invoice_ocr(image, page_num + 1)
             
+            # ✅ Add diagnostic logging to verify OCR results count
+            logger.debug(f"🟡 Page {page_num + 1} OCR results: {len(page_results)}")
+            
             # If no results from PaddleOCR, try fallback
             if not page_results:
                 logger.warning(f"⚠️ PaddleOCR failed for page {page_num + 1}, trying fallback...")
@@ -503,6 +565,9 @@ def process_document(file_path: str, parse_templates: bool = True,
                                 page_number=result['page_num']
                             ))
                     os.unlink(tmp_file.name)  # Clean up temp file
+                
+                # ✅ Add diagnostic logging for fallback results
+                logger.debug(f"🟡 Page {page_num + 1} fallback OCR results: {len(page_results)}")
             
             # Assign field types
             page_results = assign_field_types(page_results)
@@ -527,6 +592,12 @@ def process_document(file_path: str, parse_templates: bool = True,
             all_ocr_results.extend(page_results)
         
         step_times['ocr_processing'] = ocr_total_time
+        
+        # ✅ Raise clear error if no text is found
+        if not all_ocr_results:
+            error_msg = "OCR failed - no text detected. This may be due to poor image quality, rotation, or unsupported file format."
+            logger.error(f"❌ {error_msg}")
+            raise Exception(error_msg)
         
         # Calculate overall confidence and manual review flag
         overall_confidence = sum(page_confidence_scores) / len(page_confidence_scores) if page_confidence_scores else 0.0
