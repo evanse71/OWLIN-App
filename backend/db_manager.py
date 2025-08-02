@@ -163,6 +163,17 @@ def save_invoice(extracted_data: Dict[str, Any], db_path: str = DEFAULT_DB_PATH)
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
+        # Convert line_items to JSON string if present
+        line_items_json = None
+        if 'line_items' in extracted_data and extracted_data['line_items']:
+            import json
+            line_items_json = json.dumps(extracted_data['line_items'])
+        
+        # Convert page_numbers to string if present
+        page_numbers_str = None
+        if 'page_numbers' in extracted_data and extracted_data['page_numbers']:
+            page_numbers_str = ','.join(map(str, extracted_data['page_numbers']))
+        
         cursor.execute(
             """
             INSERT OR IGNORE INTO invoices (
@@ -175,8 +186,15 @@ def save_invoice(extracted_data: Dict[str, Any], db_path: str = DEFAULT_DB_PATH)
                 currency,
                 file_path,
                 file_hash,
-                ocr_confidence
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ocr_confidence,
+                ocr_text,
+                page_numbers,
+                line_items,
+                subtotal,
+                vat,
+                vat_rate,
+                total_incl_vat
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 extracted_data.get("supplier_name"),
@@ -188,7 +206,14 @@ def save_invoice(extracted_data: Dict[str, Any], db_path: str = DEFAULT_DB_PATH)
                 extracted_data.get("currency"),
                 extracted_data.get("file_path"),
                 extracted_data.get("file_hash"),
-                extracted_data.get("ocr_confidence", 0.0)
+                extracted_data.get("ocr_confidence", 0.0),
+                extracted_data.get("ocr_text"),
+                page_numbers_str,
+                line_items_json,
+                extracted_data.get("subtotal"),
+                extracted_data.get("vat"),
+                extracted_data.get("vat_rate"),
+                extracted_data.get("total_incl_vat")
             ),
         )
         

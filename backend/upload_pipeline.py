@@ -102,8 +102,7 @@ def get_paddle_ocr_model() -> Optional[PaddleOCR]:
         try:
             _ocr_model = PaddleOCR(
                 use_angle_cls=True,
-                lang='en',
-                use_gpu=False  # CPU only for compatibility
+                lang='en'
             )
             logger.info("✅ PaddleOCR model initialized successfully")
         except Exception as e:
@@ -202,108 +201,119 @@ def run_invoice_ocr(image: Image.Image, page_number: int = 1) -> List[OCRResult]
     Returns:
         List of OCRResult objects with confidence scores
     """
+    logger.info(f"🔄 Starting OCR for page {page_number}")
+    
+    # Try PaddleOCR first
     try:
-        logger.info(f"🔄 Running OCR on page {page_number}")
-        
-        # Convert PIL to numpy array
-        img_array = np.array(image)
-        if len(img_array.shape) == 3:
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img_array
-        
-        # First pass: Raw PaddleOCR
-        paddle_model = get_paddle_ocr_model()
-        raw_results = []
-        
-        if paddle_model:
-            try:
-                raw_ocr_results = paddle_model.ocr(img_array, cls=True)
-                if raw_ocr_results and raw_ocr_results[0]:
-                    for result in raw_ocr_results[0]:
-                        if result and len(result) >= 2:
-                            bbox, (text, confidence) = result
-                            raw_results.append(OCRResult(
-                                text=text,
-                                confidence=confidence,
-                                bounding_box=bbox,
-                                page_number=page_number
-                            ))
-                
-                # Calculate mean confidence
-                if raw_results:
-                    mean_confidence = sum(r.confidence for r in raw_results) / len(raw_results)
-                    logger.info(f"📊 Raw OCR confidence: {mean_confidence:.3f}")
-                    
-                    # If confidence is good enough, return results
-                    if mean_confidence >= CONFIDENCE_RERUN_THRESHOLD:
-                        logger.info("✅ Raw OCR results acceptable")
-                        return raw_results
-                        
-            except Exception as e:
-                logger.warning(f"⚠️ PaddleOCR failed: {e}")
-        
-        # Second pass: Pre-processed image (skip if configured)
-        if SKIP_SECOND_OCR_PASS:
-            logger.info("⏭️ Skipping second OCR pass for faster processing")
-            if raw_results:
-                logger.info("✅ Using raw results (second pass skipped)")
-                return raw_results
-            else:
-                logger.warning("⚠️ No raw results, falling back to Tesseract")
-                return _extract_with_tesseract(image, page_number)
-        
-        logger.info("🔄 Running pre-processed OCR")
-        processed_img = preprocess_image(image)
-        processed_array = np.array(processed_img)
-        
-        processed_results = []
-        if paddle_model:
-            try:
-                processed_ocr_results = paddle_model.ocr(processed_array, cls=True)
-                if processed_ocr_results and processed_ocr_results[0]:
-                    for result in processed_ocr_results[0]:
-                        if result and len(result) >= 2:
-                            bbox, (text, confidence) = result
-                            processed_results.append(OCRResult(
-                                text=text,
-                                confidence=confidence,
-                                bounding_box=bbox,
-                                page_number=page_number
-                            ))
-                            
-            except Exception as e:
-                logger.warning(f"⚠️ Pre-processed PaddleOCR failed: {e}")
-        
-        # Choose best results
-        if raw_results and processed_results:
-            raw_confidence = sum(r.confidence for r in raw_results) / len(raw_results)
-            processed_confidence = sum(r.confidence for r in processed_results) / len(processed_results)
+        model = get_paddle_ocr_model()
+        if model:
+            logger.info(f"📄 Using PaddleOCR for page {page_number}")
             
-            if processed_confidence > raw_confidence:
-                logger.info(f"✅ Using pre-processed results (confidence: {processed_confidence:.3f})")
-                return processed_results
-            else:
-                logger.info(f"✅ Using raw results (confidence: {raw_confidence:.3f})")
-                return raw_results
-        elif processed_results:
-            logger.info("✅ Using pre-processed results")
-            return processed_results
-        elif raw_results:
-            logger.info("✅ Using raw results")
-            return raw_results
-        
-        # Fallback to Tesseract
-        logger.warning("⚠️ Falling back to Tesseract OCR")
-        return _extract_with_tesseract(image, page_number)
-        
+            # Run PaddleOCR
+            results = model.ocr(image, cls=True)
+            
+            if results and results[0]:
+                ocr_results = []
+                total_confidence = 0
+                word_count = 0
+                
+                for line in results[0]:
+                    if len(line) >= 2:
+                        text = line[1][0].strip()
+                        confidence = line[1][1]
+                        
+                        if text:  # Only process non-empty text
+                            # Convert bounding box to polygon format
+                            bbox = line[0]
+                            polygon = [(int(bbox[0][0]), int(bbox[0][1])),
+                                     (int(bbox[1][0]), int(bbox[1][1])),
+                                     (int(bbox[2][0]), int(bbox[2][1])),
+                                     (int(bbox[3][0]), int(bbox[3][1]))]
+                            
+                            result = OCRResult(
+                                text=text,
+                                confidence=confidence,
+                                bounding_box=polygon,
+                                page_number=page_number
+                            )
+                            ocr_results.append(result)
+                            total_confidence += confidence
+                            word_count += len(text.split())
+                
+                avg_confidence = total_confidence / len(ocr_results) if ocr_results else 0
+                logger.info(f"✅ PaddleOCR page {page_number}: {len(ocr_results)} text blocks, {word_count} words, avg confidence: {avg_confidence:.3f}")
+                
+                if ocr_results:
+                    # Log sample text
+                    sample_texts = [r.text for r in ocr_results[:3]]
+                    logger.debug(f"🟡 Page {page_number} sample text: {sample_texts}")
+                    return ocr_results
+                else:
+                    logger.warning(f"⚠️ PaddleOCR page {page_number}: No text detected")
+                    
     except Exception as e:
-        logger.error(f"❌ OCR processing failed: {e}")
-        raise Exception(f"OCR processing failed: {str(e)}")
+        logger.warning(f"⚠️ PaddleOCR failed: {e}")
+    
+    # Try pre-processed image if confidence is low
+    try:
+        logger.info(f"🔄 Trying pre-processed PaddleOCR for page {page_number}")
+        
+        # Pre-process image for better OCR
+        from PIL import ImageEnhance, ImageFilter
+        enhanced = image.convert('L')  # Convert to grayscale
+        enhanced = ImageEnhance.Contrast(enhanced).enhance(2.0)  # Increase contrast
+        enhanced = ImageEnhance.Sharpness(enhanced).enhance(2.0)  # Increase sharpness
+        enhanced = enhanced.filter(ImageFilter.MedianFilter(size=3))  # Reduce noise
+        
+        model = get_paddle_ocr_model()
+        if model:
+            results = model.ocr(enhanced, cls=True)
+            
+            if results and results[0]:
+                ocr_results = []
+                total_confidence = 0
+                word_count = 0
+                
+                for line in results[0]:
+                    if len(line) >= 2:
+                        text = line[1][0].strip()
+                        confidence = line[1][1]
+                        
+                        if text:
+                            bbox = line[0]
+                            polygon = [(int(bbox[0][0]), int(bbox[0][1])),
+                                     (int(bbox[1][0]), int(bbox[1][1])),
+                                     (int(bbox[2][0]), int(bbox[2][1])),
+                                     (int(bbox[3][0]), int(bbox[3][1]))]
+                            
+                            result = OCRResult(
+                                text=text,
+                                confidence=confidence,
+                                bounding_box=polygon,
+                                page_number=page_number
+                            )
+                            ocr_results.append(result)
+                            total_confidence += confidence
+                            word_count += len(text.split())
+                
+                avg_confidence = total_confidence / len(ocr_results) if ocr_results else 0
+                logger.info(f"✅ Pre-processed PaddleOCR page {page_number}: {len(ocr_results)} text blocks, {word_count} words, avg confidence: {avg_confidence:.3f}")
+                
+                if ocr_results:
+                    sample_texts = [r.text for r in ocr_results[:3]]
+                    logger.debug(f"🟡 Page {page_number} pre-processed sample text: {sample_texts}")
+                    return ocr_results
+                    
+    except Exception as e:
+        logger.warning(f"⚠️ Pre-processed PaddleOCR failed: {e}")
+    
+    # Fallback to Tesseract
+    logger.warning(f"⚠️ Falling back to Tesseract OCR for page {page_number}")
+    return _extract_with_tesseract(image, page_number)
 
 def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRResult]:
     """
-    Fallback OCR using Tesseract
+    Extract text using Tesseract OCR with confidence scoring
     
     Args:
         image: PIL Image to process
@@ -312,20 +322,22 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
     Returns:
         List of OCRResult objects
     """
+    logger.info(f"🔄 Using Tesseract OCR for page {page_number}")
+    
     try:
-        logger.info("🔄 Running Tesseract fallback OCR")
+        import pytesseract
         
-        # Get detailed OCR data from Tesseract
+        # Get OCR data with confidence scores
         data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
         
         results = []
-        confidence_values = []  # Track confidence values for debugging
-        minus_one_count = 0  # Track "-1" confidence values
+        total_confidence = 0
+        word_count = 0
+        minus_one_count = 0
         
         for i in range(len(data['text'])):
             text = data['text'][i].strip()
             if text:  # Only process non-empty text
-                # ✅ Fix confidence calculation: convert string to float and handle "-1"
                 raw_confidence = data['conf'][i]
                 if raw_confidence == "-1":
                     minus_one_count += 1
@@ -339,59 +351,44 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
                         logger.warning(f"⚠️ Invalid confidence value: {raw_confidence}, skipping")
                         continue
                 
-                confidence_values.append(confidence)
+                # Create bounding box from coordinates
+                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                bounding_box = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
                 
-                # Create bounding box from Tesseract data
-                left = data['left'][i]
-                top = data['top'][i]
-                width = data['width'][i]
-                height = data['height'][i]
-                
-                bbox = [
-                    (left, top),
-                    (left + width, top),
-                    (left + width, top + height),
-                    (left, top + height)
-                ]
-                
-                results.append(OCRResult(
+                result = OCRResult(
                     text=text,
                     confidence=confidence,
-                    bounding_box=bbox,
+                    bounding_box=bounding_box,
                     page_number=page_number
-                ))
+                )
+                results.append(result)
+                total_confidence += confidence
+                word_count += len(text.split())
         
-        # Log confidence statistics for debugging
-        if confidence_values:
-            avg_confidence = sum(confidence_values) / len(confidence_values)
-            max_confidence = max(confidence_values)
-            min_confidence = min(confidence_values)
-            logger.info(f"📊 Tesseract confidence stats: avg={avg_confidence:.3f}, max={max_confidence:.3f}, min={min_confidence:.3f}")
-            # ✅ Add optional logging for average confidence (matching ocr_engine.py)
-            logger.debug(f"🟡 Tesseract fallback average confidence: {avg_confidence:.2f}")
-        else:
-            logger.warning("⚠️ No confidence values calculated from Tesseract")
-        
-        # ✅ Log "-1" confidence count for diagnostics
+        # Log statistics
         if minus_one_count > 0:
             logger.warning(f"⚠️ Skipped {minus_one_count} low-confidence results (confidence: -1)")
         
-        # ✅ Raise error if no usable results found
-        if not results and minus_one_count > 0:
-            logger.error(f"❌ Tesseract found {minus_one_count} text segments but all had low confidence (-1)")
-            raise Exception("OCR failed - all detected text had low confidence. Image may be too poor quality.")
-        
-        # Log fallback usage
-        with open("data/logs/ocr_fallback.log", "a") as f:
-            timestamp = datetime.now().isoformat()
-            f.write(f"{timestamp} - Tesseract fallback used for page {page_number}\n")
-        
-        logger.info(f"✅ Tesseract fallback completed: {len(results)} results")
-        return results
-        
+        if results:
+            avg_confidence = total_confidence / len(results)
+            logger.info(f"✅ Tesseract page {page_number}: {len(results)} text blocks, {word_count} words, avg confidence: {avg_confidence:.3f}")
+            
+            # Log sample text
+            sample_texts = [r.text for r in results[:3]]
+            logger.debug(f"🟡 Page {page_number} Tesseract sample text: {sample_texts}")
+            
+            return results
+        else:
+            if minus_one_count > 0:
+                logger.error(f"❌ Tesseract found {minus_one_count} text segments but all had low confidence (-1)")
+                raise Exception("OCR failed - all detected text had low confidence. Image may be too poor quality.")
+            else:
+                logger.error(f"❌ Tesseract found no text on page {page_number}")
+                raise Exception("OCR failed - no text detected. Image may be too poor quality.")
+                
     except Exception as e:
-        logger.error(f"❌ Tesseract fallback failed: {e}")
-        raise Exception(f"Tesseract fallback failed: {str(e)}")
+        logger.error(f"❌ Tesseract OCR failed for page {page_number}: {e}")
+        raise Exception(f"Tesseract OCR failed: {str(e)}")
 
 def assign_field_types(ocr_results: List[OCRResult]) -> List[OCRResult]:
     """
@@ -618,53 +615,74 @@ def process_document(file_path: str, parse_templates: bool = True,
         
         if parse_templates and all_ocr_results:
             try:
-                # Combine all text for parsing
-                full_text = " ".join(result.text for result in all_ocr_results)
-                
-                # Convert OCR results to format expected by field extractor
-                ocr_results_for_extractor = []
-                for result in all_ocr_results:
-                    ocr_results_for_extractor.append({
-                        "text": result.text,
-                        "bbox": result.bounding_box,
-                        "confidence": result.confidence * 100,  # Convert to 0-100 scale
-                        "page_num": result.page_number
-                    })
-                
-                # Determine document type first
+                # Determine document type
                 document_type = _classify_document_type(all_ocr_results)
                 
-                # Parse based on document type
                 if document_type == 'invoice':
-                    parsed_invoice = parse_invoice(full_text, overall_confidence, ocr_results_for_extractor)
-                    logger.info("📄 Parsed as invoice with enhanced field extraction")
+                    # Convert OCR results to text with proper line structure
+                    lines = []
+                    current_line = []
+                    current_y = None
+                    
+                    # Sort OCR results by Y position to group by lines
+                    sorted_results = sorted(all_ocr_results, key=lambda r: r.bounding_box[0][1])
+                    
+                    for result in sorted_results:
+                        y_pos = result.bounding_box[0][1]
+                        
+                        # If this is a new line (different Y position)
+                        if current_y is None or abs(y_pos - current_y) > 10:  # 10 pixel tolerance
+                            if current_line:
+                                lines.append(' '.join(current_line))
+                                current_line = []
+                            current_y = y_pos
+                        
+                        current_line.append(result.text)
+                    
+                    # Add the last line
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    
+                    full_text = '\n'.join(lines)
+                    parsed_invoice = parse_invoice(full_text, overall_confidence)
+                    logger.info(f"✅ Invoice parsed: {parsed_invoice.invoice_number if parsed_invoice else 'Unknown'}")
                 elif document_type == 'delivery_note':
+                    # Convert OCR results to text with proper line structure
+                    lines = []
+                    current_line = []
+                    current_y = None
+                    
+                    # Sort OCR results by Y position to group by lines
+                    sorted_results = sorted(all_ocr_results, key=lambda r: r.bounding_box[0][1])
+                    
+                    for result in sorted_results:
+                        y_pos = result.bounding_box[0][1]
+                        
+                        # If this is a new line (different Y position)
+                        if current_y is None or abs(y_pos - current_y) > 10:  # 10 pixel tolerance
+                            if current_line:
+                                lines.append(' '.join(current_line))
+                                current_line = []
+                            current_y = y_pos
+                        
+                        current_line.append(result.text)
+                    
+                    # Add the last line
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    
+                    full_text = '\n'.join(lines)
                     parsed_delivery_note = parse_delivery_note(full_text, overall_confidence)
-                    logger.info("📋 Parsed as delivery note")
+                    logger.info(f"✅ Delivery note parsed: {parsed_delivery_note.delivery_number if parsed_delivery_note else 'Unknown'}")
                 else:
-                    # Try both parsers and use the one with higher confidence
-                    try:
-                        invoice_result = parse_invoice(full_text, overall_confidence, ocr_results_for_extractor)
-                        delivery_result = parse_delivery_note(full_text, overall_confidence)
-                        
-                        if invoice_result.confidence > delivery_result.confidence:
-                            parsed_invoice = invoice_result
-                            document_type = 'invoice'
-                            logger.info("📄 Parsed as invoice (higher confidence)")
-                        else:
-                            parsed_delivery_note = delivery_result
-                            document_type = 'delivery_note'
-                            logger.info("📋 Parsed as delivery note (higher confidence)")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Both parsers failed: {e}")
-                        
+                    logger.warning(f"⚠️ Unknown document type: {document_type}")
             except Exception as e:
                 logger.warning(f"⚠️ Template parsing failed: {e}")
         else:
             # Determine document type without parsing
             document_type = _classify_document_type(all_ocr_results)
         
-        processing_time = (datetime.now() - start_time).total_seconds()
+        processing_time = time.time() - start_time
         
         result = {
             'ocr_results': all_ocr_results,
@@ -744,6 +762,20 @@ def process_document(file_path: str, parse_templates: bool = True,
                 
                 # Save invoice or delivery note data
                 if parsed_invoice:
+                    # Convert OCR results to text for storage
+                    ocr_text = " ".join([r.text for r in all_ocr_results])
+                    
+                    # Convert line items to list of dictionaries
+                    line_items_data = []
+                    for item in parsed_invoice.line_items:
+                        line_items_data.append({
+                            'description': item.description,
+                            'quantity': item.quantity,
+                            'unit_price': item.unit_price,
+                            'total_price': item.total_price,
+                            'confidence': item.confidence
+                        })
+                    
                     invoice_data = {
                         'supplier_name': parsed_invoice.supplier,
                         'invoice_number': parsed_invoice.invoice_number,
@@ -754,7 +786,14 @@ def process_document(file_path: str, parse_templates: bool = True,
                         'currency': 'GBP',  # Default currency
                         'file_path': file_path,
                         'file_hash': file_hash,
-                        'ocr_confidence': overall_confidence * 100  # Convert to 0-100 scale
+                        'ocr_confidence': overall_confidence * 100,  # Convert to 0-100 scale
+                        'ocr_text': ocr_text,
+                        'page_numbers': list(range(1, len(images) + 1)),  # Page numbers
+                        'line_items': line_items_data,
+                        'subtotal': parsed_invoice.net_total,
+                        'vat': parsed_invoice.vat_total,
+                        'vat_rate': parsed_invoice.vat_rate,
+                        'total_incl_vat': parsed_invoice.gross_total
                     }
                     save_invoice(invoice_data, db_path)
                     logger.info(f"💾 Invoice saved to database: {parsed_invoice.invoice_number}")

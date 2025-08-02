@@ -1,0 +1,4280 @@
+[
+  {
+    "text": "WILD",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        276,
+        71
+      ],
+      [
+        460,
+        71
+      ],
+      [
+        460,
+        144
+      ],
+      [
+        276,
+        144
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Invoice",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        883,
+        118
+      ],
+      [
+        1011,
+        118
+      ],
+      [
+        1011,
+        144
+      ],
+      [
+        883,
+        144
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "#73318",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1026,
+        119
+      ],
+      [
+        1164,
+        119
+      ],
+      [
+        1164,
+        144
+      ],
+      [
+        1026,
+        144
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "H",
+    "confidence": 0.81,
+    "bounding_box": [
+      [
+        278,
+        151
+      ],
+      [
+        309,
+        151
+      ],
+      [
+        309,
+        207
+      ],
+      [
+        278,
+        207
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "0",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        318,
+        151
+      ],
+      [
+        349,
+        151
+      ],
+      [
+        349,
+        208
+      ],
+      [
+        318,
+        208
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "R",
+    "confidence": 0.92,
+    "bounding_box": [
+      [
+        358,
+        151
+      ],
+      [
+        389,
+        151
+      ],
+      [
+        389,
+        207
+      ],
+      [
+        358,
+        207
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "F",
+    "confidence": 0.0,
+    "bounding_box": [
+      [
+        435,
+        151
+      ],
+      [
+        463,
+        151
+      ],
+      [
+        463,
+        207
+      ],
+      [
+        435,
+        207
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Wild",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        830,
+        163
+      ],
+      [
+        882,
+        163
+      ],
+      [
+        882,
+        180
+      ],
+      [
+        830,
+        180
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Horse",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        894,
+        164
+      ],
+      [
+        963,
+        164
+      ],
+      [
+        963,
+        180
+      ],
+      [
+        894,
+        180
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Brewing",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        973,
+        163
+      ],
+      [
+        1071,
+        163
+      ],
+      [
+        1071,
+        185
+      ],
+      [
+        973,
+        185
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Co",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1081,
+        164
+      ],
+      [
+        1111,
+        164
+      ],
+      [
+        1111,
+        180
+      ],
+      [
+        1081,
+        180
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Ltd",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1121,
+        163
+      ],
+      [
+        1157,
+        163
+      ],
+      [
+        1157,
+        180
+      ],
+      [
+        1121,
+        180
+      ]
+    ],
+    "field_type": "supplier"
+  },
+  {
+    "text": "Unit",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        963,
+        196
+      ],
+      [
+        1006,
+        196
+      ],
+      [
+        1006,
+        213
+      ],
+      [
+        963,
+        213
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "4-5,",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1014,
+        197
+      ],
+      [
+        1054,
+        197
+      ],
+      [
+        1054,
+        216
+      ],
+      [
+        1014,
+        216
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Cae",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1064,
+        197
+      ],
+      [
+        1104,
+        197
+      ],
+      [
+        1104,
+        213
+      ],
+      [
+        1064,
+        213
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Bach",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1114,
+        196
+      ],
+      [
+        1164,
+        196
+      ],
+      [
+        1164,
+        213
+      ],
+      [
+        1114,
+        213
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "BREWING",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        279,
+        215
+      ],
+      [
+        413,
+        215
+      ],
+      [
+        413,
+        245
+      ],
+      [
+        279,
+        245
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "CO",
+    "confidence": 0.78,
+    "bounding_box": [
+      [
+        427,
+        215
+      ],
+      [
+        463,
+        215
+      ],
+      [
+        463,
+        245
+      ],
+      [
+        427,
+        245
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Builder",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1017,
+        229
+      ],
+      [
+        1093,
+        229
+      ],
+      [
+        1093,
+        246
+      ],
+      [
+        1017,
+        246
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Street",
+    "confidence": 0.97,
+    "bounding_box": [
+      [
+        1101,
+        230
+      ],
+      [
+        1166,
+        230
+      ],
+      [
+        1166,
+        246
+      ],
+      [
+        1101,
+        246
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Llandudno",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        1054,
+        261
+      ],
+      [
+        1165,
+        261
+      ],
+      [
+        1165,
+        278
+      ],
+      [
+        1054,
+        278
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "Issue",
+    "confidence": 0.94,
+    "bounding_box": [
+      [
+        77,
+        310
+      ],
+      [
+        130,
+        310
+      ],
+      [
+        130,
+        326
+      ],
+      [
+        77,
+        326
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "date:",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        139,
+        309
+      ],
+      [
+        192,
+        309
+      ],
+      [
+        192,
+        326
+      ],
+      [
+        139,
+        326
+      ]
+    ],
+    "field_type": "date"
+  },
+  {
+    "text": "Friday,",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        204,
+        309
+      ],
+      [
+        273,
+        309
+      ],
+      [
+        273,
+        331
+      ],
+      [
+        204,
+        331
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "4",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        283,
+        310
+      ],
+      [
+        295,
+        310
+      ],
+      [
+        295,
+        326
+      ],
+      [
+        283,
+        326
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "July",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        302,
+        309
+      ],
+      [
+        342,
+        309
+      ],
+      [
+        342,
+        331
+      ],
+      [
+        302,
+        331
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "2025",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        351,
+        310
+      ],
+      [
+        403,
+        310
+      ],
+      [
+        403,
+        326
+      ],
+      [
+        351,
+        326
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "[30",
+    "confidence": 0.41,
+    "bounding_box": [
+      [
+        1063,
+        295
+      ],
+      [
+        1112,
+        295
+      ],
+      [
+        1112,
+        311
+      ],
+      [
+        1063,
+        311
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "1DR",
+    "confidence": 0.89,
+    "bounding_box": [
+      [
+        1122,
+        295
+      ],
+      [
+        1165,
+        295
+      ],
+      [
+        1165,
+        311
+      ],
+      [
+        1122,
+        311
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "PO",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        77,
+        343
+      ],
+      [
+        104,
+        343
+      ],
+      [
+        104,
+        359
+      ],
+      [
+        77,
+        359
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Ref:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        114,
+        342
+      ],
+      [
+        152,
+        342
+      ],
+      [
+        152,
+        359
+      ],
+      [
+        114,
+        359
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "Sam",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        162,
+        343
+      ],
+      [
+        208,
+        343
+      ],
+      [
+        208,
+        359
+      ],
+      [
+        162,
+        359
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Bill",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        77,
+        422
+      ],
+      [
+        112,
+        422
+      ],
+      [
+        112,
+        439
+      ],
+      [
+        77,
+        439
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "to:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        121,
+        424
+      ],
+      [
+        153,
+        424
+      ],
+      [
+        153,
+        439
+      ],
+      [
+        121,
+        439
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Deliver",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1031,
+        422
+      ],
+      [
+        1117,
+        422
+      ],
+      [
+        1117,
+        439
+      ],
+      [
+        1031,
+        439
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "to:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1125,
+        424
+      ],
+      [
+        1157,
+        424
+      ],
+      [
+        1157,
+        439
+      ],
+      [
+        1125,
+        439
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Snowdonia",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        76,
+        455
+      ],
+      [
+        193,
+        455
+      ],
+      [
+        193,
+        472
+      ],
+      [
+        76,
+        472
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "Hospitality",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        203,
+        455
+      ],
+      [
+        318,
+        455
+      ],
+      [
+        318,
+        477
+      ],
+      [
+        203,
+        477
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "and",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        327,
+        455
+      ],
+      [
+        364,
+        455
+      ],
+      [
+        364,
+        472
+      ],
+      [
+        327,
+        472
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Leisure",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        375,
+        455
+      ],
+      [
+        451,
+        455
+      ],
+      [
+        451,
+        472
+      ],
+      [
+        375,
+        472
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Ltd",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        461,
+        455
+      ],
+      [
+        492,
+        455
+      ],
+      [
+        492,
+        472
+      ],
+      [
+        461,
+        472
+      ]
+    ],
+    "field_type": "supplier"
+  },
+  {
+    "text": "The",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1030,
+        455
+      ],
+      [
+        1070,
+        455
+      ],
+      [
+        1070,
+        472
+      ],
+      [
+        1030,
+        472
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Stables",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1080,
+        455
+      ],
+      [
+        1158,
+        455
+      ],
+      [
+        1158,
+        472
+      ],
+      [
+        1080,
+        472
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Holyhead",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        77,
+        487
+      ],
+      [
+        176,
+        487
+      ],
+      [
+        176,
+        509
+      ],
+      [
+        77,
+        509
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Road",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        187,
+        487
+      ],
+      [
+        238,
+        487
+      ],
+      [
+        238,
+        504
+      ],
+      [
+        187,
+        504
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Holyhead",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1003,
+        487
+      ],
+      [
+        1102,
+        487
+      ],
+      [
+        1102,
+        509
+      ],
+      [
+        1003,
+        509
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Road",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1113,
+        487
+      ],
+      [
+        1164,
+        487
+      ],
+      [
+        1164,
+        504
+      ],
+      [
+        1113,
+        504
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Betws-Y-Coed",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        77,
+        516
+      ],
+      [
+        219,
+        516
+      ],
+      [
+        219,
+        547
+      ],
+      [
+        77,
+        547
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Betws-Y-Coed",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        1022,
+        520
+      ],
+      [
+        1164,
+        520
+      ],
+      [
+        1164,
+        537
+      ],
+      [
+        1022,
+        537
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "LL24",
+    "confidence": 0.9,
+    "bounding_box": [
+      [
+        77,
+        554
+      ],
+      [
+        126,
+        554
+      ],
+      [
+        126,
+        570
+      ],
+      [
+        77,
+        570
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "OAY",
+    "confidence": 0.89,
+    "bounding_box": [
+      [
+        135,
+        554
+      ],
+      [
+        174,
+        554
+      ],
+      [
+        174,
+        570
+      ],
+      [
+        135,
+        570
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "LL24",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        1068,
+        554
+      ],
+      [
+        1118,
+        554
+      ],
+      [
+        1118,
+        570
+      ],
+      [
+        1068,
+        570
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "OAY",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        1127,
+        554
+      ],
+      [
+        1166,
+        554
+      ],
+      [
+        1166,
+        570
+      ],
+      [
+        1127,
+        570
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "QTy",
+    "confidence": 0.46,
+    "bounding_box": [
+      [
+        61,
+        607
+      ],
+      [
+        92,
+        607
+      ],
+      [
+        92,
+        629
+      ],
+      [
+        61,
+        629
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "CODE",
+    "confidence": 0.86,
+    "bounding_box": [
+      [
+        142,
+        611
+      ],
+      [
+        184,
+        611
+      ],
+      [
+        184,
+        621
+      ],
+      [
+        142,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "ITEM",
+    "confidence": 0.87,
+    "bounding_box": [
+      [
+        287,
+        611
+      ],
+      [
+        323,
+        611
+      ],
+      [
+        323,
+        621
+      ],
+      [
+        287,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "UNIT",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        614,
+        611
+      ],
+      [
+        651,
+        611
+      ],
+      [
+        651,
+        621
+      ],
+      [
+        614,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "PRICE",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        657,
+        611
+      ],
+      [
+        701,
+        611
+      ],
+      [
+        701,
+        621
+      ],
+      [
+        657,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "DISCOUNT",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        780,
+        611
+      ],
+      [
+        861,
+        611
+      ],
+      [
+        861,
+        621
+      ],
+      [
+        780,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "VAT",
+    "confidence": 0.85,
+    "bounding_box": [
+      [
+        992,
+        611
+      ],
+      [
+        1021,
+        611
+      ],
+      [
+        1021,
+        621
+      ],
+      [
+        992,
+        621
+      ]
+    ],
+    "field_type": "vat"
+  },
+  {
+    "text": "LINE",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1095,
+        611
+      ],
+      [
+        1128,
+        611
+      ],
+      [
+        1128,
+        621
+      ],
+      [
+        1095,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "PRICE",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1135,
+        611
+      ],
+      [
+        1179,
+        611
+      ],
+      [
+        1179,
+        621
+      ],
+      [
+        1135,
+        621
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "2",
+    "confidence": 0.97,
+    "bounding_box": [
+      [
+        60,
+        646
+      ],
+      [
+        69,
+        646
+      ],
+      [
+        69,
+        660
+      ],
+      [
+        60,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "BUCK-EK30",
+    "confidence": 0.43,
+    "bounding_box": [
+      [
+        142,
+        642
+      ],
+      [
+        244,
+        642
+      ],
+      [
+        244,
+        669
+      ],
+      [
+        142,
+        669
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Buckskin",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        286,
+        646
+      ],
+      [
+        367,
+        646
+      ],
+      [
+        367,
+        660
+      ],
+      [
+        286,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "-",
+    "confidence": 0.92,
+    "bounding_box": [
+      [
+        375,
+        654
+      ],
+      [
+        380,
+        654
+      ],
+      [
+        380,
+        656
+      ],
+      [
+        375,
+        656
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "30L",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        388,
+        646
+      ],
+      [
+        421,
+        646
+      ],
+      [
+        421,
+        660
+      ],
+      [
+        388,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "E-keg",
+    "confidence": 0.92,
+    "bounding_box": [
+      [
+        429,
+        646
+      ],
+      [
+        478,
+        646
+      ],
+      [
+        478,
+        664
+      ],
+      [
+        429,
+        664
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a398.50",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        639,
+        646
+      ],
+      [
+        702,
+        646
+      ],
+      [
+        702,
+        660
+      ],
+      [
+        639,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a39.85",
+    "confidence": 0.0,
+    "bounding_box": [
+      [
+        750,
+        646
+      ],
+      [
+        801,
+        646
+      ],
+      [
+        801,
+        660
+      ],
+      [
+        750,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "/10%",
+    "confidence": 0.0,
+    "bounding_box": [
+      [
+        809,
+        646
+      ],
+      [
+        862,
+        646
+      ],
+      [
+        862,
+        662
+      ],
+      [
+        809,
+        662
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "20%",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        982,
+        646
+      ],
+      [
+        1021,
+        646
+      ],
+      [
+        1021,
+        660
+      ],
+      [
+        982,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a3177.30",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1097,
+        646
+      ],
+      [
+        1181,
+        646
+      ],
+      [
+        1181,
+        660
+      ],
+      [
+        1097,
+        660
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "3",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        60,
+        682
+      ],
+      [
+        70,
+        682
+      ],
+      [
+        70,
+        696
+      ],
+      [
+        60,
+        696
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "NOK-KEG30",
+    "confidence": 0.92,
+    "bounding_box": [
+      [
+        142,
+        682
+      ],
+      [
+        247,
+        682
+      ],
+      [
+        247,
+        696
+      ],
+      [
+        142,
+        696
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "Nokota",
+    "confidence": 0.9,
+    "bounding_box": [
+      [
+        286,
+        682
+      ],
+      [
+        349,
+        682
+      ],
+      [
+        349,
+        696
+      ],
+      [
+        286,
+        696
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "-",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        357,
+        690
+      ],
+      [
+        363,
+        690
+      ],
+      [
+        363,
+        692
+      ],
+      [
+        357,
+        692
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "30L",
+    "confidence": 0.92,
+    "bounding_box": [
+      [
+        371,
+        682
+      ],
+      [
+        404,
+        682
+      ],
+      [
+        404,
+        696
+      ],
+      [
+        371,
+        696
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Keg",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        411,
+        682
+      ],
+      [
+        443,
+        682
+      ],
+      [
+        443,
+        700
+      ],
+      [
+        411,
+        700
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a3106.00",
+    "confidence": 0.63,
+    "bounding_box": [
+      [
+        627,
+        682
+      ],
+      [
+        702,
+        682
+      ],
+      [
+        702,
+        696
+      ],
+      [
+        627,
+        696
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a310.60/10%",
+    "confidence": 0.75,
+    "bounding_box": [
+      [
+        738,
+        682
+      ],
+      [
+        862,
+        682
+      ],
+      [
+        862,
+        698
+      ],
+      [
+        738,
+        698
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "20%",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        982,
+        682
+      ],
+      [
+        1021,
+        682
+      ],
+      [
+        1021,
+        696
+      ],
+      [
+        982,
+        696
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a3286.20",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        1097,
+        682
+      ],
+      [
+        1181,
+        682
+      ],
+      [
+        1181,
+        696
+      ],
+      [
+        1097,
+        696
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Total",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        862,
+        718
+      ],
+      [
+        912,
+        718
+      ],
+      [
+        912,
+        732
+      ],
+      [
+        862,
+        732
+      ]
+    ],
+    "field_type": "total"
+  },
+  {
+    "text": "(ex.",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        921,
+        718
+      ],
+      [
+        959,
+        718
+      ],
+      [
+        959,
+        735
+      ],
+      [
+        921,
+        735
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "VAT):",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        967,
+        718
+      ],
+      [
+        1020,
+        718
+      ],
+      [
+        1020,
+        735
+      ],
+      [
+        967,
+        735
+      ]
+    ],
+    "field_type": "vat"
+  },
+  {
+    "text": "\u00a3463.50",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1097,
+        718
+      ],
+      [
+        1181,
+        718
+      ],
+      [
+        1181,
+        732
+      ],
+      [
+        1097,
+        732
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "VAT",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        925,
+        754
+      ],
+      [
+        964,
+        754
+      ],
+      [
+        964,
+        768
+      ],
+      [
+        925,
+        768
+      ]
+    ],
+    "field_type": "vat"
+  },
+  {
+    "text": "20%:",
+    "confidence": 0.94,
+    "bounding_box": [
+      [
+        971,
+        754
+      ],
+      [
+        1020,
+        754
+      ],
+      [
+        1020,
+        768
+      ],
+      [
+        971,
+        768
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a392.70",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1110,
+        754
+      ],
+      [
+        1181,
+        754
+      ],
+      [
+        1181,
+        768
+      ],
+      [
+        1110,
+        768
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Total:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        963,
+        786
+      ],
+      [
+        1020,
+        786
+      ],
+      [
+        1020,
+        813
+      ],
+      [
+        963,
+        813
+      ]
+    ],
+    "field_type": "total"
+  },
+  {
+    "text": "\u00a3556.20",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        1097,
+        790
+      ],
+      [
+        1181,
+        790
+      ],
+      [
+        1181,
+        804
+      ],
+      [
+        1097,
+        804
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "PAYMENT",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        62,
+        871
+      ],
+      [
+        134,
+        871
+      ],
+      [
+        134,
+        881
+      ],
+      [
+        62,
+        881
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "INFO",
+    "confidence": 0.82,
+    "bounding_box": [
+      [
+        140,
+        871
+      ],
+      [
+        177,
+        871
+      ],
+      [
+        177,
+        881
+      ],
+      [
+        140,
+        881
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "DUE",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        488,
+        871
+      ],
+      [
+        519,
+        871
+      ],
+      [
+        519,
+        881
+      ],
+      [
+        488,
+        881
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "BY",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        526,
+        871
+      ],
+      [
+        545,
+        871
+      ],
+      [
+        545,
+        881
+      ],
+      [
+        526,
+        881
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "TOTAL",
+    "confidence": 0.94,
+    "bounding_box": [
+      [
+        1093,
+        871
+      ],
+      [
+        1142,
+        871
+      ],
+      [
+        1142,
+        881
+      ],
+      [
+        1093,
+        881
+      ]
+    ],
+    "field_type": "total"
+  },
+  {
+    "text": "DUE",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1149,
+        871
+      ],
+      [
+        1179,
+        871
+      ],
+      [
+        1179,
+        881
+      ],
+      [
+        1149,
+        881
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Payment",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        60,
+        933
+      ],
+      [
+        128,
+        933
+      ],
+      [
+        128,
+        946
+      ],
+      [
+        60,
+        946
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "will",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        134,
+        932
+      ],
+      [
+        159,
+        932
+      ],
+      [
+        159,
+        943
+      ],
+      [
+        134,
+        943
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "be",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        166,
+        932
+      ],
+      [
+        184,
+        932
+      ],
+      [
+        184,
+        943
+      ],
+      [
+        166,
+        943
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "taken",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        190,
+        932
+      ],
+      [
+        234,
+        932
+      ],
+      [
+        234,
+        943
+      ],
+      [
+        190,
+        943
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "automatically",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        240,
+        932
+      ],
+      [
+        347,
+        932
+      ],
+      [
+        347,
+        946
+      ],
+      [
+        240,
+        946
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "by",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        354,
+        932
+      ],
+      [
+        371,
+        932
+      ],
+      [
+        371,
+        946
+      ],
+      [
+        354,
+        946
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Direct",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        378,
+        932
+      ],
+      [
+        425,
+        932
+      ],
+      [
+        425,
+        943
+      ],
+      [
+        378,
+        943
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Debit",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        431,
+        932
+      ],
+      [
+        473,
+        932
+      ],
+      [
+        473,
+        943
+      ],
+      [
+        431,
+        943
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "18/0",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        489,
+        911
+      ],
+      [
+        557,
+        911
+      ],
+      [
+        557,
+        938
+      ],
+      [
+        489,
+        938
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "7/2",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        562,
+        911
+      ],
+      [
+        609,
+        911
+      ],
+      [
+        609,
+        938
+      ],
+      [
+        562,
+        938
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "02",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        614,
+        911
+      ],
+      [
+        651,
+        911
+      ],
+      [
+        651,
+        936
+      ],
+      [
+        614,
+        936
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "5",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        656,
+        911
+      ],
+      [
+        672,
+        911
+      ],
+      [
+        672,
+        936
+      ],
+      [
+        656,
+        936
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "\u00a3",
+    "confidence": 0.87,
+    "bounding_box": [
+      [
+        1048,
+        936
+      ],
+      [
+        1064,
+        936
+      ],
+      [
+        1064,
+        960
+      ],
+      [
+        1048,
+        960
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "2",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1142,
+        936
+      ],
+      [
+        1158,
+        936
+      ],
+      [
+        1158,
+        960
+      ],
+      [
+        1142,
+        960
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "on",
+    "confidence": 0.9,
+    "bounding_box": [
+      [
+        59,
+        956
+      ],
+      [
+        78,
+        956
+      ],
+      [
+        78,
+        964
+      ],
+      [
+        59,
+        964
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "the",
+    "confidence": 0.9,
+    "bounding_box": [
+      [
+        84,
+        953
+      ],
+      [
+        109,
+        953
+      ],
+      [
+        109,
+        964
+      ],
+      [
+        84,
+        964
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "due",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        115,
+        953
+      ],
+      [
+        144,
+        953
+      ],
+      [
+        144,
+        964
+      ],
+      [
+        115,
+        964
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "date.",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        150,
+        953
+      ],
+      [
+        189,
+        953
+      ],
+      [
+        189,
+        964
+      ],
+      [
+        150,
+        964
+      ]
+    ],
+    "field_type": "date"
+  },
+  {
+    "text": "556.20",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1069,
+        936
+      ],
+      [
+        1180,
+        936
+      ],
+      [
+        1180,
+        961
+      ],
+      [
+        1069,
+        961
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "14",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        487,
+        968
+      ],
+      [
+        503,
+        968
+      ],
+      [
+        503,
+        978
+      ],
+      [
+        487,
+        978
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "days",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        509,
+        967
+      ],
+      [
+        541,
+        967
+      ],
+      [
+        541,
+        981
+      ],
+      [
+        509,
+        981
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "after",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        546,
+        967
+      ],
+      [
+        579,
+        967
+      ],
+      [
+        579,
+        978
+      ],
+      [
+        546,
+        978
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "the",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        584,
+        967
+      ],
+      [
+        606,
+        967
+      ],
+      [
+        606,
+        978
+      ],
+      [
+        584,
+        978
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "invoice",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        612,
+        967
+      ],
+      [
+        660,
+        967
+      ],
+      [
+        660,
+        978
+      ],
+      [
+        612,
+        978
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "date",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        666,
+        967
+      ],
+      [
+        697,
+        967
+      ],
+      [
+        697,
+        978
+      ],
+      [
+        666,
+        978
+      ]
+    ],
+    "field_type": "date"
+  },
+  {
+    "text": "Delivered",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        61,
+        1062
+      ],
+      [
+        159,
+        1062
+      ],
+      [
+        159,
+        1076
+      ],
+      [
+        61,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "in",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        168,
+        1062
+      ],
+      [
+        185,
+        1062
+      ],
+      [
+        185,
+        1076
+      ],
+      [
+        168,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "containers:",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        194,
+        1062
+      ],
+      [
+        311,
+        1062
+      ],
+      [
+        311,
+        1076
+      ],
+      [
+        194,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00082",
+    "confidence": 0.61,
+    "bounding_box": [
+      [
+        319,
+        1062
+      ],
+      [
+        422,
+        1062
+      ],
+      [
+        422,
+        1076
+      ],
+      [
+        319,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "(809),",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        431,
+        1062
+      ],
+      [
+        485,
+        1062
+      ],
+      [
+        485,
+        1079
+      ],
+      [
+        431,
+        1079
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "NR-5435",
+    "confidence": 0.92,
+    "bounding_box": [
+      [
+        494,
+        1062
+      ],
+      [
+        571,
+        1062
+      ],
+      [
+        571,
+        1076
+      ],
+      [
+        494,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "(808),",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        580,
+        1062
+      ],
+      [
+        634,
+        1062
+      ],
+      [
+        634,
+        1079
+      ],
+      [
+        580,
+        1079
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "NR-5436",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        643,
+        1062
+      ],
+      [
+        721,
+        1062
+      ],
+      [
+        721,
+        1076
+      ],
+      [
+        643,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "(808),",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        730,
+        1062
+      ],
+      [
+        783,
+        1062
+      ],
+      [
+        783,
+        1079
+      ],
+      [
+        730,
+        1079
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00399",
+    "confidence": 0.88,
+    "bounding_box": [
+      [
+        791,
+        1062
+      ],
+      [
+        895,
+        1062
+      ],
+      [
+        895,
+        1076
+      ],
+      [
+        791,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "(809)",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        903,
+        1062
+      ],
+      [
+        951,
+        1062
+      ],
+      [
+        951,
+        1079
+      ],
+      [
+        903,
+        1079
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "and",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        959,
+        1062
+      ],
+      [
+        992,
+        1062
+      ],
+      [
+        992,
+        1076
+      ],
+      [
+        959,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00230",
+    "confidence": 0.86,
+    "bounding_box": [
+      [
+        1000,
+        1062
+      ],
+      [
+        1103,
+        1062
+      ],
+      [
+        1103,
+        1076
+      ],
+      [
+        1000,
+        1076
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "(809).",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        1112,
+        1062
+      ],
+      [
+        1165,
+        1062
+      ],
+      [
+        1165,
+        1079
+      ],
+      [
+        1112,
+        1079
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Containers",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        60,
+        1106
+      ],
+      [
+        173,
+        1106
+      ],
+      [
+        173,
+        1120
+      ],
+      [
+        60,
+        1120
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "outstanding:",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        181,
+        1106
+      ],
+      [
+        314,
+        1106
+      ],
+      [
+        314,
+        1124
+      ],
+      [
+        181,
+        1124
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00615,",
+    "confidence": 0.89,
+    "bounding_box": [
+      [
+        322,
+        1106
+      ],
+      [
+        431,
+        1106
+      ],
+      [
+        431,
+        1122
+      ],
+      [
+        322,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00107,",
+    "confidence": 0.68,
+    "bounding_box": [
+      [
+        439,
+        1106
+      ],
+      [
+        548,
+        1106
+      ],
+      [
+        548,
+        1122
+      ],
+      [
+        439,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00230,",
+    "confidence": 0.87,
+    "bounding_box": [
+      [
+        556,
+        1106
+      ],
+      [
+        665,
+        1106
+      ],
+      [
+        665,
+        1122
+      ],
+      [
+        556,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00353,",
+    "confidence": 0.76,
+    "bounding_box": [
+      [
+        674,
+        1106
+      ],
+      [
+        782,
+        1106
+      ],
+      [
+        782,
+        1122
+      ],
+      [
+        674,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "KEGF00702,",
+    "confidence": 0.54,
+    "bounding_box": [
+      [
+        792,
+        1106
+      ],
+      [
+        904,
+        1106
+      ],
+      [
+        904,
+        1122
+      ],
+      [
+        792,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00082,",
+    "confidence": 0.81,
+    "bounding_box": [
+      [
+        912,
+        1106
+      ],
+      [
+        1021,
+        1106
+      ],
+      [
+        1021,
+        1122
+      ],
+      [
+        912,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00399,",
+    "confidence": 0.63,
+    "bounding_box": [
+      [
+        1029,
+        1106
+      ],
+      [
+        1138,
+        1106
+      ],
+      [
+        1138,
+        1122
+      ],
+      [
+        1029,
+        1122
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHBO00540,",
+    "confidence": 0.41,
+    "bounding_box": [
+      [
+        60,
+        1134
+      ],
+      [
+        168,
+        1134
+      ],
+      [
+        168,
+        1150
+      ],
+      [
+        60,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "KEGF00717,",
+    "confidence": 0.78,
+    "bounding_box": [
+      [
+        178,
+        1134
+      ],
+      [
+        290,
+        1134
+      ],
+      [
+        290,
+        1150
+      ],
+      [
+        178,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "KEGF00706,",
+    "confidence": 0.73,
+    "bounding_box": [
+      [
+        299,
+        1134
+      ],
+      [
+        411,
+        1134
+      ],
+      [
+        411,
+        1150
+      ],
+      [
+        299,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00474,",
+    "confidence": 0.87,
+    "bounding_box": [
+      [
+        419,
+        1134
+      ],
+      [
+        528,
+        1134
+      ],
+      [
+        528,
+        1150
+      ],
+      [
+        419,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00380,",
+    "confidence": 0.85,
+    "bounding_box": [
+      [
+        536,
+        1134
+      ],
+      [
+        645,
+        1134
+      ],
+      [
+        645,
+        1150
+      ],
+      [
+        536,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00095,",
+    "confidence": 0.84,
+    "bounding_box": [
+      [
+        653,
+        1134
+      ],
+      [
+        762,
+        1134
+      ],
+      [
+        762,
+        1150
+      ],
+      [
+        653,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00071,",
+    "confidence": 0.86,
+    "bounding_box": [
+      [
+        770,
+        1134
+      ],
+      [
+        879,
+        1134
+      ],
+      [
+        879,
+        1150
+      ],
+      [
+        770,
+        1150
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHB00491",
+    "confidence": 0.68,
+    "bounding_box": [
+      [
+        887,
+        1134
+      ],
+      [
+        990,
+        1134
+      ],
+      [
+        990,
+        1148
+      ],
+      [
+        887,
+        1148
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "and",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        999,
+        1134
+      ],
+      [
+        1032,
+        1134
+      ],
+      [
+        1032,
+        1148
+      ],
+      [
+        999,
+        1148
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WHBOO150.",
+    "confidence": 0.67,
+    "bounding_box": [
+      [
+        1040,
+        1134
+      ],
+      [
+        1148,
+        1134
+      ],
+      [
+        1148,
+        1148
+      ],
+      [
+        1040,
+        1148
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WE",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        60,
+        1178
+      ],
+      [
+        88,
+        1178
+      ],
+      [
+        88,
+        1192
+      ],
+      [
+        60,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "DO",
+    "confidence": 0.94,
+    "bounding_box": [
+      [
+        97,
+        1178
+      ],
+      [
+        124,
+        1178
+      ],
+      [
+        124,
+        1192
+      ],
+      [
+        97,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "NOT",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        132,
+        1178
+      ],
+      [
+        171,
+        1178
+      ],
+      [
+        171,
+        1192
+      ],
+      [
+        132,
+        1192
+      ]
+    ],
+    "field_type": "invoice_number"
+  },
+  {
+    "text": "ACCEPT",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        177,
+        1178
+      ],
+      [
+        250,
+        1178
+      ],
+      [
+        250,
+        1192
+      ],
+      [
+        177,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "RETURNS",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        258,
+        1178
+      ],
+      [
+        344,
+        1178
+      ],
+      [
+        344,
+        1192
+      ],
+      [
+        258,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "OF",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        352,
+        1178
+      ],
+      [
+        376,
+        1178
+      ],
+      [
+        376,
+        1192
+      ],
+      [
+        352,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "UNSOLD",
+    "confidence": 0.91,
+    "bounding_box": [
+      [
+        384,
+        1178
+      ],
+      [
+        461,
+        1178
+      ],
+      [
+        461,
+        1192
+      ],
+      [
+        384,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "BEER,",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        470,
+        1178
+      ],
+      [
+        522,
+        1178
+      ],
+      [
+        522,
+        1194
+      ],
+      [
+        470,
+        1194
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "UNLESS",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        531,
+        1178
+      ],
+      [
+        602,
+        1178
+      ],
+      [
+        602,
+        1192
+      ],
+      [
+        531,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "PREVIOUSLY",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        611,
+        1178
+      ],
+      [
+        724,
+        1178
+      ],
+      [
+        724,
+        1192
+      ],
+      [
+        611,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "AGREED",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        730,
+        1178
+      ],
+      [
+        807,
+        1178
+      ],
+      [
+        807,
+        1192
+      ],
+      [
+        730,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "IN",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        816,
+        1178
+      ],
+      [
+        832,
+        1178
+      ],
+      [
+        832,
+        1192
+      ],
+      [
+        816,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "WRITING.",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        840,
+        1178
+      ],
+      [
+        926,
+        1178
+      ],
+      [
+        926,
+        1192
+      ],
+      [
+        840,
+        1192
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Name:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        61,
+        1235
+      ],
+      [
+        147,
+        1235
+      ],
+      [
+        147,
+        1268
+      ],
+      [
+        61,
+        1268
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Signature:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        393,
+        1235
+      ],
+      [
+        536,
+        1235
+      ],
+      [
+        536,
+        1268
+      ],
+      [
+        393,
+        1268
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Date:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        782,
+        1240
+      ],
+      [
+        854,
+        1240
+      ],
+      [
+        854,
+        1258
+      ],
+      [
+        782,
+        1258
+      ]
+    ],
+    "field_type": "date"
+  },
+  {
+    "text": "Tel:",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        584,
+        1592
+      ],
+      [
+        614,
+        1592
+      ],
+      [
+        614,
+        1606
+      ],
+      [
+        584,
+        1606
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "01492",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        623,
+        1592
+      ],
+      [
+        680,
+        1592
+      ],
+      [
+        680,
+        1606
+      ],
+      [
+        623,
+        1606
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "868292",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        689,
+        1592
+      ],
+      [
+        757,
+        1592
+      ],
+      [
+        757,
+        1606
+      ],
+      [
+        689,
+        1606
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Email:",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        794,
+        1592
+      ],
+      [
+        849,
+        1592
+      ],
+      [
+        849,
+        1606
+      ],
+      [
+        794,
+        1606
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "accounts@wildhorsebrewing.co.uk",
+    "confidence": 0.9,
+    "bounding_box": [
+      [
+        858,
+        1592
+      ],
+      [
+        1181,
+        1592
+      ],
+      [
+        1181,
+        1610
+      ],
+      [
+        858,
+        1610
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "Company",
+    "confidence": 0.96,
+    "bounding_box": [
+      [
+        396,
+        1628
+      ],
+      [
+        483,
+        1628
+      ],
+      [
+        483,
+        1646
+      ],
+      [
+        396,
+        1646
+      ]
+    ],
+    "field_type": "supplier"
+  },
+  {
+    "text": "Reg:",
+    "confidence": 0.95,
+    "bounding_box": [
+      [
+        492,
+        1628
+      ],
+      [
+        530,
+        1628
+      ],
+      [
+        530,
+        1646
+      ],
+      [
+        492,
+        1646
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "09195812",
+    "confidence": 0.85,
+    "bounding_box": [
+      [
+        539,
+        1628
+      ],
+      [
+        632,
+        1628
+      ],
+      [
+        632,
+        1642
+      ],
+      [
+        539,
+        1642
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "VAT:",
+    "confidence": 0.33,
+    "bounding_box": [
+      [
+        668,
+        1628
+      ],
+      [
+        704,
+        1628
+      ],
+      [
+        704,
+        1642
+      ],
+      [
+        668,
+        1642
+      ]
+    ],
+    "field_type": "vat"
+  },
+  {
+    "text": "GB196737355",
+    "confidence": 0.9,
+    "bounding_box": [
+      [
+        713,
+        1628
+      ],
+      [
+        845,
+        1628
+      ],
+      [
+        845,
+        1642
+      ],
+      [
+        713,
+        1642
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "|=",
+    "confidence": 0.4,
+    "bounding_box": [
+      [
+        864,
+        1624
+      ],
+      [
+        876,
+        1624
+      ],
+      [
+        876,
+        1651
+      ],
+      [
+        864,
+        1651
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "AWRS",
+    "confidence": 0.71,
+    "bounding_box": [
+      [
+        881,
+        1628
+      ],
+      [
+        935,
+        1628
+      ],
+      [
+        935,
+        1642
+      ],
+      [
+        881,
+        1642
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "URN:",
+    "confidence": 0.93,
+    "bounding_box": [
+      [
+        944,
+        1628
+      ],
+      [
+        987,
+        1628
+      ],
+      [
+        987,
+        1642
+      ],
+      [
+        944,
+        1642
+      ]
+    ],
+    "field_type": null
+  },
+  {
+    "text": "XKAW00000102759",
+    "confidence": 0.74,
+    "bounding_box": [
+      [
+        996,
+        1628
+      ],
+      [
+        1180,
+        1628
+      ],
+      [
+        1180,
+        1642
+      ],
+      [
+        996,
+        1642
+      ]
+    ],
+    "field_type": null
+  }
+]
