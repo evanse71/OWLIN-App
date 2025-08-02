@@ -123,7 +123,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
       timeoutId = setTimeout(() => {
         console.error(`⏰ Upload timeout for ${file.name} after 90 seconds`);
         throw new Error('Upload timed out after 90 seconds');
-      }, 90000);
+      }, 45000);
 
       // Try direct upload first
       let response: any;
@@ -131,7 +131,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         console.log(`📤 Attempting direct upload for ${file.name}...`);
         response = await Promise.race([
           apiService.uploadInvoice(file),
-          createTimeoutPromise(90000) // Increased timeout to 90 seconds
+          createTimeoutPromise(45000) // Increased timeout to 90 seconds
         ]);
         
         console.log(`✅ Direct upload successful for ${file.name}:`, response);
@@ -235,7 +235,7 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
           console.log(`🔄 Attempting smart processing fallback for ${file.name}...`);
           response = await Promise.race([
             apiService.uploadDocumentForReview(file),
-            createTimeoutPromise(90000) // Increased timeout to 90 seconds for PaddleOCR
+            createTimeoutPromise(45000) // Increased timeout to 90 seconds for PaddleOCR
           ]);
           
           console.log(`✅ Smart processing successful for ${file.name}:`, response);

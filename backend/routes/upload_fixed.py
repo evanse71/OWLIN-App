@@ -216,6 +216,17 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
             error_msg = f"OCR processing failed: {str(e)}"
         
         raise HTTPException(status_code=500, detail=error_msg)
+def get_timeout_for_file(file_path: str) -> int:
+    """Get appropriate timeout based on file type and size"""
+    file_size = os.path.getsize(file_path)
+    file_ext = Path(file_path).suffix.lower()
+    
+    if file_ext == ".pdf":
+        return 60  # PDFs take longer
+    elif file_ext in [".jpg", ".jpeg", ".png"]:
+        return 30  # Images are faster
+    else:
+        return 45  # Default
 
 @router.post("/upload")
 async def upload_invoice(file: UploadFile = File(...)):
@@ -350,7 +361,7 @@ async def upload_invoice(file: UploadFile = File(...)):
         logger.info("🔄 Step 3: Running OCR processing...")
         try:
             # Get timeout from environment variable or use default
-            timeout_seconds = int(os.getenv('OCR_TIMEOUT_SECONDS', '120'))  # Increased from 90 to 120 seconds
+            timeout_seconds = get_timeout_for_file(temp_filepath)
             logger.info(f"⏱️ Using OCR timeout: {timeout_seconds} seconds")
             
             ocr_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=timeout_seconds)
