@@ -76,36 +76,40 @@ app.include_router(upload_validation.router, prefix="/api", tags=["upload-valida
 app.include_router(dev.router, prefix="/api/dev", tags=["development"])
 
 @app.on_event("startup")
-async def startup_event():
+def startup_event():
     """Preload OCR models at FastAPI startup to prevent first-upload delays."""
-    try:
-        import asyncio
-        import time
-        
-        logging.info("🔄 Preloading OCR models at startup...")
-        start_time = time.time()
-        
-        # Import and preload PaddleOCR model
-        from backend.upload_pipeline import get_paddle_ocr_model
-        
-        # Run model initialization in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, get_paddle_ocr_model)
-        
-        elapsed_time = time.time() - start_time
-        logging.info(f"✅ OCR models preloaded successfully in {elapsed_time:.2f} seconds")
-        
-        # Also initialize Tesseract availability check
+    import threading
+    
+    def preload_models():
         try:
-            import pytesseract
-            pytesseract.get_tesseract_version()
-            logging.info("✅ Tesseract fallback available")
-        except Exception as e:
-            logging.warning(f"⚠️ Tesseract not available: {e}")
+            import time
+            logging.info("🔄 Preloading OCR models at startup...")
+            start_time = time.time()
             
-    except Exception as e:
-        logging.error(f"❌ Failed to preload OCR models at startup: {e}")
-        logging.error("⚠️ First upload may experience delays due to model loading")
+            # Import and preload PaddleOCR model
+            from backend.upload_pipeline import get_paddle_ocr_model
+            
+            # Run model initialization
+            get_paddle_ocr_model()
+            
+            elapsed_time = time.time() - start_time
+            logging.info(f"✅ OCR models preloaded successfully in {elapsed_time:.2f} seconds")
+            
+            # Also initialize Tesseract availability check
+            try:
+                import pytesseract
+                pytesseract.get_tesseract_version()
+                logging.info("✅ Tesseract fallback available")
+            except Exception as e:
+                logging.warning(f"⚠️ Tesseract not available: {e}")
+                
+        except Exception as e:
+            logging.error(f"❌ Failed to preload OCR models at startup: {e}")
+            logging.error("⚠️ First upload may experience delays due to model loading")
+    
+    # Run in background thread to avoid blocking startup
+    thread = threading.Thread(target=preload_models, daemon=True)
+    thread.start()
 
 @app.get("/")
 async def root():
@@ -113,7 +117,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "ok"}
 
 @app.get("/api/health")
 def api_health_check():
