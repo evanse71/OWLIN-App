@@ -130,10 +130,10 @@ async function processFileWithPythonBackend(
     formData.append('userRole', userRole);
     formData.append('documentType', documentType);
 
-    console.log(`🔄 Sending ${fileName} to Python backend at ${PY_BACKEND_URL}/upload`);
+    console.log(`🔄 Sending ${fileName} to Python backend at ${PY_BACKEND_URL}/api/upload/enhanced`);
 
-    // Send to Python FastAPI backend
-    const response = await fetch(`${PY_BACKEND_URL}/upload`, {
+    // Send to Python FastAPI backend - FIXED: Added /api prefix and using enhanced endpoint
+    const response = await fetch(`${PY_BACKEND_URL}/api/upload/enhanced`, {
       method: 'POST',
       body: formData as any,
     });
