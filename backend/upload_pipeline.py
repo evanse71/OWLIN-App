@@ -279,10 +279,22 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
         data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
         
         results = []
+        confidence_values = []  # Track confidence values for debugging
+        
         for i in range(len(data['text'])):
             text = data['text'][i].strip()
             if text:  # Only process non-empty text
-                confidence = data['conf'][i] / 100.0  # Convert 0-100 to 0-1 scale
+                # ✅ Fix confidence calculation: convert string to float and handle "-1"
+                raw_confidence = data['conf'][i]
+                if raw_confidence == "-1":
+                    confidence = 0.0  # Low confidence items
+                else:
+                    try:
+                        confidence = float(raw_confidence) / 100.0  # Convert 0-100 to 0-1 scale
+                    except (ValueError, TypeError):
+                        confidence = 0.0  # Fallback for invalid values
+                
+                confidence_values.append(confidence)
                 
                 # Create bounding box from Tesseract data
                 left = data['left'][i]
@@ -303,6 +315,17 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
                     bounding_box=bbox,
                     page_number=page_number
                 ))
+        
+        # Log confidence statistics for debugging
+        if confidence_values:
+            avg_confidence = sum(confidence_values) / len(confidence_values)
+            max_confidence = max(confidence_values)
+            min_confidence = min(confidence_values)
+            logger.info(f"📊 Tesseract confidence stats: avg={avg_confidence:.3f}, max={max_confidence:.3f}, min={min_confidence:.3f}")
+            # ✅ Add optional logging for average confidence (matching ocr_engine.py)
+            logger.debug(f"🟡 Tesseract fallback average confidence: {avg_confidence:.2f}")
+        else:
+            logger.warning("⚠️ No confidence values calculated from Tesseract")
         
         # Log fallback usage
         with open("data/logs/ocr_fallback.log", "a") as f:

@@ -177,7 +177,15 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
         for i in range(len(data['text'])):
             text = data['text'][i].strip()
             if text:  # Only process non-empty text
-                confidence = data['conf'][i] / 100.0  # Convert 0-100 to 0-1 scale
+                # ✅ Fix confidence calculation: convert string to float and handle "-1"
+                raw_confidence = data['conf'][i]
+                if raw_confidence == "-1":
+                    confidence = 0.0  # Low confidence items
+                else:
+                    try:
+                        confidence = float(raw_confidence) / 100.0  # Convert 0-100 to 0-1 scale
+                    except (ValueError, TypeError):
+                        confidence = 0.0  # Fallback for invalid values
                 
                 # Create bounding box from Tesseract data
                 left = data['left'][i]
@@ -204,6 +212,11 @@ def _extract_with_tesseract(image: Image.Image, page_number: int) -> List[OCRRes
         with open("data/logs/ocr_fallback.log", "a") as f:
             timestamp = datetime.datetime.now().isoformat()
             f.write(f"{timestamp} - Tesseract fallback used for page {page_number}\n")
+        
+        # ✅ Add optional logging for average confidence
+        if results:
+            avg_conf = sum(r.confidence for r in results) / len(results)
+            logger.debug(f"🟡 Tesseract fallback average confidence: {avg_conf:.2f}")
         
         logger.info(f"✅ Tesseract fallback completed: {len(results)} results")
         return results
