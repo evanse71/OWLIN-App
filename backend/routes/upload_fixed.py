@@ -350,7 +350,6 @@ async def upload_invoice(file: UploadFile = File(...)):
         logger.info("🔄 Step 3: Running OCR processing...")
         try:
             # Get timeout from environment variable or use default
-            import os
             timeout_seconds = int(os.getenv('OCR_TIMEOUT_SECONDS', '120'))  # Increased from 90 to 120 seconds
             logger.info(f"⏱️ Using OCR timeout: {timeout_seconds} seconds")
             

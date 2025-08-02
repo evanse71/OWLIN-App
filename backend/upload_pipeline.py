@@ -103,8 +103,7 @@ def get_paddle_ocr_model() -> Optional[PaddleOCR]:
             _ocr_model = PaddleOCR(
                 use_angle_cls=True,
                 lang='en',
-                use_gpu=False,  # CPU only for compatibility
-                show_log=False
+                use_gpu=False  # CPU only for compatibility
             )
             logger.info("✅ PaddleOCR model initialized successfully")
         except Exception as e:
