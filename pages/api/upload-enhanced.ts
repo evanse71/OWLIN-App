@@ -3,14 +3,32 @@ import formidable from 'formidable';
 import fs from 'fs';
 import path from 'path';
 
-// Import the new modules (these would need to be available in the Node.js environment)
-// For now, we'll create a bridge to the Python backend
+// Backend API URL - can be configured via environment variable
+const PY_BACKEND_URL = process.env.PY_BACKEND_URL || 'http://localhost:8000';
 
 interface UploadResponse {
   success: boolean;
   message: string;
   data?: any;
   errors?: string[];
+}
+
+interface PythonBackendResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    filename: string;
+    supplier_name?: string;
+    invoice_number?: string;
+    invoice_date?: string;
+    net_amount?: number;
+    vat_amount?: number;
+    total_amount?: number;
+    ocr_confidence?: number;
+    line_items?: any[];
+    processing_time?: number;
+  };
+  error?: string;
 }
 
 export const config = {
@@ -58,6 +76,7 @@ export default async function handler(
         const result = await processFileWithPythonBackend(file, userRole, documentType);
         results.push(result);
       } catch (error) {
+        console.error(`Error processing ${file.originalFilename}:`, error);
         results.push({
           filename: file.originalFilename || 'unknown',
           success: false,
@@ -96,30 +115,57 @@ async function processFileWithPythonBackend(
   file: formidable.File, 
   userRole: string, 
   documentType: string
-) {
-  // This function would call the Python backend
-  // For now, we'll simulate the processing
-  
-  const filePath = file.filepath;
+): Promise<any> {
   const fileName = file.originalFilename || 'unknown';
   
-  // Simulate processing time
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Simulate success/failure based on file type
-  const isSuccess = file.mimetype?.includes('pdf') || file.mimetype?.includes('image');
-  
-  return {
-    filename: fileName,
-    success: isSuccess,
-    data: isSuccess ? {
-      filePath,
-      fileSize: file.size,
-      mimeType: file.mimetype,
-      documentType,
-      userRole,
-      processedAt: new Date().toISOString()
-    } : null,
-    error: isSuccess ? null : 'Unsupported file type'
-  };
+  try {
+    // Create FormData to send to Python backend
+    const FormData = require('form-data');
+    const formData = new FormData();
+    
+    // Add the file
+    formData.append('file', fs.createReadStream(file.filepath), fileName);
+    
+    // Add metadata
+    formData.append('userRole', userRole);
+    formData.append('documentType', documentType);
+
+    console.log(`🔄 Sending ${fileName} to Python backend at ${PY_BACKEND_URL}/upload`);
+
+    // Send to Python FastAPI backend
+    const response = await fetch(`${PY_BACKEND_URL}/upload`, {
+      method: 'POST',
+      body: formData as any,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Backend error for ${fileName}:`, errorText);
+      throw new Error(`Backend error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const result: PythonBackendResponse = await response.json();
+    
+    console.log(`✅ Backend response for ${fileName}:`, result);
+
+    return {
+      filename: fileName,
+      success: result.success,
+      data: result.data,
+      error: result.error || null,
+      processing_time: result.data?.processing_time,
+      ocr_confidence: result.data?.ocr_confidence,
+      supplier_name: result.data?.supplier_name,
+      invoice_number: result.data?.invoice_number,
+      invoice_date: result.data?.invoice_date,
+      net_amount: result.data?.net_amount,
+      vat_amount: result.data?.vat_amount,
+      total_amount: result.data?.total_amount,
+      line_items: result.data?.line_items
+    };
+
+  } catch (error) {
+    console.error(`❌ Error processing ${fileName}:`, error);
+    throw error;
+  }
 } 

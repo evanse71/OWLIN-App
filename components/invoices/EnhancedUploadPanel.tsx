@@ -13,6 +13,17 @@ interface UploadProgress {
     progress: number;
     status: 'uploading' | 'processing' | 'success' | 'error';
     message?: string;
+    details?: {
+      supplier_name?: string;
+      invoice_number?: string;
+      invoice_date?: string;
+      net_amount?: number;
+      vat_amount?: number;
+      total_amount?: number;
+      ocr_confidence?: number;
+      processing_time?: number;
+      error?: string;
+    };
   };
 }
 
@@ -24,6 +35,7 @@ const EnhancedUploadPanel: React.FC<EnhancedUploadPanelProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadResults, setUploadResults] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
@@ -49,6 +61,7 @@ const EnhancedUploadPanel: React.FC<EnhancedUploadPanelProps> = ({
     }
 
     setIsUploading(true);
+    setUploadResults([]);
 
     try {
       const formData = new FormData();
@@ -58,18 +71,19 @@ const EnhancedUploadPanel: React.FC<EnhancedUploadPanelProps> = ({
       formData.append('userRole', userRole);
       formData.append('documentType', documentType);
 
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          const newProgress = { ...prev };
-          Object.keys(newProgress).forEach(filename => {
-            if (newProgress[filename].progress < 90) {
-              newProgress[filename].progress += 10;
-            }
-          });
-          return newProgress;
+      // Update progress to show processing
+      setUploadProgress(prev => {
+        const newProgress = { ...prev };
+        Object.keys(newProgress).forEach(filename => {
+          newProgress[filename] = {
+            ...newProgress[filename],
+            progress: 50,
+            status: 'processing',
+            message: 'Processing with OCR...'
+          };
         });
-      }, 200);
+        return newProgress;
+      });
 
       // Call the enhanced upload API
       const response = await fetch('/api/upload-enhanced', {
@@ -77,28 +91,58 @@ const EnhancedUploadPanel: React.FC<EnhancedUploadPanelProps> = ({
         body: formData,
       });
 
-      clearInterval(progressInterval);
-
       if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${response.statusText} - ${errorText}`);
       }
 
       const result = await response.json();
+      console.log('Upload result:', result);
 
-      // Update progress to show completion
+      // Update progress with detailed results
       setUploadProgress(prev => {
         const newProgress = { ...prev };
-        Object.keys(newProgress).forEach(filename => {
-          newProgress[filename] = {
-            progress: 100,
-            status: 'success',
-            message: 'Upload completed successfully'
-          };
-        });
+        
+        if (result.data?.results) {
+          result.data.results.forEach((fileResult: any) => {
+            const filename = fileResult.filename;
+            if (newProgress[filename]) {
+              newProgress[filename] = {
+                progress: 100,
+                status: fileResult.success ? 'success' : 'error',
+                message: fileResult.success ? 'Processing completed' : fileResult.error,
+                details: {
+                  supplier_name: fileResult.supplier_name,
+                  invoice_number: fileResult.invoice_number,
+                  invoice_date: fileResult.invoice_date,
+                  net_amount: fileResult.net_amount,
+                  vat_amount: fileResult.vat_amount,
+                  total_amount: fileResult.total_amount,
+                  ocr_confidence: fileResult.ocr_confidence,
+                  processing_time: fileResult.processing_time,
+                  error: fileResult.error
+                }
+              };
+            }
+          });
+        }
+        
         return newProgress;
       });
 
-      showToast('success', `✅ ${result.message}`);
+      // Store results for display
+      if (result.data?.results) {
+        setUploadResults(result.data.results);
+      }
+
+      const successCount = result.data?.summary?.successful || 0;
+      const totalCount = result.data?.summary?.total || 0;
+      
+      if (successCount > 0) {
+        showToast('success', `✅ Successfully processed ${successCount}/${totalCount} files`);
+      } else {
+        showToast('error', `❌ Failed to process any files`);
+      }
       
       if (onUploadComplete && result.data?.results) {
         onUploadComplete(result.data.results);
@@ -108,10 +152,11 @@ const EnhancedUploadPanel: React.FC<EnhancedUploadPanelProps> = ({
       setTimeout(() => {
         setSelectedFiles([]);
         setUploadProgress({});
+        setUploadResults([]);
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
-      }, 2000);
+      }, 5000);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Upload failed';
@@ -298,8 +343,98 @@ const EnhancedUploadPanel: React.FC<EnhancedUploadPanelProps> = ({
                     {progress.message}
                   </p>
                 )}
+                
+                {/* Detailed Results */}
+                {progress.details && progress.status === 'success' && (
+                  <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <h5 className="text-xs font-medium text-green-800 dark:text-green-200 mb-2">
+                      📋 Extracted Data
+                    </h5>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {progress.details.supplier_name && (
+                        <div>
+                          <span className="text-green-700 dark:text-green-300">Supplier:</span>
+                          <span className="ml-1 text-gray-700 dark:text-gray-300">{progress.details.supplier_name}</span>
+                        </div>
+                      )}
+                      {progress.details.invoice_number && (
+                        <div>
+                          <span className="text-green-700 dark:text-green-300">Invoice #:</span>
+                          <span className="ml-1 text-gray-700 dark:text-gray-300">{progress.details.invoice_number}</span>
+                        </div>
+                      )}
+                      {progress.details.invoice_date && (
+                        <div>
+                          <span className="text-green-700 dark:text-green-300">Date:</span>
+                          <span className="ml-1 text-gray-700 dark:text-gray-300">{progress.details.invoice_date}</span>
+                        </div>
+                      )}
+                      {progress.details.total_amount && (
+                        <div>
+                          <span className="text-green-700 dark:text-green-300">Total:</span>
+                          <span className="ml-1 text-gray-700 dark:text-gray-300">£{progress.details.total_amount}</span>
+                        </div>
+                      )}
+                      {progress.details.ocr_confidence && (
+                        <div>
+                          <span className="text-green-700 dark:text-green-300">OCR Confidence:</span>
+                          <span className="ml-1 text-gray-700 dark:text-gray-300">{progress.details.ocr_confidence.toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {progress.details.processing_time && (
+                        <div>
+                          <span className="text-green-700 dark:text-green-300">Processing Time:</span>
+                          <span className="ml-1 text-gray-700 dark:text-gray-300">{progress.details.processing_time.toFixed(2)}s</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Error Details */}
+                {progress.details?.error && progress.status === 'error' && (
+                  <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <h5 className="text-xs font-medium text-red-800 dark:text-red-200 mb-2">
+                      ❌ Error Details
+                    </h5>
+                    <p className="text-xs text-red-700 dark:text-red-300">
+                      {progress.details.error}
+                    </p>
+                  </div>
+                )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Processing Results Summary */}
+      {uploadResults.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+            📊 Processing Summary
+          </h4>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+            <div className="grid grid-cols-3 gap-4 text-xs">
+              <div className="text-center">
+                <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+                  {uploadResults.filter(r => r.success).length}
+                </div>
+                <div className="text-gray-600 dark:text-gray-400">Successful</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+                  {uploadResults.filter(r => !r.success).length}
+                </div>
+                <div className="text-gray-600 dark:text-gray-400">Failed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-semibold text-green-600 dark:text-green-400">
+                  {uploadResults.length}
+                </div>
+                <div className="text-gray-600 dark:text-gray-400">Total</div>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -78,15 +78,19 @@ app.include_router(dev.router, prefix="/api/dev", tags=["development"])
 @app.on_event("startup")
 async def startup_event():
     """Initialize PaddleOCR model at FastAPI startup."""
-    from backend.ocr import ocr_engine
-    if ocr_engine.ocr_model is None:
-        try:
-            from paddleocr import PaddleOCR
-            ocr_engine.ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
-            logging.info("✅ PaddleOCR model initialized at startup")
-        except Exception as e:
-            logging.error(f"❌ Failed to initialize PaddleOCR at startup: {e}")
-            ocr_engine.ocr_model = None
+    try:
+        from backend.ocr import ocr_engine
+        # Check if ocr_model attribute exists, if not, initialize it
+        if not hasattr(ocr_engine, 'ocr_model') or ocr_engine.ocr_model is None:
+            try:
+                from paddleocr import PaddleOCR
+                ocr_engine.ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
+                logging.info("✅ PaddleOCR model initialized at startup")
+            except Exception as e:
+                logging.error(f"❌ Failed to initialize PaddleOCR at startup: {e}")
+                ocr_engine.ocr_model = None
+    except Exception as e:
+        logging.error(f"❌ Failed to import ocr_engine at startup: {e}")
 
 @app.get("/")
 async def root():
