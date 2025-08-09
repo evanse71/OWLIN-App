@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ensure navigation is always accessible */
+nav {
+  position: relative;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure navigation links are clickable */
+nav a, nav button {
+  position: relative;
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+}
+
+/* Prevent other elements from blocking navigation */
+nav * {
+  pointer-events: auto !important;
+}
+
+/* Ensure proper stacking context for the main layout */
+.min-h-screen {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure modals and overlays don't block navigation when closed */
+.fixed.inset-0:not(.bg-black) {
+  pointer-events: none;
+}
+
+.fixed.inset-0.bg-black {
+  pointer-events: auto;
+}
