@@ -149,7 +149,29 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
                 logger.info(f"💾 Supplier: {extracted_data['supplier_name']}")
                 logger.info(f"💾 Invoice number: {extracted_data['invoice_number']}")
                 try:
-                    result = save_invoice_to_db(
+                    # Check if this was LLM processing
+                    field_confidence = None
+                    raw_extraction = None
+                    warnings = None
+                    
+                    if result.engine_used.startswith('llm-'):
+                        # Extract LLM-specific data from line items
+                        field_confidence = {}
+                        if line_items:
+                            # Calculate confidence from line items
+                            for item in line_items:
+                                if isinstance(item, dict) and 'confidence' in item:
+                                    field_confidence[item.get('description', 'line_item')] = item['confidence']
+                        
+                        raw_extraction = {
+                            'engine': result.engine_used,
+                            'line_items_count': len(line_items),
+                            'processing_time': result.processing_time
+                        }
+                        
+                        warnings = []
+                    
+                    result_save = save_invoice_to_db(
                         invoice_id=file_id,
                         supplier_name=extracted_data["supplier_name"],
                         invoice_number=extracted_data["invoice_number"],
@@ -157,9 +179,12 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
                         total_amount=extracted_data["total_amount"],
                         confidence=avg_confidence,
                         ocr_text=all_text,
-                        line_items=line_items
+                        line_items=line_items,
+                        field_confidence=field_confidence,
+                        raw_extraction=raw_extraction,
+                        warnings=warnings
                     )
-                    logger.info(f"✅ Invoice save result: {result}")
+                    logger.info(f"✅ Invoice save result: {result_save}")
                 except Exception as db_error:
                     logger.error(f"❌ Database save failed: {db_error}")
                     import traceback
@@ -177,9 +202,10 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
             "invoice_date": extracted_data["invoice_date"],
             "raw_text": all_text[:1000] + "..." if len(all_text) > 1000 else all_text,
             "word_count": word_count,
-            "line_items": [item.__dict__ for item in line_items[:10]],  # Limit to first 10 items
+            "line_items": [item.__dict__ if hasattr(item, '__dict__') else item for item in line_items[:10]],  # Limit to first 10 items
             "document_type": document_type,
-            "file_id": file_id
+            "file_id": file_id,
+            "engine_used": result.engine_used
         }
         
     except Exception as e:

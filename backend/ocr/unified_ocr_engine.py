@@ -14,6 +14,8 @@ import time
 import signal
 import re
 import os
+import base64
+import io
 from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from PIL import Image
@@ -32,6 +34,16 @@ import pytesseract
 
 # Local imports
 from .ocr_engine import OCRResult
+
+# LLM imports
+try:
+    from backend.llm.llm_client import parse_invoice
+    from backend.types.parsed_invoice import InvoiceParsingPayload, ParsedInvoice
+    from backend.ocr.validators import validate_invoice
+    LLM_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"LLM modules not available: {e}")
+    LLM_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +158,21 @@ class UnifiedOCREngine:
             else:
                 image = self._optimize_image_for_accuracy(image)
             
-            # Run intelligent OCR
+            # Try LLM processing first if available
+            llm_result = None
+            if LLM_AVAILABLE:
+                try:
+                    llm_result = self._process_with_llm([image])
+                except Exception as e:
+                    logger.warning(f"⚠️ LLM processing failed, falling back to OCR: {e}")
+            
+            if llm_result:
+                # Use LLM results
+                logger.info("✅ Using LLM results")
+                return self._convert_llm_result_to_processing_result(llm_result, start_time, "llm-qwen-vl")
+            
+            # Fallback to OCR processing
+            logger.info("🔄 Falling back to OCR processing")
             ocr_results = self._run_intelligent_ocr(image)
             
             if not ocr_results:
@@ -980,6 +1006,84 @@ class UnifiedOCREngine:
         logger.info(f"📊 Batch complete: {successful}/{len(file_paths)} successful, {total_time:.2f}s total")
         
         return results
+
+    def _image_to_base64(self, image: Image.Image) -> str:
+        """Convert PIL image to base64 string"""
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG')
+        img_str = base64.b64encode(buffer.getvalue()).decode()
+        return img_str
+
+    def _process_with_llm(self, images: List[Image.Image], hints: Optional[Dict[str, Any]] = None) -> Optional[ParsedInvoice]:
+        """Process images with local LLM if available"""
+        if not LLM_AVAILABLE:
+            logger.info("⚠️ LLM not available, skipping LLM processing")
+            return None
+        
+        try:
+            # Convert images to base64
+            page_images = []
+            for i, image in enumerate(images):
+                img_b64 = self._image_to_base64(image)
+                page_images.append({
+                    "page": i + 1,
+                    "image_b64": img_b64
+                })
+            
+            # Create payload
+            payload = InvoiceParsingPayload(
+                text=None,
+                tables=None,
+                page_images=page_images,
+                hints=hints or {}
+            )
+            
+            # Parse with LLM
+            logger.info("🤖 Processing with local LLM...")
+            parsed_invoice = parse_invoice(payload)
+            
+            # Validate results
+            parsed_invoice = validate_invoice(parsed_invoice)
+            
+            logger.info(f"✅ LLM processing completed: {len(parsed_invoice.line_items)} line items")
+            return parsed_invoice
+            
+        except Exception as e:
+            logger.error(f"❌ LLM processing failed: {e}")
+            return None
+
+    def _convert_llm_result_to_processing_result(self, llm_result: ParsedInvoice, start_time: float, engine_used: str) -> ProcessingResult:
+        """Convert LLM result to ProcessingResult"""
+        processing_time = time.time() - start_time
+        
+        # Convert line items to dict format
+        line_items_dict = []
+        for item in llm_result.line_items:
+            line_items_dict.append({
+                'description': item.description,
+                'quantity': item.quantity,
+                'unit': item.unit,
+                'unit_price': item.unit_price,
+                'line_total': item.line_total,
+                'page': item.page,
+                'row_idx': item.row_idx,
+                'confidence': item.confidence
+            })
+        
+        return ProcessingResult(
+            success=True,
+            document_type='invoice',
+            supplier=llm_result.supplier_name or '',
+            invoice_number=llm_result.invoice_number or '',
+            date=llm_result.invoice_date or '',
+            total_amount=llm_result.total_amount or 0.0,
+            line_items=line_items_dict,
+            overall_confidence=0.9,  # High confidence for LLM results
+            processing_time=processing_time,
+            raw_text='',  # LLM doesn't provide raw text
+            word_count=len(line_items_dict),
+            engine_used=engine_used
+        )
 
 # Global unified instance with lazy loading
 _unified_ocr_engine = None

@@ -166,13 +166,22 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
         updateProgress(file.name, 30, "Converting");
         console.log(`📤 Attempting direct upload for ${file.name}...`);
         updateProgress(file.name, 60, "OCR Processing");
+        
+        // Check if LLM is enabled
+        const privacySettings = localStorage.getItem('privacy_settings');
+        const useLocalAI = privacySettings ? JSON.parse(privacySettings).useLocalAI : true;
+        
+        if (useLocalAI) {
+          updateProgress(file.name, 70, "Parsing with Local AI...");
+        }
+        
         response = await Promise.race([
           apiService.uploadInvoice(file),
           createTimeoutPromise(300000) // Increased timeout to 5 minutes for large files
         ]);
         
         console.log(`✅ Direct upload successful for ${file.name}:`, response);
-        updateProgress(file.name, 90, "Parsing");
+        updateProgress(file.name, 90, "Finalizing");
         
         // ✅ Handle multi-invoice PDF response
         if (Array.isArray(response.saved_invoices) && response.saved_invoices.length >= 1) {

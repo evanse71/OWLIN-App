@@ -72,6 +72,39 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             """
         )
         
+        # Run migration for LLM fields
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN field_confidence TEXT;")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN raw_extraction TEXT;")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN warnings TEXT;")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        # Create invoice_line_items table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_line_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id TEXT NOT NULL,
+                row_idx INTEGER,
+                page INTEGER,
+                description TEXT,
+                quantity REAL,
+                unit TEXT,
+                unit_price REAL,
+                line_total REAL,
+                confidence REAL,
+                FOREIGN KEY(invoice_id) REFERENCES invoices(id)
+            );
+        """)
+        
         # Create delivery_notes table
         cursor.execute(
             """
@@ -100,40 +133,17 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 file_path TEXT,
                 file_size INTEGER,
                 mime_type TEXT,
-                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """
         )
-        
-        # Create processing_logs table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS processing_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT,
-                processing_status TEXT,
-                ocr_confidence REAL,
-                error_message TEXT,
-                processing_time REAL,
-                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        
-        # Create indexes for better performance
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(invoice_number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON invoices(supplier_name);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_number ON delivery_notes(delivery_number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_hashes ON file_hashes(file_hash);")
         
         conn.commit()
         conn.close()
-        
-        logger.info(f"✅ Database initialized successfully: {db_path}")
+        logger.info("✅ Database initialized successfully")
         
     except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(f"❌ Failed to initialize database: {e}")
         raise
 
 
@@ -817,8 +827,11 @@ def log_processing_result(file_path: str, status: str, ocr_confidence: float = 0
 
 def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str, 
                       invoice_date: str, total_amount: float, confidence: float,
-                      ocr_text: str, line_items: List[Any], db_path: str = DEFAULT_DB_PATH) -> bool:
-    """Save invoice data to database with enhanced fields"""
+                      ocr_text: str, line_items: List[Any], db_path: str = DEFAULT_DB_PATH,
+                      field_confidence: Optional[Dict[str, float]] = None,
+                      raw_extraction: Optional[Dict[str, Any]] = None,
+                      warnings: Optional[List[str]] = None) -> bool:
+    """Save invoice data to database with enhanced fields including LLM data"""
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -827,15 +840,46 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
         import json
         line_items_json = json.dumps([item.__dict__ if hasattr(item, '__dict__') else item for item in line_items])
         
-        # Use the existing table structure
+        # Convert LLM fields to JSON
+        field_confidence_json = json.dumps(field_confidence or {})
+        raw_extraction_json = json.dumps(raw_extraction or {})
+        warnings_json = json.dumps(warnings or [])
+        
+        # Use the existing table structure with new fields
         cursor.execute("""
             INSERT OR REPLACE INTO invoices 
-            (supplier_name, invoice_number, invoice_date, total_amount, ocr_confidence, ocr_text, line_items, processing_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (supplier_name, invoice_number, invoice_date, total_amount, ocr_confidence, ocr_text, line_items, 
+             field_confidence, raw_extraction, warnings, processing_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             supplier_name, invoice_number, invoice_date, 
-            total_amount, confidence, ocr_text, line_items_json, 'processed'
+            total_amount, confidence, ocr_text, line_items_json, 
+            field_confidence_json, raw_extraction_json, warnings_json, 'processed'
         ))
+        
+        # Save line items to separate table
+        if line_items:
+            for item in line_items:
+                if hasattr(item, '__dict__'):
+                    item_dict = item.__dict__
+                else:
+                    item_dict = item
+                
+                cursor.execute("""
+                    INSERT OR REPLACE INTO invoice_line_items 
+                    (invoice_id, row_idx, page, description, quantity, unit, unit_price, line_total, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    invoice_id,
+                    item_dict.get('row_idx'),
+                    item_dict.get('page'),
+                    item_dict.get('description', ''),
+                    item_dict.get('quantity'),
+                    item_dict.get('unit'),
+                    item_dict.get('unit_price'),
+                    item_dict.get('line_total'),
+                    item_dict.get('confidence', 0.0)
+                ))
         
         conn.commit()
         conn.close()
