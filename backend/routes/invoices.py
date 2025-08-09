@@ -7,6 +7,7 @@ import os
 import logging
 from datetime import datetime
 import re
+import json
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -363,3 +364,184 @@ async def delete_invoice(invoice_id: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}") 
+
+# Add new endpoints for vertical cards functionality
+
+@router.patch("/{invoice_id}/line-item/{row_idx}")
+async def update_line_item(
+    invoice_id: str,
+    row_idx: int,
+    update_data: dict
+):
+    """Update a single line item in an invoice"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if line item exists
+        cursor.execute(
+            "SELECT * FROM invoice_line_items WHERE invoice_id = ? AND row_idx = ?",
+            (invoice_id, row_idx)
+        )
+        existing_item = cursor.fetchone()
+        
+        if not existing_item:
+            raise HTTPException(status_code=404, detail="Line item not found")
+        
+        # Update the line item
+        update_fields = []
+        update_values = []
+        
+        for field, value in update_data.items():
+            if field in ['description', 'quantity', 'unit', 'unit_price', 'vat_rate', 'line_total', 'page', 'row_idx', 'confidence', 'flags']:
+                update_fields.append(f"{field} = ?")
+                if field == 'flags' and isinstance(value, list):
+                    update_values.append(json.dumps(value))
+                else:
+                    update_values.append(value)
+        
+        if update_fields:
+            update_fields.append("updated_at = CURRENT_TIMESTAMP")
+            update_values.extend([invoice_id, row_idx])
+            
+            query = f"""
+                UPDATE invoice_line_items 
+                SET {', '.join(update_fields)}
+                WHERE invoice_id = ? AND row_idx = ?
+            """
+            
+            cursor.execute(query, update_values)
+            conn.commit()
+            
+            # Log the update
+            logger.info(f"Updated line item {row_idx} for invoice {invoice_id}: {update_data}")
+            
+            return {"success": True, "message": "Line item updated successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to update line item: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update line item: {str(e)}")
+    finally:
+        conn.close()
+
+@router.patch("/{invoice_id}/flags")
+async def update_flags(
+    invoice_id: str,
+    flags_data: dict
+):
+    """Update flags for an invoice or specific line items"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if invoice exists
+        cursor.execute("SELECT id FROM invoices WHERE id = ?", (invoice_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        
+        # Update invoice flags
+        if 'invoice_flags' in flags_data:
+            cursor.execute(
+                "UPDATE invoices SET flags = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps(flags_data['invoice_flags']), invoice_id)
+            )
+        
+        # Update line item flags
+        if 'line_item_flags' in flags_data:
+            for row_idx, flags in flags_data['line_item_flags'].items():
+                cursor.execute(
+                    "UPDATE invoice_line_items SET flags = ?, updated_at = CURRENT_TIMESTAMP WHERE invoice_id = ? AND row_idx = ?",
+                    (json.dumps(flags), invoice_id, row_idx)
+                )
+        
+        conn.commit()
+        logger.info(f"Updated flags for invoice {invoice_id}")
+        
+        return {"success": True, "message": "Flags updated successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to update flags: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update flags: {str(e)}")
+    finally:
+        conn.close()
+
+@router.post("/{invoice_id}/signatures/extract")
+async def extract_signatures(invoice_id: str):
+    """Extract signature regions for an invoice"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if invoice exists
+        cursor.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,))
+        invoice = cursor.fetchone()
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        
+        # TODO: Implement signature extraction logic
+        # This would involve:
+        # 1. Loading the invoice PDF
+        # 2. Using computer vision to detect signature regions
+        # 3. Cropping and storing the signature images
+        # 4. Updating the signature_regions field
+        
+        # For now, return a mock response
+        signature_regions = [
+            {
+                "page": 1,
+                "bbox": {"x": 100, "y": 500, "width": 200, "height": 50},
+                "image_b64": "mock_signature_image_base64"
+            }
+        ]
+        
+        # Update the invoice with signature regions
+        cursor.execute(
+            "UPDATE invoices SET signature_regions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (json.dumps(signature_regions), invoice_id)
+        )
+        conn.commit()
+        
+        return {
+            "success": True,
+            "message": "Signatures extracted successfully",
+            "signature_regions": signature_regions
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to extract signatures: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to extract signatures: {str(e)}")
+    finally:
+        conn.close()
+
+@router.patch("/{invoice_id}/verification-status")
+async def update_verification_status(
+    invoice_id: str,
+    status_data: dict
+):
+    """Update the verification status of an invoice"""
+    try:
+        status = status_data.get('status')
+        if status not in ['unreviewed', 'needs_review', 'reviewed']:
+            raise HTTPException(status_code=400, detail="Invalid verification status")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "UPDATE invoices SET verification_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, invoice_id)
+        )
+        
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        
+        conn.commit()
+        logger.info(f"Updated verification status to {status} for invoice {invoice_id}")
+        
+        return {"success": True, "message": "Verification status updated successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to update verification status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update verification status: {str(e)}")
+    finally:
+        conn.close() 

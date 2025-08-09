@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDocuments } from '@/hooks/useDocuments';
-import InvoiceCardAccordion from './InvoiceCardAccordion';
+import InvoiceCard from './InvoiceCard';
 import InvoiceDetailDrawer from './InvoiceDetailDrawer';
 import InvoiceExport from './InvoiceExport';
 import { Invoice, DeliveryNote } from '@/services/api';
@@ -60,33 +60,6 @@ const InvoiceCardsPanel: React.FC<InvoiceCardsPanelProps> = ({
       visibleDocs = safeDocuments.scannedAwaitingMatch || [];
     }
 
-    // ✅ Enhanced debug logging to confirm results
-    console.log("=== InvoiceCardsPanel Debug Info ===", new Date().toISOString());
-    console.log("Filter criteria:", { showScannedOnly, showMatchedOnly, showUnmatchedOnly });
-    console.log("All scannedAwaitingMatch documents:", (safeDocuments.scannedAwaitingMatch || []).length);
-    console.log("All matchedDocuments:", (safeDocuments.matchedDocuments || []).length);
-    console.log("Visible documents after filtering:", visibleDocs.length);
-    
-    // Log status breakdown
-    const statusBreakdown = (safeDocuments.scannedAwaitingMatch || []).reduce((acc, doc) => {
-      acc[doc?.status || 'unknown'] = (acc[doc?.status || 'unknown'] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    console.log("Status breakdown:", statusBreakdown);
-    
-    // Log scanned documents specifically
-    const scannedDocs = (safeDocuments.scannedAwaitingMatch || []).filter(doc => doc?.status === 'scanned');
-    console.log("Documents with 'scanned' status:", scannedDocs.length);
-    if (scannedDocs.length > 0) {
-      console.log("Scanned document details:", scannedDocs.map(doc => ({
-        id: doc?.id || 'unknown',
-        invoice_number: 'invoice_number' in doc ? doc.invoice_number : 'N/A',
-        supplier_name: 'supplier_name' in doc ? doc.supplier_name : 'N/A',
-        confidence: doc?.confidence || 0
-      })));
-    }
-    console.log("=== End Debug Info ===");
-
     return visibleDocs;
   };
 
@@ -98,174 +71,170 @@ const InvoiceCardsPanel: React.FC<InvoiceCardsPanelProps> = ({
       // It's an invoice
       setSelectedInvoice(document);
       // Find matching delivery note if any
-      const matchingDeliveryNote = documents.matchedDocuments.find(doc => 
-        'delivery_note_number' in doc && (doc as any).invoice?.id === document.id
-      );
-      setSelectedDeliveryNote(matchingDeliveryNote as DeliveryNote | null);
+      const matchingDeliveryNote = documents?.matchedDocuments?.find(doc => 
+        'delivery_number' in doc && doc.invoice?.id === document.id
+      ) as DeliveryNote | undefined;
+      setSelectedDeliveryNote(matchingDeliveryNote || null);
     } else {
       // It's a delivery note
-      setSelectedDeliveryNote(document as DeliveryNote);
-      // Find matching invoice if any
-      const matchingInvoice = documents.matchedDocuments.find(doc => 
-        'invoice_number' in doc && (doc as any).delivery_note?.id === document.id
-      );
-      setSelectedInvoice(matchingInvoice as Invoice | null);
+      setSelectedDeliveryNote(document);
+      setSelectedInvoice(null);
     }
     setIsDetailDrawerOpen(true);
   };
 
-  // Handle accordion expand callback
-  const handleAccordionExpand = (id: string) => {
-    console.log('Invoice accordion expanded:', id);
-    // You can add additional logic here if needed
+  const handleSave = (invoiceId: string, data: any) => {
+    // Handle save logic here
+    showToast('success', 'Invoice updated successfully');
   };
 
-  // Handle edit field changes
-  const handleEdit = (field: string, value: any) => {
-    if (selectedInvoice) {
-      setSelectedInvoice(prev => prev ? { ...prev, [field]: value } : null);
-      showToast('success', 'Field updated successfully');
-    }
+  const handleMarkReviewed = (invoiceId: string) => {
+    // Handle mark reviewed logic here
+    showToast('success', 'Invoice marked as reviewed');
   };
 
-  // Handle comment submission
-  const handleComment = (message: string) => {
-    showToast('success', 'Comment added successfully');
-    // TODO: Implement comment saving to backend
+  const handleFlagIssues = (invoiceId: string) => {
+    // Handle flag issues logic here
+    showToast('warning', 'Issues flagged for review');
   };
 
-  // Handle credit note suggestion
-  const handleCreditNote = () => {
-    showToast('success', 'Credit note suggestion created');
-    // TODO: Implement credit note creation
+  const handleSplitMerge = (invoiceId: string) => {
+    // Handle split/merge logic here
+    showToast('info', 'Split/merge functionality coming soon');
   };
 
-  // Handle delivery note pairing
-  const handlePairDeliveryNote = (deliveryNoteId: string) => {
-    showToast('success', 'Delivery note paired successfully');
-    // TODO: Implement delivery note pairing logic
-  };
-
-  // Handle re-OCR request
-  const handleReOCR = () => {
-    showToast('success', 'Re-OCR request submitted');
-    // TODO: Implement re-OCR logic
-  };
-
-  // Handle export
-  const handleExport = (format: 'pdf' | 'email') => {
-    showToast('success', `${format.toUpperCase()} export generated`);
-    setShowExportModal(false);
-    // TODO: Implement export logic
+  const handleOpenPDF = (invoiceId: string) => {
+    // Handle open PDF logic here
+    showToast('info', 'Opening PDF...');
   };
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-2 text-gray-600">Loading documents...</span>
-        </div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="text-center py-8">
-          <div className="text-red-600 mb-2">Error loading documents</div>
-          <button 
-            onClick={refetch}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Retry
-          </button>
-        </div>
+      <div className="text-center py-8">
+        <p className="text-red-600">Error loading documents: {error}</p>
+        <button 
+          onClick={() => refetch()} 
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-500">
-              {visibleDocuments.length} document{visibleDocuments.length !== 1 ? 's' : ''}
-            </span>
-            <button
-              onClick={refetch}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-              title="Refresh"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          </div>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Export
+          </button>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="p-6">
-        {visibleDocuments.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-gray-500 mb-2">No documents found</div>
-            <div className="text-sm text-gray-400">
-              {showScannedOnly && "No scanned documents available"}
-              {showMatchedOnly && "No matched documents available"}
-              {showUnmatchedOnly && "No unmatched documents available"}
-              {!showScannedOnly && !showMatchedOnly && !showUnmatchedOnly && "No documents available"}
-            </div>
+      {/* Document Cards Grid */}
+      {visibleDocuments.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="text-gray-400 mb-4">
+            <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {visibleDocuments.map((document) => {
-              // Only render InvoiceCardAccordion for invoices
-              if ('invoice_number' in document) {
-                const invoice = document as Invoice;
-                // Find matching delivery note if any
-                const matchingDeliveryNote = documents.matchedDocuments.find(doc => 
-                  'delivery_note_number' in doc && doc.invoice?.id === invoice.id
-                ) as DeliveryNote | null;
-
-                return (
-                  <InvoiceCardAccordion
-                      key={invoice.id}
-                      invoice={invoice}
-                      onExpand={handleAccordionExpand}
-                    />
-                );
-              }
-              // For delivery notes, we could add a separate component later
-              return null;
-            })}
-          </div>
-        )}
-      </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No documents found</h3>
+          <p className="text-gray-500">Upload some documents to get started.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {visibleDocuments.map((document) => {
+            if ('invoice_number' in document) {
+              // It's an invoice
+              const invoice = document as Invoice;
+              return (
+                <InvoiceCard
+                  key={invoice.id}
+                  id={invoice.id}
+                  supplier_name={invoice.supplier_name || 'Unknown Supplier'}
+                  invoice_number={invoice.invoice_number || 'Unknown'}
+                  invoice_date={invoice.invoice_date || ''}
+                  total_amount={invoice.total_amount || 0}
+                  currency="GBP"
+                  doc_type="invoice"
+                  page_range={invoice.page_range}
+                  field_confidence={invoice.field_confidence || {}}
+                  status={invoice.status as any}
+                  addresses={invoice.addresses || { supplier_address: '', delivery_address: '' }}
+                  signature_regions={invoice.signature_regions || []}
+                  line_items={invoice.line_items || []}
+                  verification_status={invoice.verification_status as any || 'unreviewed'}
+                  confidence={invoice.confidence || 1.0}
+                  onSave={handleSave}
+                  onMarkReviewed={handleMarkReviewed}
+                  onFlagIssues={handleFlagIssues}
+                  onSplitMerge={handleSplitMerge}
+                  onOpenPDF={handleOpenPDF}
+                />
+              );
+            } else {
+              // It's a delivery note
+              const deliveryNote = document as DeliveryNote;
+              return (
+                <InvoiceCard
+                  key={deliveryNote.id}
+                  id={deliveryNote.id}
+                  supplier_name={deliveryNote.supplier_name || 'Unknown Supplier'}
+                  invoice_number={deliveryNote.delivery_number || deliveryNote.delivery_note_number || 'Unknown'}
+                  invoice_date={deliveryNote.delivery_date || ''}
+                  total_amount={deliveryNote.total_amount || 0}
+                  currency="GBP"
+                  doc_type="delivery_note"
+                  page_range=""
+                  field_confidence={{}}
+                  status={deliveryNote.status as any}
+                  addresses={{ supplier_address: '', delivery_address: '' }}
+                  signature_regions={[]}
+                  line_items={[]}
+                  verification_status="unreviewed"
+                  confidence={deliveryNote.confidence || 1.0}
+                  onSave={handleSave}
+                  onMarkReviewed={handleMarkReviewed}
+                  onFlagIssues={handleFlagIssues}
+                  onSplitMerge={handleSplitMerge}
+                  onOpenPDF={handleOpenPDF}
+                />
+              );
+            }
+          })}
+        </div>
+      )}
 
       {/* Detail Drawer */}
-      {selectedInvoice && (
+      {isDetailDrawerOpen && (selectedInvoice || selectedDeliveryNote) && (
         <InvoiceDetailDrawer
           isOpen={isDetailDrawerOpen}
           onClose={() => setIsDetailDrawerOpen(false)}
           invoice={selectedInvoice}
           deliveryNote={selectedDeliveryNote}
-          onEdit={handleEdit}
-          onComment={handleComment}
-          onCreditNote={handleCreditNote}
-          onPairDeliveryNote={handlePairDeliveryNote}
-          onReOCR={handleReOCR}
         />
       )}
 
       {/* Export Modal */}
-      {showExportModal && selectedInvoice && (
+      {showExportModal && (
         <InvoiceExport
-          invoice={selectedInvoice}
+          invoice={visibleDocuments.find(doc => 'invoice_number' in doc) as Invoice || {} as Invoice}
+          deliveryNote={visibleDocuments.find(doc => 'delivery_number' in doc) as DeliveryNote || null}
           onClose={() => setShowExportModal(false)}
         />
       )}

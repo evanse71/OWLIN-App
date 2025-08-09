@@ -80,6 +80,16 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
     ));
   };
 
+  // ✅ Bulletproof ingestion progress tracking
+  const updateBulletproofProgress = (file: string, stage: string, progress: number = 0) => {
+    setUploadProgress(prev => ({ ...prev, [file]: progress }));
+    setPendingUploads(prev => prev.map(doc => 
+      doc.originalFile.name === file 
+        ? { ...doc, supplier_name: `[${stage.toUpperCase()}] ${Math.round(progress * 100)}%` }
+        : doc
+    ));
+  };
+
   // File validation with helpful messages
   const validateFile = (file: File) => {
     const allowedTypes = ["application/pdf", "image/jpeg", "image/png"];
@@ -394,6 +404,109 @@ const UploadSection: React.FC<UploadSectionProps> = ({ onDocumentsSubmitted }) =
     } finally {
       setIsUploading(false);
       setCurrentFile(null);
+    }
+  };
+
+  // ✅ Bulletproof ingestion upload
+  const uploadWithBulletproof = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      updateBulletproofProgress(file.name, 'starting', 0.1);
+      
+      const response = await fetch('/api/upload-bulletproof', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      updateBulletproofProgress(file.name, 'processing', 0.5);
+      
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      updateBulletproofProgress(file.name, 'completed', 1.0);
+      
+      if (!result.success) {
+        throw new Error(result.errors?.join(', ') || 'Bulletproof ingestion failed');
+      }
+      
+      // Convert result to DocumentUploadResult format
+      const documents: DocumentUploadResult[] = [];
+      
+      // Add canonical invoices
+      result.canonical_invoices?.forEach((invoice: any) => {
+        documents.push({
+          id: invoice.id,
+          type: 'invoice' as const,
+          confidence: invoice.confidence || 0.8,
+          supplier_name: invoice.supplier_name || 'Unknown Supplier',
+          pages: invoice.source_pages || [],
+          preview_urls: [],
+          metadata: {
+            invoice_date: invoice.invoice_date,
+            total_amount: invoice.total_amount,
+            invoice_number: invoice.invoice_number,
+          },
+          status: 'processed' as const,
+          originalFile: file,
+          page_range: invoice.source_segments?.join(', ') || undefined,
+        });
+      });
+      
+      // Add canonical documents
+      result.canonical_documents?.forEach((doc: any) => {
+        documents.push({
+          id: doc.id,
+          type: doc.doc_type as 'delivery_note' | 'receipt' | 'utility' | 'unknown',
+          confidence: doc.confidence || 0.8,
+          supplier_name: doc.supplier_name || 'Unknown Supplier',
+          pages: doc.source_pages || [],
+          preview_urls: [],
+          metadata: {
+            delivery_date: doc.document_date,
+            delivery_note_number: doc.document_number,
+          },
+          status: 'processed' as const,
+          originalFile: file,
+          page_range: doc.source_segments?.join(', ') || undefined,
+        });
+      });
+      
+      // If no documents were created, add a placeholder
+      if (documents.length === 0) {
+        documents.push({
+          id: result.file_id || `bulletproof_${Date.now()}`,
+          type: 'unknown' as const,
+          confidence: 0.5,
+          supplier_name: 'Unknown Supplier',
+          pages: [],
+          preview_urls: [],
+          metadata: {},
+          status: 'processed' as const,
+          originalFile: file,
+        });
+      }
+      
+      // Add warnings if any
+      if (result.warnings && result.warnings.length > 0) {
+        showToast('warning', result.warnings.join(', '));
+      }
+      
+      // Check if review is needed
+      if (result.needs_review) {
+        showToast('info', 'Document needs review - check the review modal');
+        // TODO: Open review modal
+      }
+      
+      return documents;
+      
+    } catch (error) {
+      console.error('Bulletproof ingestion failed:', error);
+      throw error;
     }
   };
 

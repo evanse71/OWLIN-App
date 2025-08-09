@@ -36,6 +36,17 @@ except ImportError:
     async def get_documents_for_review():
         return {"documents": []}
 
+# Import bulletproof ingestion system
+try:
+    from ingest.intake_router import IntakeRouter
+    BULLETPROOF_INGESTION_AVAILABLE = True
+    logger = logging.getLogger(__name__)
+    logger.info("✅ Bulletproof ingestion system available")
+except ImportError as e:
+    BULLETPROOF_INGESTION_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning(f"⚠️ Bulletproof ingestion system not available: {e}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,17 +72,27 @@ app.include_router(document_queue_router, prefix="/api")
 upload_dir = Path("data/uploads")
 upload_dir.mkdir(parents=True, exist_ok=True)
 
+# Initialize bulletproof ingestion router if available
+intake_router = None
+if BULLETPROOF_INGESTION_AVAILABLE:
+    try:
+        intake_router = IntakeRouter()
+        logger.info("✅ Bulletproof ingestion router initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize bulletproof ingestion router: {e}")
+        BULLETPROOF_INGESTION_AVAILABLE = False
+
 @app.get("/")
 async def root():
     return {"message": "Owlin API is running"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "bulletproof_ingestion": BULLETPROOF_INGESTION_AVAILABLE}
 
 @app.get("/api/health")
 def api_health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "bulletproof_ingestion": BULLETPROOF_INGESTION_AVAILABLE}
 
 # Real OCR processing function
 async def process_file_with_real_ocr(file_path: Path, original_filename: str) -> Dict[str, Any]:
@@ -1209,6 +1230,159 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"❌ Upload failed: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+# Add bulletproof ingestion endpoint
+@app.post("/api/upload-bulletproof")
+async def upload_file_bulletproof(file: UploadFile = File(...)):
+    """
+    Upload file using bulletproof ingestion v3 system
+    
+    This endpoint uses the comprehensive ingestion system that can handle:
+    - Multiple invoices in one file
+    - Split documents across multiple files
+    - Out-of-order pages
+    - Duplicate detection
+    - Cross-file stitching
+    - Document classification
+    """
+    if not BULLETPROOF_INGESTION_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Bulletproof ingestion system not available")
+    
+    try:
+        logger.info(f"🚀 Starting bulletproof ingestion for: {file.filename}")
+        
+        # Save uploaded file
+        file_id = str(uuid.uuid4())
+        file_path = upload_dir / f"{file_id}_{file.filename}"
+        
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        logger.info(f"💾 File saved to: {file_path}")
+        
+        # Prepare file data for bulletproof ingestion
+        file_data = {
+            'id': file_id,
+            'file_path': str(file_path),
+            'filename': file.filename,
+            'file_size': len(content),
+            'upload_time': datetime.now(),
+            'images': [],
+            'ocr_texts': []
+        }
+        
+        # Process file to extract images and OCR text
+        try:
+            from ocr.unified_ocr_engine import get_unified_ocr_engine
+            unified_engine = get_unified_ocr_engine()
+            
+            # Get images from the file
+            images = await unified_engine.extract_images_from_file(str(file_path))
+            file_data['images'] = images
+            
+            # Get OCR text for each image
+            ocr_texts = []
+            for i, image in enumerate(images):
+                try:
+                    # Use unified engine to get OCR text
+                    text_result = await unified_engine.extract_text_from_image(image)
+                    ocr_texts.append(text_result.get('text', ''))
+                except Exception as e:
+                    logger.warning(f"Failed to extract OCR text from image {i}: {e}")
+                    ocr_texts.append('')
+            
+            file_data['ocr_texts'] = ocr_texts
+            
+        except Exception as e:
+            logger.error(f"Failed to process file for bulletproof ingestion: {e}")
+            # Fallback to basic processing
+            file_data['images'] = []
+            file_data['ocr_texts'] = ['']
+        
+        # Process with bulletproof ingestion
+        files_to_process = [file_data]
+        intake_result = intake_router.process_upload(files_to_process)
+        
+        if not intake_result.success:
+            raise HTTPException(status_code=500, detail=f"Bulletproof ingestion failed: {intake_result.errors}")
+        
+        # Convert canonical entities to response format
+        response_data = {
+            'success': True,
+            'file_id': file_id,
+            'filename': file.filename,
+            'processing_time': intake_result.processing_time,
+            'canonical_invoices': [],
+            'canonical_documents': [],
+            'duplicate_groups': [],
+            'stitch_groups': [],
+            'warnings': intake_result.warnings,
+            'metadata': intake_result.metadata
+        }
+        
+        # Convert canonical invoices
+        for invoice in intake_result.canonical_invoices:
+            response_data['canonical_invoices'].append({
+                'id': invoice.canonical_id,
+                'supplier_name': invoice.supplier_name,
+                'invoice_number': invoice.invoice_number,
+                'invoice_date': invoice.invoice_date,
+                'currency': invoice.currency,
+                'subtotal': invoice.subtotal,
+                'tax': invoice.tax,
+                'total_amount': invoice.total_amount,
+                'confidence': invoice.confidence,
+                'field_confidence': invoice.field_confidence,
+                'warnings': invoice.warnings,
+                'source_segments': invoice.source_segments,
+                'source_pages': invoice.source_pages
+            })
+        
+        # Convert canonical documents
+        for document in intake_result.canonical_documents:
+            response_data['canonical_documents'].append({
+                'id': document.canonical_id,
+                'doc_type': document.doc_type,
+                'supplier_name': document.supplier_name,
+                'document_number': document.document_number,
+                'document_date': document.document_date,
+                'confidence': document.confidence,
+                'source_segments': document.source_segments,
+                'source_pages': document.source_pages
+            })
+        
+        # Convert duplicate groups
+        for dup_group in intake_result.duplicate_groups:
+            response_data['duplicate_groups'].append({
+                'id': dup_group.group_id,
+                'duplicate_type': dup_group.duplicate_type,
+                'primary_id': dup_group.primary_id,
+                'duplicates': dup_group.duplicates,
+                'confidence': dup_group.confidence,
+                'reasons': dup_group.reasons
+            })
+        
+        # Convert stitch groups
+        for stitch_group in intake_result.stitch_groups:
+            response_data['stitch_groups'].append({
+                'id': stitch_group.group_id,
+                'confidence': stitch_group.confidence,
+                'doc_type': stitch_group.doc_type,
+                'supplier_guess': stitch_group.supplier_guess,
+                'invoice_numbers': stitch_group.invoice_numbers,
+                'dates': stitch_group.dates,
+                'reasons': stitch_group.reasons,
+                'segment_count': len(stitch_group.segments)
+            })
+        
+        logger.info(f"✅ Bulletproof ingestion completed: {len(response_data['canonical_invoices'])} invoices, {len(response_data['canonical_documents'])} documents")
+        
+        return response_data
+        
+    except Exception as e:
+        logger.error(f"❌ Bulletproof ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Basic API endpoints for testing
 @app.get("/api/invoices")

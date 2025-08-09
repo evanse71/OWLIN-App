@@ -6,7 +6,8 @@ const NavBar: React.FC = () => {
   const router = useRouter();
 
   const navItems = [
-    { href: '/', label: 'Dashboard', icon: '🏠' },
+    { href: '/', label: 'Dashboard', icon: '��' },
+    { href: '/analytics/', label: 'Analytics', icon: '📊' },
     { href: '/invoices/', label: 'Invoices', icon: '📄' },
     { href: '/document-queue/', label: 'Document Queue', icon: '📋' },
     { href: '/flagged/', label: 'Flagged Issues', icon: '⚠️' },

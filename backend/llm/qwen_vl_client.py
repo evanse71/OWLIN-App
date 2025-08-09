@@ -20,7 +20,7 @@ def _user_prompt(hints: Dict[str, Any]) -> str:
 class QwenVLClient:
     def __init__(self):
         self.base = os.getenv("MODEL_HOST_URL", "http://localhost:11434")
-        self.model = os.getenv("QWEN_VL_MODEL_NAME", "qwen2.5-vl:latest")
+        self.model = os.getenv("QWEN_VL_MODEL_NAME", "qwen2.5:7b")
 
     def parse(self, payload: InvoiceParsingPayload) -> ParsedInvoice:
         if not payload.page_images:

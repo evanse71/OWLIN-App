@@ -13,6 +13,31 @@ export interface FileStatus {
   document_status?: string;
 }
 
+export interface LineItem {
+  id?: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  vat_rate: number;
+  line_total: number;
+  page: number;
+  row_idx: number;
+  confidence: number;
+  flags: string[];
+}
+
+export interface Address {
+  supplier_address?: string;
+  delivery_address?: string;
+}
+
+export interface SignatureRegion {
+  page: number;
+  bbox: { x: number; y: number; width: number; height: number };
+  image_b64: string;
+}
+
 export interface Invoice {
   id: string;
   invoice_number: string;
@@ -27,7 +52,7 @@ export interface Invoice {
   confidence?: number;
   upload_timestamp?: string;
   parent_pdf_filename?: string;
-  line_items?: any[];
+  line_items?: LineItem[];
   page_range?: string;
   word_count?: number;
   psm_used?: string;
@@ -46,6 +71,11 @@ export interface Invoice {
     delivery_amount: number;
     difference: number;
   }>;
+  // New fields for vertical cards
+  field_confidence?: Record<string, number>;
+  addresses?: Address;
+  signature_regions?: SignatureRegion[];
+  verification_status?: 'unreviewed' | 'needs_review' | 'reviewed';
 }
 
 export interface DeliveryNote {
@@ -492,6 +522,37 @@ class ApiService {
     } catch {
       // Swallow errors in non-dev envs
     }
+  }
+
+  // ✅ Vertical Cards API Methods
+  async patchLineItem(invoiceId: string, rowIdx: number, patch: Partial<LineItem>): Promise<any> {
+    return this.fetchWithErrorHandling(`/invoices/${invoiceId}/line-item/${rowIdx}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async patchInvoiceFlags(invoiceId: string, payload: any): Promise<any> {
+    return this.fetchWithErrorHandling(`/invoices/${invoiceId}/flags`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async patchVerificationStatus(invoiceId: string, status: 'unreviewed' | 'needs_review' | 'reviewed'): Promise<any> {
+    return this.fetchWithErrorHandling(`/invoices/${invoiceId}/verification-status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async extractSignatures(invoiceId: string): Promise<any> {
+    return this.fetchWithErrorHandling(`/invoices/${invoiceId}/signatures/extract`, {
+      method: 'POST',
+    });
   }
 }
 

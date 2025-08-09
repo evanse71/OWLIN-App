@@ -616,37 +616,42 @@ const InvoicesUploadPanel: React.FC<InvoicesUploadPanelProps> = ({ onDeliveryNot
                     const parsedData = file.parsedData || {};
                     const progress = progressMap[file.id] ?? (file.status === 'uploading' || file.status === 'parsing' ? 0 : 100);
                     
-                    let cardStatus: 'processing' | 'matched' | 'unmatched' | 'error' | 'complete';
+                    let cardStatus: 'processing' | 'processed' | 'error' | 'needs_review' | 'reviewed';
                     if (file.status === 'uploading' || file.status === 'parsing') {
                       cardStatus = 'processing';
                     } else if (file.status === 'error' || file.status === 'parse_error') {
                       cardStatus = 'error';
                     } else if (file.status === 'parsed') {
-                      cardStatus = 'complete';
+                      cardStatus = 'processed';
+                    } else if (file.status === 'success') {
+                      cardStatus = 'reviewed';
                     } else {
-                      cardStatus = 'unmatched';
+                      cardStatus = 'needs_review';
                     }
 
                     return (
                       <InvoiceCard
                         key={file.id}
-                        invoiceId={parsedData.invoice_number || file.name}
-                        invoiceNumber={parsedData.invoice_number || 'Extracting...'}
-                        supplierName={parsedData.supplier_name || 'Processing...'}
-                        invoiceDate={parsedData.invoice_date || 'Extracting...'}
-                        totalAmount={parsedData.total_amount || '0.00'}
-                        progress={progress}
+                        id={file.id}
+                        supplier_name={parsedData.supplier_name || 'Processing...'}
+                        invoice_number={parsedData.invoice_number || 'Extracting...'}
+                        invoice_date={parsedData.invoice_date || 'Extracting...'}
+                        total_amount={parseFloat(parsedData.total_amount) || 0}
+                        currency="GBP"
+                        doc_type="invoice"
+                        page_range=""
+                        field_confidence={{}}
                         status={cardStatus}
-                        errorMessage={file.error}
-                        isProcessing={file.status === 'uploading' || file.status === 'parsing'}
-                        confidence={file.confidence}
-                        parsedData={file.parsedData}
-                        onClick={() => {
-                          const doc = createDocumentFromOCR(file);
-                          setSelectedInvoice(doc);
-                        }}
-                        onCancel={() => handleCancelDocument(file.id)}
-                        onRetry={() => handleRetryOCR(file.id)}
+                        addresses={{}}
+                        signature_regions={[]}
+                        line_items={[]}
+                        verification_status="unreviewed"
+                        confidence={file.confidence || 1.0}
+                        onSave={(id, data) => console.log('Save:', id, data)}
+                        onMarkReviewed={(id) => console.log('Mark reviewed:', id)}
+                        onFlagIssues={(id) => console.log('Flag issues:', id)}
+                        onSplitMerge={(id) => console.log('Split/merge:', id)}
+                        onOpenPDF={(id) => console.log('Open PDF:', id)}
                       />
                     );
                   })}

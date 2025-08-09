@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ConfidenceBadge from '@/components/common/ConfidenceBadge';
 import LoadingSpinner from '@/components/common/LoadingSpinner';
 import InvoiceLineItemTable from './InvoiceLineItemTable';
-import { Invoice, DeliveryNote } from '@/services/api';
+import { Invoice, DeliveryNote, LineItem } from '@/services/api';
 import { apiService } from '@/services/api';
 
 interface InvoiceCardAccordionProps {
@@ -15,17 +15,7 @@ interface InvoiceCardAccordionProps {
 }
 
 interface DetailedInvoice extends Invoice {
-  line_items?: Array<{
-    description: string;
-    quantity: number;
-    unit_price?: number;
-    total_price?: number;
-    unit_price_excl_vat?: number;
-    unit_price_incl_vat?: number;
-    line_total_excl_vat?: number;
-    line_total_incl_vat?: number;
-    flagged?: boolean;
-  }>;
+  line_items?: LineItem[];
   delivery_note_match?: DeliveryNote | null;
   price_mismatches?: Array<{
     description: string;

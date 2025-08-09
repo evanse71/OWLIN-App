@@ -60,6 +60,14 @@ app.include_router(matching.router, prefix="/api", tags=["matching"])
 # ✅ Include upload validation routes
 app.include_router(upload_validation.router, prefix="/api", tags=["upload-validation"])
 
+# ✅ Include bulletproof ingestion routes
+try:
+    from backend.routes import bulletproof_ingestion
+    app.include_router(bulletproof_ingestion.router, prefix="/api", tags=["bulletproof-ingestion"])
+    print("✅ Bulletproof ingestion routes loaded")
+except ImportError as e:
+    print(f"⚠️ Bulletproof ingestion routes not available: {e}")
+
 # ✅ Include dev routes for testing
 app.include_router(dev.router, prefix="/api/dev", tags=["development"])
 

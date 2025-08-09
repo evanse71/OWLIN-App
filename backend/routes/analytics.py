@@ -868,3 +868,504 @@ async def get_volatile_products(
         return {"products": results[:limit]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") 
+
+@router.get("/advanced-dashboard")
+async def get_advanced_dashboard_analytics():
+    """Get comprehensive advanced dashboard analytics with trends, performance, and insights."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if invoice_line_items table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='invoice_line_items'")
+        has_line_items = cursor.fetchone() is not None
+        
+        # Get real-time system status
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_invoices,
+                COUNT(CASE WHEN upload_timestamp >= datetime('now', '-24 hours') THEN 1 END) as last_24h,
+                COUNT(CASE WHEN upload_timestamp >= datetime('now', '-7 days') THEN 1 END) as last_7d,
+                COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched,
+                COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as discrepancy,
+                COUNT(CASE WHEN status = 'not_paired' THEN 1 END) as not_paired,
+                SUM(total_amount) as total_value,
+                AVG(total_amount) as avg_invoice_value
+            FROM invoices
+        """)
+        
+        row = cursor.fetchone()
+        real_time_metrics = {
+            "total_invoices": row[0] or 0,
+            "last_24h": row[1] or 0,
+            "last_7d": row[2] or 0,
+            "matched": row[3] or 0,
+            "discrepancy": row[4] or 0,
+            "not_paired": row[5] or 0,
+            "total_value": float(row[6]) if row[6] else 0.0,
+            "avg_invoice_value": float(row[7]) if row[7] else 0.0
+        }
+        
+        # Calculate key performance indicators
+        total_invoices = real_time_metrics["total_invoices"]
+        if total_invoices > 0:
+            real_time_metrics["match_rate"] = round((real_time_metrics["matched"] / total_invoices) * 100, 1)
+            real_time_metrics["discrepancy_rate"] = round((real_time_metrics["discrepancy"] / total_invoices) * 100, 1)
+            real_time_metrics["unpaired_rate"] = round((real_time_metrics["not_paired"] / total_invoices) * 100, 1)
+        else:
+            real_time_metrics["match_rate"] = 0.0
+            real_time_metrics["discrepancy_rate"] = 0.0
+            real_time_metrics["unpaired_rate"] = 0.0
+        
+        # Get daily trends for the last 30 days
+        cursor.execute("""
+            SELECT 
+                DATE(upload_timestamp) as date,
+                COUNT(*) as invoice_count,
+                SUM(total_amount) as daily_value,
+                COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_count,
+                COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as discrepancy_count
+            FROM invoices 
+            WHERE upload_timestamp >= datetime('now', '-30 days')
+            GROUP BY DATE(upload_timestamp)
+            ORDER BY date DESC
+        """)
+        
+        daily_trends = []
+        for trend_row in cursor.fetchall():
+            daily_value = float(trend_row[2]) if trend_row[2] else 0.0
+            match_rate = 0.0
+            if trend_row[1] > 0:
+                match_rate = round((trend_row[3] / trend_row[1]) * 100, 1)
+            
+            trend = {
+                "date": trend_row[0],
+                "invoice_count": trend_row[1],
+                "daily_value": daily_value,
+                "matched_count": trend_row[3],
+                "discrepancy_count": trend_row[4],
+                "match_rate": match_rate
+            }
+            daily_trends.append(trend)
+        
+        # Get top performing suppliers
+        cursor.execute("""
+            SELECT 
+                supplier_name,
+                COUNT(*) as invoice_count,
+                SUM(total_amount) as total_value,
+                AVG(total_amount) as avg_value,
+                COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_count
+            FROM invoices 
+            WHERE supplier_name IS NOT NULL AND supplier_name != ''
+            GROUP BY supplier_name
+            HAVING COUNT(*) >= 2
+            ORDER BY total_value DESC
+            LIMIT 10
+        """)
+        
+        top_suppliers = []
+        for supplier_row in cursor.fetchall():
+            supplier = {
+                "name": supplier_row[0],
+                "invoice_count": supplier_row[1],
+                "total_value": float(supplier_row[2]) if supplier_row[2] else 0.0,
+                "avg_value": float(supplier_row[3]) if supplier_row[3] else 0.0,
+                "match_rate": round((supplier_row[4] / supplier_row[1]) * 100, 1) if supplier_row[1] > 0 else 0.0
+            }
+            top_suppliers.append(supplier)
+        
+        # Get flagged issues analysis (only if table exists)
+        flagged_analysis = {
+            "total_flagged": 0,
+            "affected_invoices": 0,
+            "total_error_value": 0.0
+        }
+        
+        if has_line_items:
+            try:
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_flagged,
+                        COUNT(DISTINCT invoice_id) as affected_invoices,
+                        SUM(ABS(quantity * unit_price)) as total_error_value
+                    FROM invoice_line_items 
+                    WHERE flagged = 1
+                """)
+                
+                flagged_row = cursor.fetchone()
+                if flagged_row:
+                    flagged_analysis = {
+                        "total_flagged": flagged_row[0] or 0,
+                        "affected_invoices": flagged_row[1] or 0,
+                        "total_error_value": float(flagged_row[2]) if flagged_row[2] else 0.0
+                    }
+            except Exception as e:
+                # Table exists but might have different schema
+                print(f"Warning: Could not query invoice_line_items: {e}")
+        
+        # Get processing performance metrics (handle missing columns)
+        performance_metrics = {
+            "avg_processing_time": 0.0,
+            "max_processing_time": 0.0,
+            "min_processing_time": 0.0
+        }
+        
+        try:
+            # Check if processing_time column exists
+            cursor.execute("PRAGMA table_info(invoices)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'processing_time' in columns:
+                cursor.execute("""
+                    SELECT 
+                        AVG(processing_time) as avg_processing_time,
+                        MAX(processing_time) as max_processing_time,
+                        MIN(processing_time) as min_processing_time
+                    FROM invoices 
+                    WHERE processing_time IS NOT NULL
+                """)
+                
+                perf_row = cursor.fetchone()
+                if perf_row:
+                    performance_metrics = {
+                        "avg_processing_time": float(perf_row[0]) if perf_row[0] else 0.0,
+                        "max_processing_time": float(perf_row[1]) if perf_row[1] else 0.0,
+                        "min_processing_time": float(perf_row[2]) if perf_row[2] else 0.0
+                    }
+        except Exception as e:
+            print(f"Warning: Could not query processing_time metrics: {e}")
+        
+        # Get venue breakdown (if available)
+        cursor.execute("PRAGMA table_info(invoices)")
+        columns = [col[1] for col in cursor.fetchall()]
+        has_venue = 'venue' in columns
+        
+        venue_breakdown = []
+        if has_venue:
+            cursor.execute("""
+                SELECT 
+                    venue,
+                    COUNT(*) as invoice_count,
+                    SUM(total_amount) as total_value,
+                    COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_count
+                FROM invoices 
+                WHERE venue IS NOT NULL AND venue != ''
+                GROUP BY venue
+                ORDER BY total_value DESC
+            """)
+            
+            for venue_row in cursor.fetchall():
+                venue_value = float(venue_row[2]) if venue_row[2] else 0.0
+                venue_match_rate = 0.0
+                if venue_row[1] > 0:
+                    venue_match_rate = round((venue_row[3] / venue_row[1]) * 100, 1)
+                
+                venue = {
+                    "name": venue_row[0],
+                    "invoice_count": venue_row[1],
+                    "total_value": venue_value,
+                    "match_rate": venue_match_rate
+                }
+                venue_breakdown.append(venue)
+        
+        # Get OCR confidence analysis
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_processed,
+                COUNT(CASE WHEN confidence >= 0.8 THEN 1 END) as high_confidence,
+                COUNT(CASE WHEN confidence >= 0.5 AND confidence < 0.8 THEN 1 END) as medium_confidence,
+                COUNT(CASE WHEN confidence < 0.5 THEN 1 END) as low_confidence,
+                AVG(confidence) as avg_confidence
+            FROM invoices 
+            WHERE confidence IS NOT NULL
+        """)
+        
+        ocr_row = cursor.fetchone()
+        ocr_analysis = {
+            "total_processed": ocr_row[0] or 0,
+            "high_confidence": ocr_row[1] or 0,
+            "medium_confidence": ocr_row[2] or 0,
+            "low_confidence": ocr_row[3] or 0,
+            "avg_confidence": float(ocr_row[4]) if ocr_row[4] else 0.0
+        }
+        
+        conn.close()
+        
+        return {
+            "real_time_metrics": real_time_metrics,
+            "daily_trends": daily_trends,
+            "top_suppliers": top_suppliers,
+            "flagged_analysis": flagged_analysis,
+            "performance_metrics": performance_metrics,
+            "venue_breakdown": venue_breakdown,
+            "ocr_analysis": ocr_analysis,
+            "last_updated": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.get("/trends/advanced")
+async def get_advanced_trends(days: int = 30):
+    """Get advanced trend analysis with forecasting and insights."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get daily trends with more granular data
+        cursor.execute("""
+            SELECT 
+                DATE(upload_timestamp) as date,
+                COUNT(*) as invoice_count,
+                SUM(total_amount) as daily_value,
+                COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_count,
+                COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as discrepancy_count,
+                COUNT(CASE WHEN status = 'not_paired' THEN 1 END) as not_paired_count,
+                COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing_count,
+                AVG(total_amount) as avg_invoice_value
+            FROM invoices 
+            WHERE upload_timestamp >= ?
+            GROUP BY DATE(upload_timestamp)
+            ORDER BY date
+        """, (start_date.date(),))
+        
+        trends = []
+        cumulative_value = 0.0
+        cumulative_invoices = 0
+        
+        for row in cursor.fetchall():
+            daily_value = float(row[2]) if row[2] else 0.0
+            cumulative_value += daily_value
+            cumulative_invoices += row[1]
+            avg_value = float(row[7]) if row[7] else 0.0
+            
+            # Calculate match rate
+            match_rate = 0.0
+            if row[1] > 0:
+                match_rate = round((row[3] / row[1]) * 100, 1)
+            
+            trend = {
+                "date": row[0],
+                "invoice_count": row[1],
+                "daily_value": daily_value,
+                "matched_count": row[3],
+                "discrepancy_count": row[4],
+                "not_paired_count": row[5],
+                "processing_count": row[6],
+                "avg_invoice_value": avg_value,
+                "match_rate": match_rate,
+                "cumulative_value": cumulative_value,
+                "cumulative_invoices": cumulative_invoices
+            }
+            trends.append(trend)
+        
+        # Calculate trend insights
+        insights = {
+            "total_period_value": cumulative_value,
+            "total_period_invoices": cumulative_invoices,
+            "avg_daily_value": cumulative_value / len(trends) if trends else 0.0,
+            "avg_daily_invoices": cumulative_invoices / len(trends) if trends else 0.0,
+            "trend_direction": "stable",  # Will be calculated below
+            "peak_day": None,
+            "valley_day": None
+        }
+        
+        if trends:
+            # Calculate trend direction
+            if len(trends) >= 7:
+                recent_avg = sum(t['daily_value'] for t in trends[-7:]) / 7
+                earlier_avg = sum(t['daily_value'] for t in trends[:7]) / 7
+                if recent_avg > earlier_avg * 1.1:
+                    insights["trend_direction"] = "increasing"
+                elif recent_avg < earlier_avg * 0.9:
+                    insights["trend_direction"] = "decreasing"
+            
+            # Find peak and valley days
+            peak_day = max(trends, key=lambda x: x['daily_value'])
+            valley_day = min(trends, key=lambda x: x['daily_value'])
+            insights["peak_day"] = peak_day['date']
+            insights["valley_day"] = valley_day['date']
+        
+        # Get weekly summary for better insights
+        cursor.execute("""
+            SELECT 
+                strftime('%Y-%W', upload_timestamp) as week,
+                COUNT(*) as invoice_count,
+                SUM(total_amount) as weekly_value,
+                AVG(total_amount) as avg_invoice_value,
+                COUNT(CASE WHEN status = 'matched' THEN 1 END) as matched_count
+            FROM invoices 
+            WHERE upload_timestamp >= ?
+            GROUP BY strftime('%Y-%W', upload_timestamp)
+            ORDER BY week
+        """, (start_date.date(),))
+        
+        weekly_summary = []
+        for week_row in cursor.fetchall():
+            weekly_value = float(week_row[2]) if week_row[2] else 0.0
+            avg_value = float(week_row[3]) if week_row[3] else 0.0
+            match_rate = 0.0
+            if week_row[1] > 0:
+                match_rate = round((week_row[4] / week_row[1]) * 100, 1)
+            
+            week = {
+                "week": week_row[0],
+                "invoice_count": week_row[1],
+                "weekly_value": weekly_value,
+                "avg_invoice_value": avg_value,
+                "match_rate": match_rate
+            }
+            weekly_summary.append(week)
+        
+        conn.close()
+        
+        return {
+            "trends": trends,
+            "insights": insights,
+            "weekly_summary": weekly_summary,
+            "period_days": days
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.get("/performance/advanced")
+async def get_advanced_performance_metrics():
+    """Get advanced performance metrics with detailed analysis."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get comprehensive performance metrics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_processed,
+                COUNT(CASE WHEN status = 'matched' THEN 1 END) as successful,
+                COUNT(CASE WHEN status = 'discrepancy' THEN 1 END) as with_discrepancies,
+                COUNT(CASE WHEN status = 'not_paired' THEN 1 END) as unpaired,
+                COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing,
+                AVG(total_amount) as avg_invoice_value,
+                MIN(upload_timestamp) as first_upload,
+                MAX(upload_timestamp) as last_upload,
+                AVG(processing_time) as avg_processing_time,
+                MAX(processing_time) as max_processing_time,
+                MIN(processing_time) as min_processing_time
+            FROM invoices
+        """)
+        
+        row = cursor.fetchone()
+        performance = {
+            "total_processed": row[0] or 0,
+            "successful": row[1] or 0,
+            "with_discrepancies": row[2] or 0,
+            "unpaired": row[3] or 0,
+            "processing": row[4] or 0,
+            "avg_invoice_value": float(row[5]) if row[5] else 0.0,
+            "first_upload": row[6],
+            "last_upload": row[7],
+            "avg_processing_time": float(row[8]) if row[8] else 0.0,
+            "max_processing_time": float(row[9]) if row[9] else 0.0,
+            "min_processing_time": float(row[10]) if row[10] else 0.0
+        }
+        
+        # Calculate success rates
+        total_processed = performance["total_processed"]
+        if total_processed > 0:
+            performance["success_rate"] = round((performance["successful"] / total_processed) * 100, 1)
+            performance["discrepancy_rate"] = round((performance["with_discrepancies"] / total_processed) * 100, 1)
+            performance["unpaired_rate"] = round((performance["unpaired"] / total_processed) * 100, 1)
+            performance["processing_rate"] = round((performance["processing"] / total_processed) * 100, 1)
+        else:
+            performance["success_rate"] = 0.0
+            performance["discrepancy_rate"] = 0.0
+            performance["unpaired_rate"] = 0.0
+            performance["processing_rate"] = 0.0
+        
+        # Get performance by time periods
+        cursor.execute("""
+            SELECT 
+                strftime('%H', upload_timestamp) as hour,
+                COUNT(*) as count,
+                AVG(processing_time) as avg_time
+            FROM invoices 
+            WHERE processing_time IS NOT NULL
+            GROUP BY strftime('%H', upload_timestamp)
+            ORDER BY hour
+        """)
+        
+        hourly_performance = []
+        for hour_row in cursor.fetchall():
+            hour = {
+                "hour": int(hour_row[0]),
+                "count": hour_row[1],
+                "avg_time": float(hour_row[2]) if hour_row[2] else 0.0
+            }
+            hourly_performance.append(hour)
+        
+        # Get performance by day of week
+        cursor.execute("""
+            SELECT 
+                strftime('%w', upload_timestamp) as day_of_week,
+                COUNT(*) as count,
+                AVG(total_amount) as avg_value
+            FROM invoices 
+            GROUP BY strftime('%w', upload_timestamp)
+            ORDER BY day_of_week
+        """)
+        
+        daily_performance = []
+        day_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        for day_row in cursor.fetchall():
+            day = {
+                "day": day_names[int(day_row[0])],
+                "count": day_row[1],
+                "avg_value": float(day_row[2]) if day_row[2] else 0.0
+            }
+            daily_performance.append(day)
+        
+        # Get OCR performance metrics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_processed,
+                AVG(confidence) as avg_confidence,
+                COUNT(CASE WHEN confidence >= 0.8 THEN 1 END) as high_confidence,
+                COUNT(CASE WHEN confidence >= 0.5 AND confidence < 0.8 THEN 1 END) as medium_confidence,
+                COUNT(CASE WHEN confidence < 0.5 THEN 1 END) as low_confidence
+            FROM invoices 
+            WHERE confidence IS NOT NULL
+        """)
+        
+        ocr_row = cursor.fetchone()
+        ocr_performance = {
+            "total_processed": ocr_row[0] or 0,
+            "avg_confidence": float(ocr_row[1]) if ocr_row[1] else 0.0,
+            "high_confidence": ocr_row[2] or 0,
+            "medium_confidence": ocr_row[3] or 0,
+            "low_confidence": ocr_row[4] or 0
+        }
+        
+        if ocr_performance["total_processed"] > 0:
+            ocr_performance["high_confidence_rate"] = round((ocr_performance["high_confidence"] / ocr_performance["total_processed"]) * 100, 1)
+            ocr_performance["medium_confidence_rate"] = round((ocr_performance["medium_confidence"] / ocr_performance["total_processed"]) * 100, 1)
+            ocr_performance["low_confidence_rate"] = round((ocr_performance["low_confidence"] / ocr_performance["total_processed"]) * 100, 1)
+        else:
+            ocr_performance["high_confidence_rate"] = 0.0
+            ocr_performance["medium_confidence_rate"] = 0.0
+            ocr_performance["low_confidence_rate"] = 0.0
+        
+        conn.close()
+        
+        return {
+            "performance": performance,
+            "hourly_performance": hourly_performance,
+            "daily_performance": daily_performance,
+            "ocr_performance": ocr_performance
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") 
