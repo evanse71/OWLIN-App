@@ -1,5 +1,13 @@
 // API Service configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+// Centralized API base URL with sane fallbacks
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ||
+  (typeof window !== "undefined" ? window.location.origin.replace(":3000", ":8002") : "http://localhost:8002");
+
+const API_BASE_URL = `${API_BASE}/api`;
+
+// Runtime log (dev only)
+if (process.env.NODE_ENV !== "production") console.info("[API] base:", API_BASE);
 
 // Type definitions
 export interface FileStatus {

@@ -5,6 +5,7 @@ import InvoiceDetailDrawer from './InvoiceDetailDrawer';
 import InvoiceExport from './InvoiceExport';
 import { Invoice, DeliveryNote } from '@/services/api';
 import { useToast } from '@/utils/toast';
+import { apiService } from '@/services/api';
 
 interface InvoiceCardsPanelProps {
   title?: string;
@@ -63,7 +64,17 @@ const InvoiceCardsPanel: React.FC<InvoiceCardsPanelProps> = ({
     return visibleDocs;
   };
 
-  const visibleDocuments = getVisibleDocuments();
+  const docs = (typeof getVisibleDocuments === "function")
+    ? getVisibleDocuments()
+    : (documents ?? []);
+  if (!Array.isArray(docs)) return null;
+
+  // DEV banner so we can see it's mounted
+  if (typeof window !== "undefined") {
+    console.info("[InvoiceCardsPanel] mounted • count:", docs.length, "sample:", docs[0]);
+    (window as any).__OWLIN_PANEL__ = "InvoiceCardsPanel";
+    (window as any).__OWLIN_DOCS__ = docs.length;
+  }
 
   // Handle document click to open detail drawer
   const handleDocumentClick = (document: Invoice | DeliveryNote) => {
@@ -142,11 +153,12 @@ const InvoiceCardsPanel: React.FC<InvoiceCardsPanelProps> = ({
           >
             Export
           </button>
+
         </div>
       </div>
 
       {/* Document Cards Grid */}
-      {visibleDocuments.length === 0 ? (
+      {docs.length === 0 ? (
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">
             <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -158,65 +170,32 @@ const InvoiceCardsPanel: React.FC<InvoiceCardsPanelProps> = ({
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {visibleDocuments.map((document) => {
-            if ('invoice_number' in document) {
-              // It's an invoice
-              const invoice = document as Invoice;
-              return (
-                <InvoiceCard
-                  key={invoice.id}
-                  id={invoice.id}
-                  supplier_name={invoice.supplier_name || 'Unknown Supplier'}
-                  invoice_number={invoice.invoice_number || 'Unknown'}
-                  invoice_date={invoice.invoice_date || ''}
-                  total_amount={invoice.total_amount || 0}
-                  currency="GBP"
-                  doc_type="invoice"
-                  page_range={invoice.page_range}
-                  field_confidence={invoice.field_confidence || {}}
-                  status={invoice.status as any}
-                  addresses={invoice.addresses || { supplier_address: '', delivery_address: '' }}
-                  signature_regions={invoice.signature_regions || []}
-                  line_items={invoice.line_items || []}
-                  verification_status={invoice.verification_status as any || 'unreviewed'}
-                  confidence={invoice.confidence || 1.0}
-                  onSave={handleSave}
-                  onMarkReviewed={handleMarkReviewed}
-                  onFlagIssues={handleFlagIssues}
-                  onSplitMerge={handleSplitMerge}
-                  onOpenPDF={handleOpenPDF}
-                />
-              );
-            } else {
-              // It's a delivery note
-              const deliveryNote = document as DeliveryNote;
-              return (
-                <InvoiceCard
-                  key={deliveryNote.id}
-                  id={deliveryNote.id}
-                  supplier_name={deliveryNote.supplier_name || 'Unknown Supplier'}
-                  invoice_number={deliveryNote.delivery_number || deliveryNote.delivery_note_number || 'Unknown'}
-                  invoice_date={deliveryNote.delivery_date || ''}
-                  total_amount={deliveryNote.total_amount || 0}
-                  currency="GBP"
-                  doc_type="delivery_note"
-                  page_range=""
-                  field_confidence={{}}
-                  status={deliveryNote.status as any}
-                  addresses={{ supplier_address: '', delivery_address: '' }}
-                  signature_regions={[]}
-                  line_items={[]}
-                  verification_status="unreviewed"
-                  confidence={deliveryNote.confidence || 1.0}
-                  onSave={handleSave}
-                  onMarkReviewed={handleMarkReviewed}
-                  onFlagIssues={handleFlagIssues}
-                  onSplitMerge={handleSplitMerge}
-                  onOpenPDF={handleOpenPDF}
-                />
-              );
-            }
-          })}
+          {docs.map((doc: any) => (
+            <InvoiceCard
+              key={doc.id || doc.document_id || doc.invoice_id}
+              docId={doc.id || doc.document_id || doc.invoice_id}
+              supplier={doc.supplier_name ?? ""}
+              invoiceNumber={doc.invoice_number ?? ""}
+              date={doc.invoice_date ?? ""}
+              total={Number(doc.total_amount ?? 0)}
+              docType={doc.doc_type ?? "invoice"}
+              pageRange={doc.page_range ?? ""}
+              fieldConfidence={doc.field_confidence ?? {}}
+              status={doc.status ?? "processed"}
+              addresses={doc.addresses ?? { supplier_address: "", delivery_address: "" }}
+              signatureRegions={doc.signature_regions ?? []}
+              lineItems={doc.line_items ?? doc.items ?? []}
+              onEditLineItem={(row: number, patch: any) =>
+                apiService.patchLineItem((doc.id||doc.document_id||doc.invoice_id), row, patch)
+              }
+              onToggleFlag={(payload: any) =>
+                apiService.patchInvoiceFlags((doc.id||doc.document_id||doc.invoice_id), payload)
+              }
+              onMarkReviewed={() =>
+                apiService.patchVerificationStatus((doc.id||doc.document_id||doc.invoice_id), "reviewed")
+              }
+            />
+          ))}
         </div>
       )}
 
@@ -233,8 +212,8 @@ const InvoiceCardsPanel: React.FC<InvoiceCardsPanelProps> = ({
       {/* Export Modal */}
       {showExportModal && (
         <InvoiceExport
-          invoice={visibleDocuments.find(doc => 'invoice_number' in doc) as Invoice || {} as Invoice}
-          deliveryNote={visibleDocuments.find(doc => 'delivery_number' in doc) as DeliveryNote || null}
+          invoice={docs.find((doc: any) => 'invoice_number' in doc) as Invoice || {} as Invoice}
+          deliveryNote={docs.find((doc: any) => 'delivery_number' in doc) as DeliveryNote || null}
           onClose={() => setShowExportModal(false)}
         />
       )}

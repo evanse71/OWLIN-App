@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import UploadSection from '@/components/invoices/UploadSection';
+import InvoiceCardsPanel from '@/components/invoices/InvoiceCardsPanel';
 import { apiService } from '@/services/api';
 
 interface HealthCheck {
@@ -142,6 +143,13 @@ const InvoicesPage: React.FC = () => {
             <div className="p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Upload Invoices</h2>
               <UploadSection onDocumentsSubmitted={handleDocumentsSubmitted} />
+            </div>
+          </div>
+
+          {/* Invoice Cards Panel */}
+          <div className="bg-white rounded-lg shadow mb-8">
+            <div className="p-6">
+              <InvoiceCardsPanel title="Invoice Documents" />
             </div>
           </div>
 

@@ -48,58 +48,67 @@ export interface SignatureRegion {
 }
 
 export interface InvoiceCardProps {
-  id: string;
-  supplier_name: string;
-  invoice_number: string;
-  invoice_date: string;
-  total_amount: number;
+  docId: string;
+  supplier: string;
+  invoiceNumber: string;
+  date: string;
+  total: number;
   currency?: string;
-  doc_type: 'invoice' | 'delivery_note' | 'receipt' | 'utility';
-  page_range?: string;
-  field_confidence?: Record<string, number>;
+  docType: 'invoice' | 'delivery_note' | 'receipt' | 'utility';
+  pageRange?: string;
+  fieldConfidence?: Record<string, number>;
   status: 'processing' | 'processed' | 'error' | 'needs_review' | 'reviewed';
   addresses?: Address;
-  signature_regions?: SignatureRegion[];
-  line_items?: LineItem[];
-  verification_status?: 'unreviewed' | 'needs_review' | 'reviewed';
+  signatureRegions?: SignatureRegion[];
+  lineItems?: LineItem[];
+  verificationStatus?: 'unreviewed' | 'needs_review' | 'reviewed';
   confidence?: number;
-  onSave?: (invoiceId: string, data: Partial<InvoiceCardProps>) => void;
-  onMarkReviewed?: (invoiceId: string) => void;
-  onFlagIssues?: (invoiceId: string) => void;
-  onSplitMerge?: (invoiceId: string) => void;
-  onOpenPDF?: (invoiceId: string) => void;
+  onEditLineItem?: (row: number, patch: Partial<LineItem>) => void;
+  onToggleFlag?: (payload: any) => void;
+  onMarkReviewed?: () => void;
+  onSave?: (invoiceId: string, data: any) => void;
+  onFlagIssues?: () => void;
+  onSplitMerge?: () => void;
+  onOpenPDF?: () => void;
   className?: string;
 }
 
 const InvoiceCard: React.FC<InvoiceCardProps> = ({
-  id,
-  supplier_name,
-  invoice_number,
-  invoice_date,
-  total_amount,
+  docId,
+  supplier,
+  invoiceNumber,
+  date,
+  total,
   currency = 'GBP',
-  doc_type,
-  page_range,
-  field_confidence = {},
+  docType,
+  pageRange,
+  fieldConfidence = {},
   status,
   addresses,
-  signature_regions = [],
-  line_items = [],
-  verification_status = 'unreviewed',
+  signatureRegions = [],
+  lineItems = [],
+  verificationStatus = 'unreviewed',
   confidence = 1.0,
-  onSave,
+  onEditLineItem,
+  onToggleFlag,
   onMarkReviewed,
+  onSave,
   onFlagIssues,
   onSplitMerge,
   onOpenPDF,
   className
 }) => {
+  const [open, setOpen] = React.useState(status === "processed" || status === "reviewed");
   const [isExpanded, setIsExpanded] = useState(false);
   const [isProcessing, setIsProcessing] = useState(status === 'processing');
-  const [editedLineItems, setEditedLineItems] = useState<LineItem[]>(line_items);
+  const [editedLineItems, setEditedLineItems] = useState<LineItem[]>(lineItems);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // Auto-expand when processing completes
+  React.useEffect(() => { 
+    if (status === "processed" || status === "reviewed") setOpen(true); 
+  }, [status]);
+
   useEffect(() => {
     if (status === 'processed' && isProcessing) {
       setIsProcessing(false);
@@ -119,7 +128,7 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
   };
 
   const getDocTypeColor = () => {
-    switch (doc_type) {
+    switch (docType) {
       case 'invoice': return 'bg-blue-100 text-blue-800';
       case 'delivery_note': return 'bg-green-100 text-green-800';
       case 'receipt': return 'bg-yellow-100 text-yellow-800';
@@ -158,7 +167,7 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
 
   const handleSave = () => {
     if (onSave) {
-      onSave(id, { line_items: editedLineItems });
+      onSave(docId, { line_items: editedLineItems });
     }
   };
 
@@ -170,7 +179,7 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
   };
 
   const totals = calculateTotals();
-  const hasMismatch = Math.abs(totals.total - total_amount) > (total_amount * 0.015);
+  const hasMismatch = Math.abs(totals.total - total) > (total * 0.015);
 
   return (
     <Card className={cn(
@@ -193,13 +202,13 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Badge className={getDocTypeColor()}>
-              {doc_type.replace('_', ' ').toUpperCase()}
+              {docType.replace('_', ' ').toUpperCase()}
             </Badge>
-            <h3 className="font-semibold text-lg">{supplier_name}</h3>
+            <h3 className="font-semibold text-lg">{supplier}</h3>
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-2xl font-bold text-gray-900">
-              {formatCurrency(total_amount)}
+              {formatCurrency(total)}
             </span>
             {hasMismatch && (
               <Badge className="bg-red-100 text-red-800" variant="outline">
@@ -215,13 +224,13 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
           <div className="flex items-center space-x-2">
             <FileText className="w-4 h-4 text-gray-400" />
             <span className="text-sm text-gray-600">
-              {invoice_number} • {formatDate(invoice_date)}
+              {invoiceNumber} • {formatDate(date)}
             </span>
           </div>
           <div className="flex items-center space-x-2">
             <User className="w-4 h-4 text-gray-400" />
             <span className="text-sm text-gray-600">
-              {page_range ? `Pages ${page_range}` : 'Page 1'}
+              {pageRange ? `Pages ${pageRange}` : 'Page 1'}
             </span>
           </div>
         </div>
@@ -260,22 +269,32 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
               {Math.round(confidence * 100)}% Confidence
             </Badge>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1 h-8 w-8"
-          >
-            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </Button>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setOpen(!open)}
+              className="text-sm"
+            >
+              {open ? 'Hide Details' : 'Show Details'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-1 h-8 w-8"
+            >
+              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
       {/* Collapsible Content */}
-      {isExpanded && (
+      {open && (
         <CardContent className="pt-0">
           {/* Line Items Table */}
-          {line_items.length > 0 && (
+          {lineItems.length > 0 && (
             <div className="mb-6">
               <LineItemsTable
                 lineItems={editedLineItems}
@@ -287,10 +306,10 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
           )}
 
           {/* Signature/Handwriting Thumbnails */}
-          {signature_regions.length > 0 && (
+          {signatureRegions.length > 0 && (
             <div className="mb-6">
               <h4 className="text-sm font-medium text-gray-700 mb-2">Signatures & Handwriting</h4>
-              <SignatureStrip signatureRegions={signature_regions} />
+              <SignatureStrip signatureRegions={signatureRegions} />
             </div>
           )}
 
@@ -306,11 +325,11 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
                 <Save className="w-4 h-4 mr-1" />
                 Save Changes
               </Button>
-              {verification_status === 'unreviewed' && (
+              {verificationStatus === 'unreviewed' && (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onMarkReviewed?.(id)}
+                  onClick={onMarkReviewed}
                 >
                   <CheckCircle className="w-4 h-4 mr-1" />
                   Mark Reviewed
@@ -321,7 +340,7 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => onFlagIssues?.(id)}
+                onClick={onFlagIssues}
               >
                 <Flag className="w-4 h-4 mr-1" />
                 Flag Issues
@@ -330,7 +349,7 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onSplitMerge(id)}
+                  onClick={onSplitMerge}
                 >
                   <Scissors className="w-4 h-4 mr-1" />
                   Split/Merge
@@ -340,7 +359,7 @@ const InvoiceCard: React.FC<InvoiceCardProps> = ({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onOpenPDF(id)}
+                  onClick={onOpenPDF}
                 >
                   <Download className="w-4 h-4 mr-1" />
                   Open PDF
