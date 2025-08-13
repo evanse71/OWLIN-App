@@ -48,6 +48,11 @@ except ImportError as e:
     logging.getLogger(__name__).warning(f"LLM modules not available: {e}")
     LLM_AVAILABLE = False
 
+# Allow disabling LLM via environment (default: disabled in dev)
+import os as _os
+if _os.getenv("OWLIN_DISABLE_LLM", "1") == "1":
+    LLM_AVAILABLE = False
+
 @dataclass
 class ProcessingResult:
     """Unified processing result"""

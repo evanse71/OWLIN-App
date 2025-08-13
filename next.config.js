@@ -33,7 +33,7 @@ module.exports = {
             NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000',
     NEXT_PUBLIC_HOST: process.env.NEXT_PUBLIC_HOST || 'localhost',
     NEXT_PUBLIC_PORT: process.env.NEXT_PUBLIC_PORT || '3000',
-    NEXT_PUBLIC_ENABLE_DEV_RESET: process.env.NEXT_PUBLIC_ENABLE_DEV_RESET || ''
+    NEXT_PUBLIC_ENABLE_DEV_RESET: process.env.NEXT_PUBLIC_ENABLE_DEV_RESET || (process.env.NODE_ENV === 'development' ? 'true' : '')
   },
   
   // Server configuration for development
