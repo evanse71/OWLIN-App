@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Image from 'next/image';
 
 interface SignatureRegion {
   id: string;
@@ -46,9 +47,11 @@ export default function SignatureStrip({ regions }: SignatureStripProps) {
               aria-label={`View signature on page ${region.page}`}
             >
               <div className="relative">
-                <img
+                <Image
                   src={region.image_url}
                   alt={`Signature on page ${region.page}`}
+                  width={80}
+                  height={80}
                   className="w-16 h-16 md:w-20 md:h-20 rounded-md border border-[#E7EAF0] object-cover hover:shadow-md transition-shadow"
                 />
                 <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1 rounded">

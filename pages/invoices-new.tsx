@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import { useToast } from '@/utils/toast';
 import InvoiceCardsPanel from '@/components/invoices/InvoiceCardsPanel';
 import UploadSection from '@/components/invoices/UploadSection';
@@ -53,8 +53,8 @@ const InvoicesPage: React.FC = () => {
   };
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-7xl mx-auto space-y-8">
           {/* Page Header */}
           <div className="text-center">
@@ -95,7 +95,7 @@ const InvoicesPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 
