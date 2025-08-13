@@ -1,0 +1,31 @@
+diff --git a/app/invoices_page.py b/app/invoices_page.py
+index dfb4c867c9709126a03de687ac62570c3ccb3c6b..dfef9ca2eacd945dedfcd46037538e31ccc16754 100644
+--- a/app/invoices_page.py
++++ b/app/invoices_page.py
+@@ -1,25 +1,26 @@
++# -*- coding: utf-8 -*-
+ import streamlit as st
+ import os
+ from datetime import datetime
+ from app.file_processor import save_file_to_disk, process_uploaded_files, save_file_metadata
+ from app.database import load_invoices_from_db, get_invoice_details, get_processing_status_summary
+ import time
+ 
+ # --- CSS Styling for Owlin Brand ---
+ st.markdown('''
+ <style>
+ body, .stApp { background: #f5f6fa !important; }
+ .owlin-upload-row { display: flex; gap: 2.5rem; margin-bottom: 2.5rem; }
+ @media (max-width: 900px) { .owlin-upload-row { flex-direction: column; gap: 1.5rem; } }
+ .owlin-upload-box-modern {
+     background: #fff;
+     border-radius: 22px;
+     box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+     padding: 2.5rem 2rem 2rem 2rem;
+     display: flex;
+     flex-direction: column;
+     align-items: stretch;
+     width: 100%;
+     position: relative;
+ }
+ .owlin-upload-heading { font-size: 1.35rem; font-weight: 800; color: #222; margin-bottom: 0.5rem; } 

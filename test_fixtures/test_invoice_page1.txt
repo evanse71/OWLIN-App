@@ -1,0 +1,15 @@
+
+    INVOICE - Page 1
+    
+    Invoice Number: INV-2024-002
+    Date: 2024-01-20
+    
+    Supplier: Multi Page Ltd
+    999 Business Blvd
+    City, State 99999
+    
+    Bill To:
+    Customer Name
+    456 Customer Ave
+    City, State 67890
+    

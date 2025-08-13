@@ -1,0 +1,25 @@
+# PaddleOCR Requirements for Owlin
+# Install with: pip install -r requirements_paddleocr.txt
+
+# Core PaddleOCR packages
+paddlepaddle>=2.5.0
+paddleocr>=2.7.0
+
+# Additional dependencies for PaddleOCR
+opencv-python>=4.8.0
+Pillow>=9.0.0
+numpy>=1.21.0
+shapely>=1.8.0
+pyclipper>=1.2.1
+lanms>=1.0.2
+
+# Existing Owlin dependencies (keep these)
+PyMuPDF>=1.23.0
+pdf2image>=3.1.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+aiofiles>=23.2.0
+
+# Optional: GPU support (uncomment if you have CUDA)
+# paddlepaddle-gpu>=2.5.0 
