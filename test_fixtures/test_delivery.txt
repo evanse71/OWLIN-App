@@ -1,0 +1,23 @@
+
+    DELIVERY NOTE
+    
+    Delivery Number: DEL-2024-001
+    Date: 2024-01-16
+    
+    Supplier: XYZ Logistics LTD
+    789 Delivery Road
+    City, State 11111
+    
+    Deliver To:
+    Customer Name
+    456 Customer Ave
+    City, State 67890
+    
+    Items Delivered:
+    Product A - 2 units
+    Product B - 1 unit
+    
+    Received by: John Doe
+    Signature: _________________
+    Date: 2024-01-16
+    

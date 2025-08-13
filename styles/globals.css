@@ -1,0 +1,272 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Owlin Blue Family */
+  --owlin-rich-black: #030812;
+  --owlin-navy-blue:  #020764;
+  --owlin-cerulean:   #043780;
+  --owlin-sapphire:   #025EC4;
+  --owlin-spiro:      #0ECDED;
+
+  /* Neutrals (light mode) */
+  --owlin-bg:         #F6F7F9;
+  --owlin-card:       #FFFFFF;
+  --owlin-text:       #0B1220;
+  --owlin-muted:      #6B7280;
+  --owlin-stroke:     #E7EAF0;
+
+  /* Feedback */
+  --owlin-success:    #1EB980;
+  --owlin-warning:    #F5B700;
+  --owlin-danger:     #E74C3C;
+  --owlin-info:       var(--owlin-spiro);
+
+  /* Radii, elevation, spacing */
+  --owlin-radius:     16px;
+  --owlin-radius-lg:  20px;
+  --owlin-shadow-sm:  0 2px 10px rgba(3,8,18,0.04);
+  --owlin-shadow:     0 8px 24px rgba(3,8,18,0.06);
+  --owlin-shadow-lg:  0 16px 40px rgba(3,8,18,0.08);
+
+  /* Motion tokens */
+  --dur-fast:         120ms;
+  --dur-med:          150ms;
+  --dur-slow:         300ms;
+  --ease-out:         cubic-bezier(.2,.8,.2,1);
+  --ease-in:          cubic-bezier(.4,0,1,1);
+
+  /* Z‑layers */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-overlay: 100;
+  --z-modal: 1000;
+  --z-toast: 1100;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --owlin-bg:        #0B0F1A;
+    --owlin-card:      #0F1626;
+    --owlin-text:      #E8EEF9;
+    --owlin-muted:     #9AA4B2;
+    --owlin-stroke:    #1B2336;
+    --owlin-shadow:    0 10px 30px rgba(0,0,0,0.4);
+  }
+}
+
+@keyframes fadeUp {
+  from { 
+    opacity: 0; 
+    transform: translateY(6px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.fade-up { 
+  animation: fadeUp var(--dur-med) var(--ease-out) forwards; 
+}
+
+@keyframes softPulse { 
+  0%, 100% { box-shadow: 0 0 0 0 rgba(2,94,196,0.0);} 
+  50% { box-shadow: 0 0 0 8px rgba(2,94,196,0.08);} 
+}
+
+/* Ensure navigation is always accessible */
+nav {
+  position: relative;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure navigation links are clickable */
+nav a, nav button {
+  position: relative;
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+}
+
+/* Prevent other elements from blocking navigation */
+nav * {
+  pointer-events: auto !important;
+}
+
+/* Ensure proper stacking context for the main layout */
+.min-h-screen {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure modals and overlays don't block navigation when closed */
+.fixed.inset-0:not(.bg-black) {
+  pointer-events: none;
+}
+
+.fixed.inset-0.bg-black {
+  pointer-events: auto;
+}
+
+/* Mobile-first responsive design system */
+@layer components {
+  /* Mobile-optimized card styles */
+  .mobile-card {
+    @apply bg-white border border-gray-200 rounded-lg p-4 shadow-sm;
+  }
+  
+  /* Touch-friendly button styles */
+  .touch-button {
+    @apply min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+    @apply active:scale-95;
+  }
+  
+  /* Mobile-optimized table styles */
+  .mobile-table {
+    @apply w-full border-collapse;
+  }
+  
+  .mobile-table th {
+    @apply px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+    @apply bg-gray-50 border-b border-gray-200;
+  }
+  
+  .mobile-table td {
+    @apply px-3 py-2 text-sm text-gray-900 border-b border-gray-100;
+  }
+  
+  /* Responsive text utilities */
+  .text-responsive-sm {
+    @apply text-xs sm:text-sm;
+  }
+  
+  .text-responsive-base {
+    @apply text-sm sm:text-base;
+  }
+  
+  .text-responsive-lg {
+    @apply text-base sm:text-lg;
+  }
+  
+  .text-responsive-xl {
+    @apply text-lg sm:text-xl;
+  }
+  
+  /* Mobile spacing utilities */
+  .mobile-padding {
+    @apply p-3 sm:p-4 lg:p-5;
+  }
+  
+  .mobile-margin {
+    @apply m-3 sm:m-4 lg:m-5;
+  }
+  
+  /* Touch-friendly spacing */
+  .touch-spacing {
+    @apply space-y-3 sm:space-y-4;
+  }
+  
+  /* Mobile grid utilities */
+  .mobile-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4;
+  }
+  
+  /* Mobile flex utilities */
+  .mobile-flex {
+    @apply flex flex-col sm:flex-row;
+  }
+  
+  .mobile-flex-center {
+    @apply flex flex-col sm:flex-row items-center;
+  }
+  
+  .mobile-flex-between {
+    @apply flex flex-col sm:flex-row items-center justify-between;
+  }
+}
+
+/* Mobile-specific media queries */
+@media (max-width: 640px) {
+  /* Ensure touch targets are large enough */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Optimize text sizes for mobile */
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.25rem; }
+  h3 { font-size: 1.125rem; }
+  
+  /* Mobile-optimized spacing */
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  /* Mobile table improvements */
+  .mobile-table-responsive {
+    font-size: 0.875rem;
+  }
+  
+  .mobile-table-responsive th,
+  .mobile-table-responsive td {
+    padding: 0.5rem 0.25rem;
+  }
+}
+
+/* Tablet-specific optimizations */
+@media (min-width: 641px) and (max-width: 1024px) {
+  /* Optimize for tablet landscape */
+  .container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Improve touch interactions */
+  .touch-optimized {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  
+  /* Larger touch targets */
+  .touch-target {
+    min-height: 48px;
+    min-width: 48px;
+  }
+  
+  /* Smooth touch scrolling */
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
+
+/* High DPI display optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Ensure crisp rendering on high DPI displays */
+  .high-dpi {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Print styles */
+@media print {
+  /* Hide navigation and non-essential elements when printing */
+  nav, .no-print {
+    display: none !important;
+  }
+  
+  /* Optimize for print layout */
+  .print-optimized {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

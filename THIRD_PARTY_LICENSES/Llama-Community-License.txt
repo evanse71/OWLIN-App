@@ -1,0 +1,25 @@
+LLAMA COMMUNITY LICENSE AGREEMENT
+
+Llama 3.1 Community License Agreement
+
+Copyright (c) 2024, Meta Platforms, Inc. All rights reserved.
+
+1. License Grant. Subject to the terms and conditions of this Agreement, Meta hereby grants you a non-exclusive, worldwide, non-transferable, non-sublicensable license to use, reproduce, distribute, and create derivative works of the Software solely for your non-commercial research purposes.
+
+2. Restrictions. You agree not to, and will not permit others to:
+   (a) use the Software for any commercial purpose;
+   (b) use the Software for any illegal or unauthorized purpose;
+   (c) use the Software to violate any applicable laws or regulations;
+   (d) use the Software to infringe upon or violate any third party rights;
+   (e) use the Software to create or distribute malware, viruses, or other harmful code;
+   (f) use the Software to create or distribute content that is illegal, harmful, threatening, abusive, harassing, defamatory, vulgar, obscene, or otherwise objectionable.
+
+3. Attribution. If you distribute, publicly display, publicly perform, or create derivative works of the Software, you must include attribution to Meta and this Agreement.
+
+4. Disclaimer of Warranty. THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+5. Limitation of Liability. IN NO EVENT SHALL META BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE.
+
+6. Termination. This Agreement will terminate automatically if you fail to comply with its terms.
+
+7. Governing Law. This Agreement shall be governed by and construed in accordance with the laws of the State of California. 
