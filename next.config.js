@@ -30,9 +30,10 @@ module.exports = {
   
   // Environment variables
   env: {
-            NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8002',
+            NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000',
     NEXT_PUBLIC_HOST: process.env.NEXT_PUBLIC_HOST || 'localhost',
     NEXT_PUBLIC_PORT: process.env.NEXT_PUBLIC_PORT || '3000',
+    NEXT_PUBLIC_ENABLE_DEV_RESET: process.env.NEXT_PUBLIC_ENABLE_DEV_RESET || ''
   },
   
   // Server configuration for development
@@ -40,7 +41,7 @@ module.exports = {
     return [
       {
         source: '/api/:path*',
-        destination: process.env.NEXT_PUBLIC_API_BASE ? `${process.env.NEXT_PUBLIC_API_BASE}/api/:path*` : 'http://localhost:8002/api/:path*',
+        destination: process.env.NEXT_PUBLIC_API_BASE ? `${process.env.NEXT_PUBLIC_API_BASE}/api/:path*` : 'http://localhost:8000/api/:path*',
       },
     ];
   },
