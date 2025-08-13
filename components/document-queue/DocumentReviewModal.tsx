@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DocumentQueueItem } from './DocumentQueueCard';
+import Image from 'next/image';
 
 export interface ReviewData {
   document_type: 'invoice' | 'delivery_note' | 'receipt' | 'utility';
@@ -227,12 +228,14 @@ const DocumentReviewModal: React.FC<DocumentReviewModalProps> = ({
     if (isImageFile()) {
       return (
         <div className="relative">
-          <img
+          <Image
             src={previewUrl || ''}
             alt={`Preview of ${document.filename}`}
-            className="w-full max-h-96 object-contain border border-gray-300 dark:border-gray-600 rounded-lg"
-            onLoad={handlePreviewLoad}
-            onError={handlePreviewError}
+            width={1200}
+            height={800}
+            className="w-full h-auto max-h-96 object-contain border border-gray-300 dark:border-gray-600 rounded-lg"
+            onLoad={handlePreviewLoad as any}
+            onError={handlePreviewError as any}
           />
         </div>
       );

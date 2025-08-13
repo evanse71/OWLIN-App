@@ -1,11 +1,11 @@
 import React from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import NavigationDebugger from '@/components/NavigationDebugger';
 
 const TestNavigationPage: React.FC = () => {
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold text-gray-900 mb-6">
             Navigation Test Page
@@ -64,7 +64,7 @@ const TestNavigationPage: React.FC = () => {
       </div>
       
       <NavigationDebugger />
-    </Layout>
+    </AppShell>
   );
 };
 
