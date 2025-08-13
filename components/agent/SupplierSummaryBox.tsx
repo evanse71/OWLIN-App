@@ -149,7 +149,7 @@ ${summary.summary_message}
           <h3 className="text-lg font-semibold text-gray-900">No Issues Found</h3>
         </div>
         <p className="text-gray-600">
-          No flagged issues found in the selected date range. You're good to go! 🎉
+          No flagged issues found in the selected date range. You&apos;re good to go! 🎉
         </p>
       </div>
     );

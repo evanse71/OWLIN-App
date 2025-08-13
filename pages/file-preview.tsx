@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 
 interface FileData {
   id: string;
@@ -71,20 +71,20 @@ export default function FilePreviewPage() {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="container mx-auto p-6">
+      <AppShell>
+        <div className="p-6">
           <div className="flex items-center justify-center h-64">
             <div className="text-lg">Loading files...</div>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   if (error) {
     return (
-      <Layout>
-        <div className="container mx-auto p-6">
+      <AppShell>
+        <div className="p-6">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="text-red-600 text-center">
               <p>Error: {error}</p>
@@ -97,13 +97,13 @@ export default function FilePreviewPage() {
             </div>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   return (
-    <Layout>
-      <div className="container mx-auto p-6">
+    <AppShell>
+      <div className="p-6">
         <div className="mb-6">
           <h1 className="text-3xl font-bold mb-2">File Preview</h1>
           <p className="text-gray-600">
@@ -201,6 +201,6 @@ export default function FilePreviewPage() {
           </div>
         )}
       </div>
-    </Layout>
+    </AppShell>
   );
 } 

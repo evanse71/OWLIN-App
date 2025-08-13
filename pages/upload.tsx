@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import Layout from '@/components/Layout';
+import Link from 'next/link';
+import AppShell from '@/components/layout/AppShell';
 import EnhancedUploadPanel from '@/components/invoices/EnhancedUploadPanel';
 import { useToast } from '@/utils/toast';
 
@@ -22,8 +23,8 @@ const UploadPage: React.FC<UploadPageProps> = () => {
   ];
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
@@ -103,9 +104,7 @@ const UploadPage: React.FC<UploadPageProps> = () => {
                   Your uploaded documents will be processed with OCR, field extraction, validation, 
                   and stored in the database with duplicate detection and role-based access control. 
                   You can view and manage all documents in the{' '}
-                  <a href="/document-queue" className="underline hover:no-underline font-medium">
-                    Document Queue
-                  </a>{' '}
+                  <Link href="/document-queue" className="underline hover:no-underline font-medium">Document Queue</Link>{' '}
                   page.
                 </p>
               </div>
@@ -113,7 +112,7 @@ const UploadPage: React.FC<UploadPageProps> = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

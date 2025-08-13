@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import EnhancedUploadPanel from '@/components/invoices/EnhancedUploadPanel';
 import EnhancedInvoiceCard from '@/components/invoices/EnhancedInvoiceCard';
 
@@ -38,8 +38,8 @@ const EnhancedUploadDemo: React.FC = () => {
   };
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
@@ -210,7 +210,7 @@ const EnhancedUploadDemo: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

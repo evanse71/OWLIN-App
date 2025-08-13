@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import MatchingPanel from '@/components/invoices/MatchingPanel';
 
 interface MatchingResult {
@@ -66,8 +66,8 @@ const MatchingDemo: React.FC = () => {
   };
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -258,7 +258,7 @@ const MatchingDemo: React.FC = () => {
               <ul className="text-sm text-blue-700 space-y-1">
                 <li>• Select invoice document (PDF/image)</li>
                 <li>• Select delivery note document (PDF/image)</li>
-                <li>• Click "Match Documents" to process</li>
+                <li>• Click &quot;Match Documents&quot; to process</li>
               </ul>
             </div>
             <div>
@@ -312,7 +312,7 @@ const MatchingDemo: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

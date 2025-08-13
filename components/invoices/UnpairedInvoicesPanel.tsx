@@ -190,13 +190,13 @@ const UnpairedInvoicesPanel: React.FC<UnpairedInvoicesPanelProps> = ({ invoices,
           <div className="text-xs text-gray-500 text-center">
             {invoices.length > 0 ? (
               <>
-                <p>Invoices that haven't been paired with delivery notes</p>
+                <p>Invoices that haven&apos;t been paired with delivery notes</p>
                 <p className="mt-1">Click to view details or manually pair</p>
               </>
             ) : (
               <>
                 <p>Upload invoices to see them here</p>
-                <p className="mt-1">They'll appear in this panel when unpaired</p>
+                <p className="mt-1">They&apos;ll appear in this panel when unpaired</p>
               </>
             )}
           </div>

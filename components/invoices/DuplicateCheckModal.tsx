@@ -239,7 +239,7 @@ const DuplicateCheckModal: React.FC<DuplicateCheckModalProps> = ({
                 <h4 className="text-sm font-semibold text-yellow-800 mb-1">Important</h4>
                 <p className="text-sm text-yellow-700">
                   Please carefully review the differences above. If this is a duplicate, 
-                  you should remove the uploaded document. If it's a different document 
+                  you should remove the uploaded document. If it&apos;s a different document 
                   with similar details, you can continue with the upload.
                 </p>
               </div>

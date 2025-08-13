@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import DocumentQueueCard from '@/components/document-queue/DocumentQueueCard';
 import DocumentReviewModal from '@/components/document-queue/DocumentReviewModal';
 import { apiService } from '@/services/api';
@@ -278,8 +278,8 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="container mx-auto py-8 px-4">
+      <AppShell>
+        <div className="py-8">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -287,13 +287,13 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
             </div>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   return (
-    <Layout>
-      <div className="container mx-auto py-6 px-4">
+    <AppShell>
+      <div className="py-6">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-6">
@@ -594,7 +594,7 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
           />
         )}
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

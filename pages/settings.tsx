@@ -1,10 +1,10 @@
 import React from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 
 const SettingsPage: React.FC = () => {
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold text-gray-900 mb-8">Settings</h1>
           
@@ -138,7 +138,7 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

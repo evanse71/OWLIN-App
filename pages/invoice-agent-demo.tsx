@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import InvoiceAgentPanel from '@/components/agent/InvoiceAgentPanel';
 
 interface AgentAction {
@@ -155,8 +155,8 @@ const InvoiceAgentDemo: React.FC = () => {
   ];
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-7xl mx-auto space-y-8">
           {/* Page Header */}
           <div className="text-center">
@@ -263,7 +263,7 @@ const InvoiceAgentDemo: React.FC = () => {
               <div>
                 <h3 className="font-semibold text-gray-900 mb-2">Invoice Details</h3>
                 <ul className="space-y-1 text-gray-600">
-                  <li><strong>Supplier:</strong> Tom's Meats</li>
+                  <li><strong>Supplier:</strong> Tom&apos;s Meats</li>
                   <li><strong>Invoice #:</strong> INV-73318</li>
                   <li><strong>Total:</strong> £150.50</li>
                   <li><strong>Confidence:</strong> 75% (Manual review required)</li>
@@ -293,7 +293,7 @@ const InvoiceAgentDemo: React.FC = () => {
                   key={index}
                   className="p-3 bg-gray-50 rounded-lg border border-gray-200"
                 >
-                  <p className="text-sm text-gray-700">"{question}"</p>
+                  <p className="text-sm text-gray-700">&quot;{question}&quot;</p>
                 </div>
               ))}
             </div>
@@ -404,7 +404,7 @@ const InvoiceAgentDemo: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

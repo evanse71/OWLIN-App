@@ -49,20 +49,20 @@ const InvoicesPage: React.FC = () => {
   });
 
   // Cross-fade helpers
-  const fadeOut = (el: HTMLElement) => {
+  const fadeOut = useCallback((el: HTMLElement) => {
     if (!el) return;
     el.style.transition = "opacity 120ms ease-out";
     el.style.opacity = "0";
-  };
+  }, []);
 
-  const fadeIn = (el: HTMLElement, i = 0) => {
+  const fadeIn = useCallback((el: HTMLElement, i = 0) => {
     if (!el) return;
     el.style.opacity = "0";
     el.style.transition = `opacity 120ms ease-out ${i * 60}ms`;
     requestAnimationFrame(() => {
       el.style.opacity = "1";
     });
-  };
+  }, []);
 
   // Create placeholder for a file
   const createPlaceholder = (file: File, index: number): Invoice => ({
