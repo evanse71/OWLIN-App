@@ -6,12 +6,16 @@ import { useEffect } from 'react';
 
 function useDevAutoReset() {
   useEffect(() => {
-    if (process.env.NODE_ENV !== 'development' && process.env.NEXT_PUBLIC_ENABLE_DEV_RESET !== 'true') return;
+    if (process.env.NODE_ENV !== 'development') return;
     if (typeof window === 'undefined') return;
-    const key = 'owlin-dev-reset-run';
-    if (sessionStorage.getItem(key)) return; // once per tab session
-    sessionStorage.setItem(key, '1');
-    fetch('/api/dev/clear-documents', { method: 'DELETE' }).catch(() => {});
+    const reset = async () => {
+      try {
+        await fetch('/api/dev/clear-documents', { method: 'DELETE', cache: 'no-store' });
+      } catch {
+        // ... existing code ...
+      }
+    };
+    reset();
   }, []);
 }
 

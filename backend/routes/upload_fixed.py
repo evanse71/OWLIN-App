@@ -28,6 +28,49 @@ import asyncio
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Dev audit store (last upload)
+LAST_AUDIT: Dict[str, Any] = {}
+
+# ------------------------
+# Helpers for amount parsing
+# ------------------------
+def _parse_money_str(s: str) -> Optional[float]:
+    try:
+        s = s.strip()
+        s = re.sub(r"[£$€]", "", s)
+        s = s.replace(",", "")
+        return float(s)
+    except Exception:
+        return None
+
+def _find_reasonable_total_from_text(text: str) -> Optional[float]:
+    """Find a plausible total amount from raw OCR text.
+    Strategy:
+      - Search for lines containing 'total' then a currency value with decimals
+      - Prefer the last occurrence
+      - Reject absurd values (> 10,000,000)
+    """
+    if not text:
+        return None
+    candidates: list[float] = []
+    for line in text.splitlines():
+        low = line.lower()
+        if "total" not in low:
+            continue
+        # currency with mandatory decimals
+        for m in re.finditer(r"[£$€]\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)\.[0-9]{2}", line):
+            val = _parse_money_str(m.group(0))
+            if val is not None and val <= 10_000_000:
+                candidates.append(val)
+        # currency-less but with decimals (fallback)
+        for m in re.finditer(r"\b([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)\.[0-9]{2}\b", line):
+            val = _parse_money_str(m.group(0))
+            if val is not None and val <= 10_000_000:
+                candidates.append(val)
+    if candidates:
+        return candidates[-1]  # choose last occurrence
+    return None
+
 # Import enhanced unified OCR engine
 try:
     from ocr.unified_ocr_engine import get_unified_ocr_engine
@@ -234,7 +277,17 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
                     "line_items": result.line_items,
                     "document_type": result.document_type,
                     "engine_used": result.engine_used,
-                    "processing_time": result.processing_time
+                    "processing_time": result.processing_time,
+                    # Back-compat aliases expected by downstream logic
+                    "overall_confidence": result.overall_confidence,
+                    "total_words": result.word_count,
+                    "raw_ocr_text": result.raw_text,
+                    "pages": [{
+                        "page": 1,
+                        "avg_confidence": float(result.overall_confidence) * 100.0 if isinstance(result.overall_confidence, (int, float)) else 0.0,
+                        "word_count": int(result.word_count) if isinstance(result.word_count, (int, float)) else 0,
+                        "psm_used": "unified"
+                    }]
                 }
                 logger.debug(f"✅ Enhanced OCR completed for {filename}")
                 logger.debug(f"📝 Enhanced OCR result: confidence={result.overall_confidence:.2f}, supplier={result.supplier}, total={result.total_amount}")
@@ -456,13 +509,12 @@ async def upload_invoice(file: UploadFile = File(...)):
                                         unified_engine = get_unified_ocr_engine()
                                         
                                         # Process the extracted text directly using enhanced field extraction
-                                        from ocr.unified_ocr_engine import OCRResult
-                                        
-                                        # Create a mock OCR result from the text
+                                        from ocr.ocr_engine import OCRResult
+                                        # Create a mock OCR result from the text with correct fields
                                         mock_ocr_results = [OCRResult(
                                             text=invoice_text,
                                             confidence=0.8,
-                                            bbox=(0, 0, 100, 100),
+                                            bounding_box=[[0,0],[100,0],[100,100],[0,100]],
                                             page_number=1
                                         )]
                                         
@@ -665,8 +717,10 @@ async def upload_invoice(file: UploadFile = File(...)):
             logger.info("✅ OCR processing completed")
             
             # Check if OCR needs retry
-            overall_confidence = ocr_result.get('overall_confidence', 0.0)
-            total_words = ocr_result.get('total_words', 0)
+            raw_overall_conf = float(ocr_result.get('overall_confidence', 0.0) or 0.0)
+            # Normalize to percentage for thresholds/logging
+            overall_confidence = raw_overall_conf * 100.0 if raw_overall_conf <= 1.0 else raw_overall_conf
+            total_words = int(ocr_result.get('total_words', 0) or 0)
             was_retried = ocr_result.get('was_retried', False)
             
             logger.info(f"📊 OCR Results: {overall_confidence:.1f}% confidence, {total_words} words, retried: {was_retried}")
@@ -677,8 +731,9 @@ async def upload_invoice(file: UploadFile = File(...)):
                 try:
                     # Retry with different settings
                     retry_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=timeout_seconds)
-                    retry_confidence = retry_result.get('overall_confidence', 0.0)
-                    retry_words = retry_result.get('total_words', 0)
+                    rr = float(retry_result.get('overall_confidence', 0.0) or 0.0)
+                    retry_confidence = rr * 100.0 if rr <= 1.0 else rr
+                    retry_words = int(retry_result.get('total_words', 0) or 0)
                     
                     logger.info(f"📊 Retry Results: {retry_confidence:.1f}% confidence, {retry_words} words")
                     
@@ -722,7 +777,9 @@ async def upload_invoice(file: UploadFile = File(...)):
         
         # Step 5: Extract metadata and line items
         logger.info("🔄 Step 5: Extracting metadata and line items...")
-        raw_text = ocr_result.get('raw_ocr_text', '')
+        raw_text = ocr_result.get('raw_ocr_text') or ocr_result.get('raw_text', '')
+        # Ensure line_items is defined
+        line_items: List[Dict[str, Any]] = []
         
         # Log per-page OCR details for debugging
         if ocr_result.get('pages'):
@@ -749,47 +806,115 @@ async def upload_invoice(file: UploadFile = File(...)):
         
         # ✅ Enhanced metadata extraction with fallback
         try:
-            if extract_invoice_metadata and raw_text:
-                metadata = extract_invoice_metadata(raw_text)
-                logger.info(f"✅ Metadata extracted: {metadata}")
-                
-                # ✅ Improved supplier name fallback
-                supplier_name = metadata.get('supplier_name', 'Unknown')
-                if supplier_name in (None, "", "Unknown"):
-                    # Use filename as fallback supplier name
-                    supplier_name = os.path.splitext(file.filename)[0]
-                    metadata['supplier_name'] = supplier_name
-                    logger.info(f"✅ Using filename as supplier name: {supplier_name}")
+            if raw_text:
+                # Parse using text-based invoice parser for robust extraction
+                try:
+                    from ocr.parse_invoice import parse_invoice
+                    parsed = parse_invoice(raw_text)
+                    metadata = {
+                        'supplier_name': parsed.supplier or 'Unknown',
+                        'invoice_number': parsed.invoice_number or 'Unknown',
+                        'invoice_date': parsed.date or 'Unknown',
+                        'total_amount': float(parsed.gross_total or 0.0),
+                        'subtotal': float(parsed.net_total or 0.0),
+                        'vat': float(parsed.vat_total or 0.0),
+                        'vat_rate': float(parsed.vat_rate) if parsed.vat_rate is not None else 20.0,
+                        'total_incl_vat': float(parsed.gross_total or 0.0),
+                    }
+                    # If parser returned line items, map them
+                    if getattr(parsed, 'line_items', None):
+                        line_items = [{
+                            'description': getattr(li, 'description', ''),
+                            'quantity': float(getattr(li, 'quantity', 0.0) or 0.0),
+                            'unit_price': float(getattr(li, 'unit_price', 0.0) or 0.0),
+                            'line_total': float(getattr(li, 'total_price', 0.0) or 0.0),
+                            'confidence': float(getattr(li, 'confidence', 0.7) or 0.7),
+                        } for li in parsed.line_items]
+                    logger.info(f"✅ Metadata extracted via parse_invoice: supplier={metadata['supplier_name']}, total={metadata['total_amount']}")
+                except Exception as pe:
+                    logger.warning(f"⚠️ Text parser failed: {pe}")
+                    # Fall back to field extractor if available and OCR results exist
+                    if extract_invoice_metadata and ocr_result.get('pages'):
+                        try:
+                            # Build minimal OCR result blocks for field extractor
+                            blocks = []
+                            for pg in ocr_result.get('pages', []):
+                                for wb in pg.get('word_boxes', []) or []:
+                                    text_val = wb.get('text') or ''
+                                    conf_val = float(wb.get('confidence', 0.0) or 0.0) * 100.0
+                                    bbox = wb.get('bbox') or [0,0,0,0]
+                                    page_num = int(pg.get('page', 1) or 1)
+                                    blocks.append({ 'text': text_val, 'confidence': conf_val, 'bbox': bbox, 'page_num': page_num })
+                            metadata = extract_invoice_metadata(blocks)
+                            logger.info(f"✅ Metadata extracted via field_extractor")
+                        except Exception as fe:
+                            logger.warning(f"⚠️ Field extractor failed: {fe}")
+                            metadata = create_fallback_metadata()
+                    else:
+                        metadata = create_fallback_metadata()
             else:
                 metadata = create_fallback_metadata()
-                # ✅ Ensure fallback metadata has supplier name
-                if metadata.get('supplier_name') in (None, "", "Unknown"):
-                    metadata['supplier_name'] = os.path.splitext(file.filename)[0]
-                logger.warning("⚠️ Using fallback metadata")
+            # ✅ Ensure supplier fallback from filename
+            if metadata.get('supplier_name') in (None, '', 'Unknown'):
+                metadata['supplier_name'] = os.path.splitext(file.filename)[0]
+                logger.info(f"✅ Using filename as supplier name: {metadata['supplier_name']}")
+
+            # ✅ Plausibility and fallback totals
+            total_from_items = None
+            if line_items:
+                try:
+                    total_from_items = sum(float(it.get('line_total') or it.get('total_price') or 0.0) for it in line_items)
+                except Exception:
+                    total_from_items = None
+
+            # If total is missing or absurd, try derive better
+            total_val = float(metadata.get('total_amount') or 0.0)
+            if total_val <= 0.0 or total_val > 10_000_000:
+                # Try to find plausible total directly in text
+                from_text = _find_reasonable_total_from_text(raw_text)
+                if from_text is not None:
+                    metadata['total_amount'] = from_text
+                    metadata['total_incl_vat'] = from_text
+                    logger.info(f"✅ Total derived from text: £{from_text:.2f}")
+                elif total_from_items is not None and total_from_items > 0:
+                    metadata['total_amount'] = total_from_items
+                    metadata['total_incl_vat'] = total_from_items
+                    logger.info(f"✅ Total derived from line items: £{total_from_items:.2f}")
+                else:
+                    logger.warning("⚠️ Total amount not detected after derivation attempts")
         except Exception as metadata_error:
             logger.warning(f"⚠️ Metadata extraction failed: {metadata_error}")
             metadata = create_fallback_metadata()
             # ✅ Ensure fallback metadata has supplier name
-            if metadata.get('supplier_name') in (None, "", "Unknown"):
+            if metadata.get('supplier_name') in (None, '', 'Unknown'):
                 metadata['supplier_name'] = os.path.splitext(file.filename)[0]
         
         # ✅ Enhanced line item extraction
-        line_items = []
+        line_items = line_items if isinstance(line_items, list) and line_items else []
         try:
             if extract_line_items and table_data and len(table_data) > 0:
                 line_items = extract_line_items(table_data)
                 logger.info(f"✅ Line items extracted from table: {len(line_items)} items")
-            elif raw_text:
-                # Use text-based extraction as fallback
-                from ocr.parse_invoice import extract_line_items_from_text
-                line_items = extract_line_items_from_text(raw_text)
-                logger.info(f"✅ Line items extracted from text: {len(line_items)} items")
+            # If parse_invoice already populated line_items above, keep them
             else:
-                logger.warning("⚠️ No text available for line item extraction")
+                if not raw_text and not line_items:
+                    logger.warning("⚠️ No text available for line item extraction")
         except Exception as line_items_error:
             logger.warning(f"⚠️ Line items extraction failed: {line_items_error}")
             line_items = []
         
+        # ✅ Compute simple field confidence signals for UI (0..1 scale)
+        try:
+            field_confidence = {
+                "supplier_name": 0.8 if (metadata.get('supplier_name') and metadata.get('supplier_name') != 'Unknown') else 0.4,
+                "invoice_number": 0.75 if (metadata.get('invoice_number') and metadata.get('invoice_number') != 'Unknown') else 0.4,
+                "invoice_date": 0.7 if (metadata.get('invoice_date') and metadata.get('invoice_date') != 'Unknown') else 0.4,
+                "total_amount": 0.8 if float(metadata.get('total_amount') or 0) > 0 else 0.4,
+                "line_items": 0.7 if line_items else 0.5,
+            }
+        except Exception:
+            field_confidence = {}
+
         # ✅ Calculate totals from line items if missing
         if line_items and (metadata.get('total_amount', 0) == 0 or metadata.get('subtotal', 0) == 0):
             calculated_subtotal = sum(item.get('line_total_excl_vat', item.get('total_price', 0)) for item in line_items)
@@ -823,8 +948,10 @@ async def upload_invoice(file: UploadFile = File(...)):
         # Step 6: Calculate confidence and manual review flag
         logger.info("🔄 Step 6: Calculating confidence...")
         # Use standardized display confidence calculation
-        overall_confidence = ocr_result.get('overall_confidence', 0.0)
-        display_confidence = calculate_display_confidence(overall_confidence)
+        raw_overall_conf = float(ocr_result.get('overall_confidence', 0.0) or 0.0)
+        # Normalize to 0..1 for display calc
+        raw_for_display = raw_overall_conf if raw_overall_conf <= 1.0 else (raw_overall_conf / 100.0)
+        display_confidence = calculate_display_confidence(raw_for_display)
         confidence = display_confidence
         # Enhanced manual review logic
         manual_review = (
@@ -833,13 +960,14 @@ async def upload_invoice(file: UploadFile = File(...)):
             metadata.get('supplier_name') == 'Unknown' or
             metadata.get('total_amount', 0) == 0.0
         )
+        overall_confidence = raw_for_display * 100.0
         logger.debug(f"OCR confidence: {overall_confidence}")
         logger.debug(f"Display confidence (0-100%): {display_confidence}%")
         logger.debug(f"Manual review required: {manual_review}")
         logger.info(f"✅ Confidence calculated: {display_confidence}%, Manual review: {manual_review}")
         
         # ✅ Determine document status based on OCR quality
-        total_words = ocr_result.get('total_words', 0)
+        total_words = int(ocr_result.get('total_words', 0) or 0)
         
         # Set status based on OCR quality
         if overall_confidence < 10 or total_words == 0:
@@ -935,7 +1063,7 @@ async def upload_invoice(file: UploadFile = File(...)):
             "vat": metadata.get('vat', 0.0),
             "vat_rate": metadata.get('vat_rate', 20.0),
             "total_incl_vat": metadata.get('total_incl_vat', 0.0),
-            "confidence": overall_confidence,
+            "confidence": display_confidence,
             "word_count": total_words,
             "status": document_status,
             "was_retried": ocr_result.get('was_retried', False),
@@ -944,13 +1072,33 @@ async def upload_invoice(file: UploadFile = File(...)):
             "parsed_data": metadata,  # Keep for backward compatibility
             "line_items": line_items,
             "table_data": table_data,
+            "field_confidence": field_confidence,
             "original_filename": file.filename,
             # ✅ Add OCR debug data
             "raw_ocr_text": raw_text,
             "pages": ocr_result.get('pages', []),
-            "overall_confidence": overall_confidence,
+            "overall_confidence": display_confidence,
             "total_words": total_words
         }
+        # Update audit store
+        try:
+            LAST_AUDIT.update({
+                "timestamp": datetime.now().isoformat(),
+                "filename": file.filename,
+                "engine": ocr_result.get('engine_used', 'unified'),
+                "word_count": total_words,
+                "confidence_pct": display_confidence,
+                "supplier": response_data["supplier_name"],
+                "invoice_number": response_data["invoice_number"],
+                "invoice_date": response_data["invoice_date"],
+                "total_amount": response_data["total_amount"],
+                "line_items": len(line_items or []),
+                "raw_text_preview": (raw_text or "")[:800],
+                "field_confidence": field_confidence,
+                "warnings": warnings if 'warnings' in locals() else [],
+            })
+        except Exception:
+            pass
         
         logger.info("✅ Upload process completed successfully")
         return response_data
@@ -972,7 +1120,19 @@ async def upload_invoice(file: UploadFile = File(...)):
                 logger.warning(f"⚠️ Could not save failed file: {copy_error}")
         
         # Return comprehensive fallback response
-        return create_fallback_response(file.filename, str(e))
+        fallback = create_fallback_response(file.filename, str(e))
+        # Update audit on fallback
+        try:
+            LAST_AUDIT.update({
+                "timestamp": datetime.now().isoformat(),
+                "filename": file.filename if 'file' in locals() else 'unknown',
+                "engine": ocr_result.get('engine_used', 'unified') if 'ocr_result' in locals() and isinstance(ocr_result, dict) else 'unknown',
+                "error": str(e),
+                "raw_text_preview": (raw_text if 'raw_text' in locals() else '')[:800],
+            })
+        except Exception:
+            pass
+        return fallback
     finally:
         # Clean up temporary file
         if temp_filepath and os.path.exists(temp_filepath):
@@ -1128,6 +1288,17 @@ def preview_file(document_id: str):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"} 
+
+@router.get("/audit/last")
+async def get_last_audit():
+    """Development-only endpoint to inspect last upload audit."""
+    try:
+        return {
+            "success": True,
+            "audit": LAST_AUDIT,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @router.get("/test-ocr")
 async def test_ocr():
