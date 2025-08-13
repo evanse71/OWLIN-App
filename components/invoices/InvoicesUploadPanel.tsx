@@ -289,49 +289,48 @@ const InvoicesUploadPanel: React.FC = () => {
                           <>
                             {result.data.saved_invoices && Array.isArray(result.data.saved_invoices) ? (
                               <div className="mt-3 space-y-3">
-                                {result.data.saved_invoices.map((inv: any, idx: number) => {
-                                  const [open, setOpen] = React.useState(false);
-                                  return (
-                                    <div key={inv.invoice_id || idx} className="border rounded p-3 bg-white">
-                                      <div className="flex justify-between items-center">
-                                        <div className="text-sm">
+                                {result.data.saved_invoices.map((inv: any, idx: number) => (
+                                  <div key={inv.invoice_id || idx} className="border rounded p-3 bg-white">
+                                    <div className="flex justify-between items-center">
+                                      <div className="text-sm">
                                           <div><span className="text-gray-500">Supplier:</span> <span className="font-medium">{inv.supplier_name}</span></div>
                                           <div><span className="text-gray-500">Invoice #:</span> <span className="font-medium">{inv.invoice_number}</span></div>
                                           <div><span className="text-gray-500">Amount:</span> <span className="font-medium">£{Number(inv.total_amount || 0).toFixed(2)}</span></div>
                                           <div><span className="text-gray-500">Confidence:</span> <span className="font-medium">{Math.round(Number(inv.confidence || 0) * 100)}%</span></div>
                                           {inv.page_range && <div className="text-xs text-gray-500">{inv.page_range}</div>}
-                                        </div>
-                                        <button onClick={() => setOpen(!open)} className="px-3 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200">
-                                          {open ? 'Hide line items' : 'Show line items'}
-                                        </button>
                                       </div>
-                                      {open && Array.isArray(inv.line_items) && inv.line_items.length > 0 && (
-                                        <div className="mt-3 overflow-x-auto">
-                                          <table className="min-w-full text-sm">
+                                      <button onClick={(e) => {
+                                        e.currentTarget.parentElement?.nextElementSibling?.classList.toggle('hidden');
+                                      }} className="px-3 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200">
+                                        Show/Hide line items
+                                      </button>
+                                    </div>
+                                    <div className="mt-3 overflow-x-auto hidden">
+                                      {Array.isArray(inv.line_items) && inv.line_items.length > 0 && (
+                                        <table className="min-w-full text-sm">
                                             <thead>
-                                              <tr className="text-left text-gray-500">
-                                                <th className="py-1 pr-4">Qty</th>
-                                                <th className="py-1 pr-4">Description</th>
-                                                <th className="py-1 pr-4">Unit</th>
-                                                <th className="py-1">Total</th>
+                                              <tr className="text-gray-500">
+                                                <th className="text-left py-1">Description</th>
+                                                <th className="text-right py-1">Qty</th>
+                                                <th className="text-right py-1">Unit Price</th>
+                                                <th className="text-right py-1">Total</th>
                                               </tr>
                                             </thead>
                                             <tbody>
-                                              {inv.line_items.map((li: any, i: number) => (
-                                                <tr key={i} className="border-t">
-                                                  <td className="py-1 pr-4">{li.quantity ?? '-'}</td>
-                                                  <td className="py-1 pr-4">{li.description ?? li.item ?? '-'}</td>
-                                                  <td className="py-1 pr-4">{li.price ?? li.unit_price ?? '-'}</td>
-                                                  <td className="py-1">{li.total ?? '-'}</td>
+                                              {inv.line_items.map((li: any, liIdx: number) => (
+                                                <tr key={liIdx} className="border-t">
+                                                  <td className="py-1 pr-2 text-gray-800">{li.description}</td>
+                                                  <td className="py-1 pl-2 text-right text-gray-800">{li.quantity}</td>
+                                                  <td className="py-1 pl-2 text-right text-gray-800">£{Number(li.unit_price || 0).toFixed(2)}</td>
+                                                  <td className="py-1 pl-2 text-right text-gray-800">£{Number(li.line_total || 0).toFixed(2)}</td>
                                                 </tr>
                                               ))}
                                             </tbody>
-                                          </table>
-                                        </div>
+                                        </table>
                                       )}
                                     </div>
-                                  );
-                                })}
+                                  </div>
+                                ))}
                               </div>
                             ) : (
                               <div className="mt-3 grid grid-cols-2 gap-4 text-sm">

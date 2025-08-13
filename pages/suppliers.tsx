@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 
 interface Supplier {
   name: string;
@@ -107,20 +107,20 @@ const SuppliersPage: React.FC = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="container mx-auto py-8 px-4">
+      <AppShell>
+        <div className="py-8">
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   if (error) {
     return (
-      <Layout>
-        <div className="container mx-auto py-8 px-4">
+      <AppShell>
+        <div className="py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
             <p className="text-red-800">Error loading suppliers: {error}</p>
             <button 
@@ -136,13 +136,13 @@ const SuppliersPage: React.FC = () => {
             </button>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
@@ -339,7 +339,7 @@ const SuppliersPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

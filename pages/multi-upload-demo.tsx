@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import MultiUploadPanel from '@/components/invoices/MultiUploadPanel';
 
 interface FileUpload {
@@ -35,8 +35,8 @@ const MultiUploadDemo: React.FC = () => {
   };
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Multi-File Upload Demo</h1>
@@ -311,7 +311,7 @@ const MultiUploadDemo: React.FC = () => {
               <div className="space-y-2 text-sm text-gray-600">
                 <p>1. Select files using the file picker or drag & drop</p>
                 <p>2. Review the upload queue and file validation</p>
-                <p>3. Click "Process Files" to start batch processing</p>
+                <p>3. Click &quot;Process Files&quot; to start batch processing</p>
                 <p>4. Monitor real-time progress and status updates</p>
                 <p>5. Review validation results and warnings</p>
                 <p>6. Access upload history for completed files</p>
@@ -326,13 +326,13 @@ const MultiUploadDemo: React.FC = () => {
                 <p>• Duplicate detection provides warnings but allows upload</p>
                 <p>• Processing failures are logged with detailed error info</p>
                 <p>• Network issues trigger automatic retry logic</p>
-                <p>• Invalid data is flagged but doesn't block processing</p>
+                <p>• Invalid data is flagged but doesn&apos;t block processing</p>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

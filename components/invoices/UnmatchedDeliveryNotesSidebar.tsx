@@ -144,13 +144,13 @@ const UnmatchedDeliveryNotesSidebar: React.FC<UnmatchedDeliveryNotesSidebarProps
           <div className="text-xs text-gray-500 text-center">
             {deliveryNotes.length > 0 ? (
               <>
-                <p>Delivery notes that haven't been matched to invoices</p>
+                <p>Delivery notes that haven&apos;t been matched to invoices</p>
                 <p className="mt-1">Click to view details or manually match</p>
               </>
             ) : (
               <>
                 <p>Upload delivery notes to see them here</p>
-                <p className="mt-1">They'll appear in this sidebar when unmatched</p>
+                <p className="mt-1">They&apos;ll appear in this sidebar when unmatched</p>
               </>
             )}
           </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '@/components/Layout';
+import AppShell from '@/components/layout/AppShell';
 import ProductTrendPanel from '@/components/forecast/ProductTrendPanel';
 
 interface ForecastData {
@@ -64,8 +64,8 @@ const ProductTrendsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="container mx-auto py-8 px-4">
+      <AppShell>
+        <div className="py-8">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
@@ -91,14 +91,14 @@ const ProductTrendsPage: React.FC = () => {
             </div>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   if (error) {
     return (
-      <Layout>
-        <div className="container mx-auto py-8 px-4">
+      <AppShell>
+        <div className="py-8">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
@@ -130,13 +130,13 @@ const ProductTrendsPage: React.FC = () => {
             </div>
           </div>
         </div>
-      </Layout>
+      </AppShell>
     );
   }
 
   return (
-    <Layout>
-      <div className="container mx-auto py-8 px-4">
+    <AppShell>
+      <div className="py-8">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
@@ -179,7 +179,7 @@ const ProductTrendsPage: React.FC = () => {
           )}
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

@@ -54,7 +54,7 @@ const TestNavigationPage: React.FC = () => {
               Debug Information
             </h3>
             <p className="text-yellow-800 mb-3">
-              Click the red "Debug Nav" button in the bottom-left corner to see detailed information about navigation elements and potential blocking issues.
+              Click the red &quot;Debug Nav&quot; button in the bottom-left corner to see detailed information about navigation elements and potential blocking issues.
             </p>
             <p className="text-yellow-800 text-sm">
               This will help identify if there are any elements with high z-index values or other CSS properties that might be preventing navigation from working.
