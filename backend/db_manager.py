@@ -830,7 +830,9 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
                       ocr_text: str, line_items: List[Any], db_path: str = DEFAULT_DB_PATH,
                       field_confidence: Optional[Dict[str, float]] = None,
                       raw_extraction: Optional[Dict[str, Any]] = None,
-                      warnings: Optional[List[str]] = None) -> bool:
+                      warnings: Optional[List[str]] = None,
+                      addresses: Optional[Dict[str, Any]] = None,
+                      signature_regions: Optional[List[Dict[str, Any]]] = None) -> bool:
     """Save invoice data to database with enhanced fields including LLM data"""
     try:
         conn = sqlite3.connect(db_path)
@@ -845,16 +847,26 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
         raw_extraction_json = json.dumps(raw_extraction or {})
         warnings_json = json.dumps(warnings or [])
         
-        # Use the existing table structure with new fields
+        # Use the existing table structure with new fields (addresses, signature_regions if available)
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN addresses TEXT")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN signature_regions TEXT")
+        except Exception:
+            pass
+
         cursor.execute("""
             INSERT OR REPLACE INTO invoices 
             (supplier_name, invoice_number, invoice_date, total_amount, ocr_confidence, ocr_text, line_items, 
-             field_confidence, raw_extraction, warnings, processing_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             field_confidence, raw_extraction, warnings, processing_status, addresses, signature_regions)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             supplier_name, invoice_number, invoice_date, 
             total_amount, confidence, ocr_text, line_items_json, 
-            field_confidence_json, raw_extraction_json, warnings_json, 'processed'
+            field_confidence_json, raw_extraction_json, warnings_json, 'processed',
+            json.dumps(addresses or {}), json.dumps(signature_regions or [])
         ))
         
         # Save line items to separate table
@@ -867,8 +879,9 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
                 
                 cursor.execute("""
                     INSERT OR REPLACE INTO invoice_line_items 
-                    (invoice_id, row_idx, page, description, quantity, unit, unit_price, line_total, confidence)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (invoice_id, row_idx, page, description, quantity, unit, unit_price, line_total, confidence,
+                     description_confidence, quantity_confidence, unit_price_confidence, vat_confidence, line_total_confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     invoice_id,
                     item_dict.get('row_idx'),
@@ -878,7 +891,12 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
                     item_dict.get('unit'),
                     item_dict.get('unit_price'),
                     item_dict.get('line_total'),
-                    item_dict.get('confidence', 0.0)
+                    item_dict.get('confidence', 0.0),
+                    item_dict.get('description_confidence'),
+                    item_dict.get('quantity_confidence'),
+                    item_dict.get('unit_price_confidence'),
+                    item_dict.get('vat_confidence'),
+                    item_dict.get('line_total_confidence')
                 ))
         
         conn.commit()

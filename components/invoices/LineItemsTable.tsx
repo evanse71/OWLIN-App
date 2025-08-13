@@ -1,311 +1,195 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { 
-  AlertTriangle, 
-  CheckCircle, 
-  Edit3, 
-  X,
-  Calculator,
-  DollarSign
-} from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import React, { useState, useEffect } from 'react';
 
-export interface LineItem {
-  id?: string;
+interface LineItem {
   description: string;
   quantity: number;
-  unit: string;
-  unit_price: number;
-  vat_rate: number;
-  line_total: number;
-  page: number;
-  row_idx: number;
-  confidence: number;
-  flags: string[];
+  unit?: string;
+  unit_price?: number;
+  vat_percent?: number;
+  line_total?: number;
+  page?: number;
+  row_idx?: number;
+  flags?: string[];
+  confidence?: number;
 }
 
 interface LineItemsTableProps {
   lineItems: LineItem[];
-  onLineItemUpdate: (rowIndex: number, field: keyof LineItem, value: any) => void;
-  totals: { subtotal: number; vat: number; total: number };
-  hasMismatch: boolean;
-  className?: string;
+  editable?: boolean;
+  onEditLineItem?: (rowIdx: number, patch: Partial<LineItem>) => void;
+  reviewOnly?: boolean;
 }
 
-const LineItemsTable: React.FC<LineItemsTableProps> = ({
+export default function LineItemsTable({
   lineItems,
-  onLineItemUpdate,
-  totals,
-  hasMismatch,
-  className
-}) => {
-  const [editingCell, setEditingCell] = useState<{ row: number; field: keyof LineItem } | null>(null);
-  const [editValue, setEditValue] = useState<string>('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency: 'GBP',
-    }).format(amount);
-  };
-
-  const formatNumber = (num: number) => {
-    return num.toString();
-  };
-
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.8) return 'border-green-300 bg-green-50';
-    if (confidence >= 0.6) return 'border-yellow-300 bg-yellow-50';
-    return 'border-red-300 bg-red-50';
-  };
-
-  const getFlagColor = (flag: string) => {
-    switch (flag) {
-      case 'needs_check': return 'bg-yellow-100 text-yellow-800';
-      case 'unit?': return 'bg-blue-100 text-blue-800';
-      case 'qty_suspicious': return 'bg-orange-100 text-orange-800';
-      case 'vat_missing': return 'bg-red-100 text-red-800';
-      case 'sum_mismatch': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const startEditing = (row: number, field: keyof LineItem, currentValue: any) => {
-    setEditingCell({ row, field });
-    setEditValue(currentValue?.toString() || '');
-  };
-
-  const saveEdit = () => {
-    if (editingCell) {
-      const { row, field } = editingCell;
-      let parsedValue: any = editValue;
-
-      // Parse value based on field type
-      if (field === 'quantity' || field === 'unit_price' || field === 'vat_rate') {
-        parsedValue = parseFloat(editValue) || 0;
-      } else if (field === 'page' || field === 'row_idx') {
-        parsedValue = parseInt(editValue) || 0;
-      }
-
-      onLineItemUpdate(row, field, parsedValue);
-      setEditingCell(null);
-      setEditValue('');
-    }
-  };
-
-  const cancelEdit = () => {
-    setEditingCell(null);
-    setEditValue('');
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      saveEdit();
-    } else if (e.key === 'Escape') {
-      cancelEdit();
-    }
-  };
+  editable = false,
+  onEditLineItem,
+  reviewOnly = false
+}: LineItemsTableProps) {
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+  const [editData, setEditData] = useState<Partial<LineItem>>({});
+  const [savedMessage, setSavedMessage] = useState<string>('');
+  const [filteredItems, setFilteredItems] = useState<LineItem[]>(lineItems);
 
   useEffect(() => {
-    if (editingCell && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+    if (reviewOnly) {
+      setFilteredItems(lineItems.filter(item => item.flags && item.flags.length > 0));
+    } else {
+      setFilteredItems(lineItems);
     }
-  }, [editingCell]);
+  }, [lineItems, reviewOnly]);
 
-  const renderCell = (item: LineItem, field: keyof LineItem, rowIndex: number) => {
-    const isEditing = editingCell?.row === rowIndex && editingCell?.field === field;
-    const value = item[field];
-    const confidence = item.confidence;
+  const handleEditStart = (rowIdx: number) => {
+    setEditingRow(rowIdx);
+    setEditData(filteredItems[rowIdx]);
+  };
 
-    if (isEditing) {
+  const handleEditSave = () => {
+    if (editingRow !== null && onEditLineItem) {
+      onEditLineItem(editingRow, editData);
+      setSavedMessage('Saved ✓');
+      setTimeout(() => setSavedMessage(''), 2000);
+      setEditingRow(null);
+      setEditData({});
+    }
+  };
+
+  const handleEditCancel = () => {
+    setEditingRow(null);
+    setEditData({});
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleEditSave();
+    } else if (e.key === 'Escape') {
+      handleEditCancel();
+    }
+  };
+
+  const sanitizeNumericInput = (value: string, field: keyof LineItem): number => {
+    const num = parseFloat(value.replace(/[^\d.-]/g, ''));
+    if (isNaN(num) || num < 0) return 0;
+    if (field === 'quantity' && num > 100000) return 100000;
+    if (field === 'unit_price' && num > 1e7) return 1e7;
+    return num;
+  };
+
+  const calculateTotals = () => {
+    // Prefer line_total when provided; otherwise quantity*unit_price
+    const subtotal = filteredItems.reduce((sum, item) => {
+      const lt = typeof item.line_total === 'number' ? item.line_total : ((item.quantity || 0) * (item.unit_price || 0));
+      return sum + (isFinite(lt) ? lt : 0);
+    }, 0);
+    const vatTotal = filteredItems.reduce((sum, item) => {
+      const lt = typeof item.line_total === 'number' ? item.line_total : ((item.quantity || 0) * (item.unit_price || 0));
+      const vatPct = typeof item.vat_percent === 'number' ? item.vat_percent : 0;
+      return sum + (isFinite(lt) ? (lt * vatPct / 100) : 0);
+    }, 0);
+    const total = subtotal + vatTotal;
+    return { subtotal, vatTotal, total };
+  };
+
+  const { subtotal, vatTotal, total } = calculateTotals();
+
+  const renderCell = (item: LineItem, field: keyof LineItem, rowIdx: number) => {
+    const isEditing = editingRow === rowIdx;
+    const value = (isEditing ? (editData as any)[field] : (item as any)[field]);
+    const confidence = item.confidence || 1;
+
+    const rightAligned = field === 'line_total' || field === 'unit_price' || field === 'quantity' || field === 'vat_percent';
+    const cellClasses = `py-2 px-3 ${rightAligned ? 'text-right tabular' : ''}`;
+    const lowConfidence = confidence < 0.7;
+
+    if (isEditing && editable) {
+      const inputType = typeof value === 'number' ? 'number' : 'text';
       return (
-        <Input
-          ref={inputRef}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onKeyDown={handleKeyPress}
-          onBlur={saveEdit}
-          className="h-8 text-sm"
-          type={field === 'quantity' || field === 'unit_price' || field === 'vat_rate' ? 'number' : 'text'}
-          step={field === 'vat_rate' ? '0.01' : '1'}
-          min="0"
+        <input
+          type={inputType}
+          value={value ?? ''}
+          onChange={(e) => {
+            const newValue = inputType === 'number' 
+              ? sanitizeNumericInput(e.target.value, field)
+              : e.target.value;
+            setEditData(prev => ({ ...prev, [field]: newValue }));
+          }}
+          onKeyDown={handleKeyDown}
+          className={`w-full px-2 py-1 border border-[#E7EAF0] rounded text-sm focus:focus-ring`}
+          autoFocus
         />
       );
     }
 
-    const cellContent = () => {
-      switch (field) {
-        case 'description':
-          return (
-            <div className="flex items-center justify-between">
-              <span className="flex-1">{value}</span>
-              {confidence < 0.6 && (
-                <AlertTriangle className="w-3 h-3 text-yellow-500 ml-1" />
-              )}
-            </div>
-          );
-        case 'quantity':
-        case 'unit_price':
-        case 'vat_rate':
-          return formatNumber(value as number);
-        case 'line_total':
-          return formatCurrency(value as number);
-        case 'page':
-        case 'row_idx':
-          return value?.toString() || '-';
-        default:
-          return value?.toString() || '';
-      }
-    };
+    const display = typeof value === 'number'
+      ? (field === 'unit_price' || field === 'line_total' ? `£${value.toFixed(2)}` : value.toFixed(2))
+      : (value ?? '');
 
     return (
-      <div 
-        className={cn(
-          "cursor-pointer hover:bg-gray-50 p-2 rounded transition-colors",
-          confidence < 0.6 && getConfidenceColor(confidence)
-        )}
-        onClick={() => startEditing(rowIndex, field, value)}
-      >
-        <div className="flex items-center justify-between">
-          {cellContent()}
-          <Edit3 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </div>
-        {confidence < 0.8 && (
-          <div className="text-xs text-gray-500 mt-1">
-            Confidence: {Math.round(confidence * 100)}%
-          </div>
+      <div className={`${cellClasses} ${lowConfidence ? 'border-b border-amber-300/60' : ''}`}>
+        {display}
+        {lowConfidence && (
+          <span 
+            className="ml-1 text-amber-600 text-xs"
+            title={`Low confidence (${confidence.toFixed(2)})`}
+          >
+            ⚠
+          </span>
         )}
       </div>
     );
   };
 
   return (
-    <div className={cn("bg-white rounded-lg border border-gray-200 overflow-hidden", className)}>
+    <div className="space-y-4">
       {/* Header */}
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <h4 className="font-medium text-gray-900">Line Items ({lineItems.length})</h4>
-          {hasMismatch && (
-            <Badge className="bg-red-100 text-red-800" variant="outline">
-              <AlertTriangle className="w-3 h-3 mr-1" />
-              Total Mismatch
-            </Badge>
-          )}
+      <div className="sticky top-0 z-[1] bg-white border-b border-[#E7EAF0] py-2">
+        <div className="grid grid-cols-6 gap-2 text-[13px] text-[#5B6470] font-medium">
+          <div className="px-3">Description</div>
+          <div className="px-3 text-right">Qty</div>
+          <div className="px-3">Unit</div>
+          <div className="px-3 text-right">Unit Price</div>
+          <div className="px-3 text-right">VAT %</div>
+          <div className="px-3 text-right">Line Total</div>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Item / Description
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                QTY
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Unit
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Unit Price
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                VAT %
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Line Total
-              </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Page
-              </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Row
-              </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Flags
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {lineItems.map((item, index) => (
-              <tr key={item.id || index} className="group hover:bg-gray-50">
-                <td className="px-4 py-3">
-                  {renderCell(item, 'description', index)}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {renderCell(item, 'quantity', index)}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {renderCell(item, 'unit', index)}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {renderCell(item, 'unit_price', index)}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {renderCell(item, 'vat_rate', index)}
-                </td>
-                <td className="px-4 py-3 text-right font-medium">
-                  {renderCell(item, 'line_total', index)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {renderCell(item, 'page', index)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {renderCell(item, 'row_idx', index)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <div className="flex flex-wrap gap-1 justify-center">
-                    {item.flags?.map((flag, flagIndex) => (
-                      <Badge key={flagIndex} className={getFlagColor(flag)} variant="outline">
-                        {flag.replace('_', ' ')}
-                      </Badge>
-                    ))}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Rows */}
+      <div className="space-y-0">
+        {filteredItems.map((item, rowIdx) => (
+          <div 
+            key={rowIdx}
+            className={`grid grid-cols-6 gap-2 table-zebra ${rowIdx < 6 ? 'fade-up' : ''}`}
+            style={{ animationDelay: `${rowIdx * 30}ms` }}
+          >
+            {renderCell(item, 'description', rowIdx)}
+            {renderCell(item, 'quantity', rowIdx)}
+            {renderCell(item, 'unit', rowIdx)}
+            {renderCell(item, 'unit_price', rowIdx)}
+            {renderCell(item, 'vat_percent', rowIdx)}
+            {renderCell(item, 'line_total', rowIdx)}
+          </div>
+        ))}
       </div>
 
-      {/* Footer with Totals */}
-      <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-              <span className="text-sm text-gray-900">{formatCurrency(totals.subtotal)}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-sm font-medium text-gray-700">VAT:</span>
-              <span className="text-sm text-gray-900">{formatCurrency(totals.vat)}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-sm font-medium text-gray-700">Total:</span>
-              <span className={cn(
-                "text-sm font-bold",
-                hasMismatch ? "text-red-600" : "text-gray-900"
-              )}>
-                {formatCurrency(totals.total)}
-              </span>
-            </div>
-          </div>
-          {hasMismatch && (
-            <Badge className="bg-red-100 text-red-800" variant="outline">
-              <Calculator className="w-3 h-3 mr-1" />
-              Mismatch Detected
-            </Badge>
+      {/* Totals */}
+      <div className="border-t border-[#E7EAF0] pt-4 space-y-2">
+        <div className="flex justify-between text-sm">
+          <span>Subtotal:</span>
+          <span className="tabular font-semibold">£{subtotal.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span>VAT:</span>
+          <span className="tabular font-semibold">£{vatTotal.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-base font-semibold border-t border-[#E7EAF0] pt-2">
+          <span>Total:</span>
+          <span className="tabular">£{total.toFixed(2)}</span>
+          {savedMessage && (
+            <span className="text-green-600 text-sm ml-2">{savedMessage}</span>
           )}
         </div>
       </div>
     </div>
   );
-};
-
-export default LineItemsTable; 
+} 

@@ -2,7 +2,7 @@
 // Centralized API base URL with sane fallbacks
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ||
-  (typeof window !== "undefined" ? window.location.origin.replace(":3000", ":8002") : "http://localhost:8002");
+  (typeof window !== "undefined" ? window.location.origin.replace(":3000", ":8000") : "http://localhost:8000");
 
 const API_BASE_URL = `${API_BASE}/api`;
 
@@ -561,6 +561,23 @@ class ApiService {
     return this.fetchWithErrorHandling(`/invoices/${invoiceId}/signatures/extract`, {
       method: 'POST',
     });
+  }
+
+  // Upload file using bulletproof ingestion
+  async uploadBulletproof(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.statusText}`);
+    }
+
+    return response.json();
   }
 }
 

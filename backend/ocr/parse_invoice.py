@@ -79,6 +79,16 @@ def parse_invoice(text: str, overall_confidence: float = 0.0, ocr_results: Optio
         
         # Extract line items
         line_items = extract_line_items(lines)
+
+        # Totals reconciliation: if close, adjust to sum of lines
+        try:
+            sum_lines = sum(float(li.total_price if hasattr(li, 'total_price') else li.get('line_total', 0.0)) for li in line_items)
+            if gross_total and sum_lines:
+                diff = abs(sum_lines - gross_total)
+                if (diff / max(1.0, gross_total)) < 0.015:
+                    gross_total = sum_lines
+        except Exception:
+            pass
         
         # Determine currency
         currency = extract_currency(lines)
@@ -277,48 +287,57 @@ def extract_invoice_date(lines: List[str]) -> str:
 
 def extract_supplier_name(lines: List[str]) -> str:
     """
-    Extract supplier name from top-of-page text
-    
-    Args:
-        lines: List of text lines
-        
-    Returns:
-        Extracted supplier name or "Unknown Supplier"
+    Extract supplier name from top-of-page text with supplier lexicon boost.
     """
-    # Look for supplier in first few lines (top of page)
     top_lines = lines[:10]
-    
-    # Common supplier keywords
     supplier_keywords = ['ltd', 'limited', 'plc', 'company', 'co', 'corp', 'corporation']
-    
+
+    # Load supplier lexicons
+    aliases: Dict[str, List[str]] = {}
+    try:
+        import json, os
+        with open(os.path.join('data', 'config', 'supplier_lexicons.json'), 'r') as f:
+            aliases = json.load(f)
+    except Exception:
+        aliases = {}
+
+    def canonicalize(name: str) -> Optional[str]:
+        n = name.lower().strip()
+        # Direct match
+        for canon, alist in aliases.items():
+            if n == canon:
+                return canon
+            for a in alist:
+                if n == a.lower():
+                    return canon
+        # Token contain match
+        for canon, alist in aliases.items():
+            if any(a.lower() in n for a in alist):
+                return canon
+        return None
+
+    # Heuristic search
     for line in top_lines:
-        # Skip lines that are likely not supplier names
         if any(skip in line.lower() for skip in ['invoice', 'bill', 'total', 'amount', 'date', 'page']):
             continue
-        
-        # Check if line contains supplier keywords
+        candidate = None
         if any(keyword in line.lower() for keyword in supplier_keywords):
-            # Clean up the line
-            supplier = re.sub(r'[^\w\s\-&]', '', line).strip()
-            if len(supplier) > 3:
-                logger.debug(f"🏢 Found supplier: {supplier}")
-                return supplier
-        
-        # Check for company-like patterns
-        if re.search(r'[A-Z][a-z]+\s+(Ltd|Limited|PLC|Company|Corp)', line):
-            supplier = re.sub(r'[^\w\s\-&]', '', line).strip()
-            if len(supplier) > 3:
-                logger.debug(f"🏢 Found supplier: {supplier}")
-                return supplier
-    
-    # Fallback: look for any capitalized line that might be a company name
+            candidate = re.sub(r'[^\w\s\-&]', '', line).strip()
+        elif re.search(r'[A-Z][a-z]+\s+(Ltd|Limited|PLC|Company|Corp)', line):
+            candidate = re.sub(r'[^\w\s\-&]', '', line).strip()
+        if candidate and len(candidate) > 3:
+            canon = canonicalize(candidate) or candidate
+            logger.debug(f"🏢 Found supplier: {canon}")
+            return canon
+
     for line in top_lines[:5]:
         if len(line) > 5 and line[0].isupper() and not any(skip in line.lower() for skip in ['invoice', 'bill', 'total']):
-            supplier = re.sub(r'[^\w\s\-&]', '', line).strip()
-            if len(supplier) > 3:
-                logger.debug(f"🏢 Found supplier (fallback): {supplier}")
-                return supplier
-    
+            candidate = re.sub(r'[^\w\s\-&]', '', line).strip()
+            canon = canonicalize(candidate) or candidate
+            if len(canon) > 3:
+                logger.debug(f"🏢 Found supplier (fallback): {canon}")
+                return canon
+
     logger.warning("⚠️ No supplier name found")
     return "Unknown Supplier"
 

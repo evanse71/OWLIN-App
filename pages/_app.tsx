@@ -1,4 +1,5 @@
 import '@/styles/globals.css';
+import '@/styles/invoices-ux.css';
 import type { AppProps } from 'next/app';
 import { ToastProvider } from '@/utils/toast';
 

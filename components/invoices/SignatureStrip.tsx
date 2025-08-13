@@ -1,115 +1,111 @@
 import React, { useState } from 'react';
-import { X, ZoomIn, RotateCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 
-export interface SignatureRegion {
+interface SignatureRegion {
+  id: string;
+  image_url: string;
+  confidence: number;
   page: number;
-  bbox: { x: number; y: number; width: number; height: number };
-  image_b64: string;
+  coordinates: { x: number; y: number; width: number; height: number };
 }
 
 interface SignatureStripProps {
-  signatureRegions: SignatureRegion[];
-  className?: string;
+  regions: SignatureRegion[];
 }
 
-const SignatureStrip: React.FC<SignatureStripProps> = ({
-  signatureRegions,
-  className
-}) => {
+export default function SignatureStrip({ regions }: SignatureStripProps) {
   const [selectedSignature, setSelectedSignature] = useState<SignatureRegion | null>(null);
-  const [rotation, setRotation] = useState(0);
 
-  const handleSignatureClick = (signature: SignatureRegion) => {
-    setSelectedSignature(signature);
-    setRotation(0);
-  };
-
-  const handleCloseModal = () => {
-    setSelectedSignature(null);
-    setRotation(0);
-  };
-
-  const handleRotate = () => {
-    setRotation((prev) => (prev + 90) % 360);
-  };
-
-  if (signatureRegions.length === 0) {
+  if (!regions || regions.length === 0) {
     return null;
   }
 
+  const handleSignatureClick = (region: SignatureRegion) => {
+    setSelectedSignature(region);
+  };
+
+  const handleModalClose = () => {
+    setSelectedSignature(null);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleModalClose();
+    }
+  };
+
   return (
     <>
-      <div className={`flex flex-wrap gap-2 ${className}`}>
-        {signatureRegions.map((signature, index) => (
-          <div
-            key={index}
-            className="relative group cursor-pointer"
-            onClick={() => handleSignatureClick(signature)}
-          >
-            <div className="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
-              <img
-                src={`data:image/jpeg;base64,${signature.image_b64}`}
-                alt={`Signature on page ${signature.page}`}
-                className="w-20 h-16 object-contain bg-white"
-              />
-              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all duration-200 flex items-center justify-center">
-                <ZoomIn className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+      <div className="space-y-2">
+        <h4 className="text-[13px] text-[#5B6470] font-medium">Signatures & Stamps</h4>
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {regions.map((region) => (
+            <button
+              key={region.id}
+              onClick={() => handleSignatureClick(region)}
+              className="flex-shrink-0 group"
+              aria-label={`View signature on page ${region.page}`}
+            >
+              <div className="relative">
+                <img
+                  src={region.image_url}
+                  alt={`Signature on page ${region.page}`}
+                  className="w-16 h-16 md:w-20 md:h-20 rounded-md border border-[#E7EAF0] object-cover hover:shadow-md transition-shadow"
+                />
+                <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1 rounded">
+                  {region.page}
+                </div>
+                {region.confidence < 0.7 && (
+                  <div className="absolute top-1 left-1 bg-amber-500 text-white text-xs px-1 rounded">
+                    ⚠
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs px-1 rounded-full">
-              {signature.page}
-            </div>
-          </div>
-        ))}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Modal for enlarged signature */}
+      {/* Modal */}
       {selectedSignature && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl max-h-[90vh] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">
-                Signature - Page {selectedSignature.page}
+        <div
+          className="signature-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={handleModalClose}
+          onKeyDown={handleKeyDown}
+          tabIndex={-1}
+        >
+          <div
+            className="signature-modal-panel bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-[#2B2F36]">
+                Signature on Page {selectedSignature.page}
               </h3>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRotate}
-                >
-                  <RotateCw className="w-4 h-4 mr-1" />
-                  Rotate
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCloseModal}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="p-4 flex items-center justify-center">
-              <div
-                className="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
-                style={{
-                  transform: `rotate(${rotation}deg)`,
-                  transition: 'transform 0.3s ease'
-                }}
+              <button
+                onClick={handleModalClose}
+                className="text-[#5B6470] hover:text-[#2B2F36] transition-colors"
+                aria-label="Close signature view"
               >
-                <img
-                  src={`data:image/jpeg;base64,${selectedSignature.image_b64}`}
-                  alt={`Signature on page ${selectedSignature.page}`}
-                  className="max-w-full max-h-[70vh] object-contain bg-white"
-                />
-              </div>
+                ×
+              </button>
+            </div>
+            
+            <div className="flex items-center justify-center">
+              <img
+                src={selectedSignature.image_url}
+                alt={`Signature on page ${selectedSignature.page}`}
+                className="max-h-[60vh] max-w-full object-contain rounded border border-[#E7EAF0]"
+              />
+            </div>
+            
+            <div className="mt-4 text-sm text-[#5B6470] space-y-1">
+              <div>Confidence: {(selectedSignature.confidence * 100).toFixed(1)}%</div>
+              <div>Position: {selectedSignature.coordinates.x.toFixed(0)}, {selectedSignature.coordinates.y.toFixed(0)}</div>
+              <div>Size: {selectedSignature.coordinates.width.toFixed(0)} × {selectedSignature.coordinates.height.toFixed(0)}</div>
             </div>
           </div>
         </div>
       )}
     </>
   );
-};
-
-export default SignatureStrip; 
+}; 

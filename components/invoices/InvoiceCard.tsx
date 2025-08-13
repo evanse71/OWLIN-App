@@ -1,376 +1,231 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { 
-  ChevronDown, 
-  ChevronUp, 
-  Save, 
-  Eye, 
-  Flag, 
-  Scissors, 
-  Download, 
-  Loader2,
-  AlertTriangle,
-  CheckCircle,
-  Clock,
-  FileText,
-  MapPin,
-  User
-} from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import React, { useState } from 'react';
 import LineItemsTable from './LineItemsTable';
 import SignatureStrip from './SignatureStrip';
-import { cn } from '@/lib/utils';
+import ProgressDial from './ProgressDial';
+import { computeOverallConfidence } from './confidence';
 
-export interface LineItem {
-  id?: string;
-  description: string;
-  quantity: number;
-  unit: string;
-  unit_price: number;
-  vat_rate: number;
-  line_total: number;
-  page: number;
-  row_idx: number;
-  confidence: number;
-  flags: string[];
+interface Invoice {
+  id: string;
+  supplier_name: string;
+  invoice_number: string;
+  invoice_date: string;
+  total_amount: number;
+  doc_type: "invoice" | "delivery_note" | "receipt" | "utility" | "other";
+  page_range: string;
+  line_items: any[];
+  addresses: { supplier_address?: string; delivery_address?: string };
+  signature_regions: any[];
+  field_confidence: Record<string, number>;
+  status: "processing" | "processed" | "reviewed";
+  progress?: { processed_pages: number; total_pages: number };
+  flags?: { total_mismatch?: boolean; [key: string]: any };
+  _localFile?: File;
+  _appearIndex?: number;
 }
 
-export interface Address {
-  supplier_address?: string;
-  delivery_address?: string;
+interface InvoiceCardProps {
+  doc: Invoice;
+  isActive: boolean;
+  onToggle: () => void;
+  onEditLineItem?: (rowIdx: number, patch: any) => void;
 }
 
-export interface SignatureRegion {
-  page: number;
-  bbox: { x: number; y: number; width: number; height: number };
-  image_b64: string;
-}
+export default function InvoiceCard({
+  doc,
+  isActive,
+  onToggle,
+  onEditLineItem
+}: InvoiceCardProps) {
+  const [editMode, setEditMode] = useState(false);
+  const docId = doc.id;
 
-export interface InvoiceCardProps {
-  docId: string;
-  supplier: string;
-  invoiceNumber: string;
-  date: string;
-  total: number;
-  currency?: string;
-  docType: 'invoice' | 'delivery_note' | 'receipt' | 'utility';
-  pageRange?: string;
-  fieldConfidence?: Record<string, number>;
-  status: 'processing' | 'processed' | 'error' | 'needs_review' | 'reviewed';
-  addresses?: Address;
-  signatureRegions?: SignatureRegion[];
-  lineItems?: LineItem[];
-  verificationStatus?: 'unreviewed' | 'needs_review' | 'reviewed';
-  confidence?: number;
-  onEditLineItem?: (row: number, patch: Partial<LineItem>) => void;
-  onToggleFlag?: (payload: any) => void;
-  onMarkReviewed?: () => void;
-  onSave?: (invoiceId: string, data: any) => void;
-  onFlagIssues?: () => void;
-  onSplitMerge?: () => void;
-  onOpenPDF?: () => void;
-  className?: string;
-}
-
-const InvoiceCard: React.FC<InvoiceCardProps> = ({
-  docId,
-  supplier,
-  invoiceNumber,
-  date,
-  total,
-  currency = 'GBP',
-  docType,
-  pageRange,
-  fieldConfidence = {},
-  status,
-  addresses,
-  signatureRegions = [],
-  lineItems = [],
-  verificationStatus = 'unreviewed',
-  confidence = 1.0,
-  onEditLineItem,
-  onToggleFlag,
-  onMarkReviewed,
-  onSave,
-  onFlagIssues,
-  onSplitMerge,
-  onOpenPDF,
-  className
-}) => {
-  const [open, setOpen] = React.useState(status === "processed" || status === "reviewed");
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(status === 'processing');
-  const [editedLineItems, setEditedLineItems] = useState<LineItem[]>(lineItems);
-  const cardRef = useRef<HTMLDivElement>(null);
-
-  // Auto-expand when processing completes
-  React.useEffect(() => { 
-    if (status === "processed" || status === "reviewed") setOpen(true); 
-  }, [status]);
-
-  useEffect(() => {
-    if (status === 'processed' && isProcessing) {
-      setIsProcessing(false);
-      setIsExpanded(true);
-    }
-  }, [status, isProcessing]);
-
-  const getStatusColor = () => {
-    switch (status) {
-      case 'processing': return 'bg-blue-100 text-blue-800';
-      case 'processed': return 'bg-green-100 text-green-800';
-      case 'error': return 'bg-red-100 text-red-800';
-      case 'needs_review': return 'bg-yellow-100 text-yellow-800';
-      case 'reviewed': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onToggle();
+    } else if (e.key === 'e' && isActive) {
+      e.preventDefault();
+      setEditMode(!editMode);
+    } else if (e.key === 'Escape' && isActive && editMode) {
+      setEditMode(false);
     }
   };
 
-  const getDocTypeColor = () => {
-    switch (docType) {
-      case 'invoice': return 'bg-blue-100 text-blue-800';
-      case 'delivery_note': return 'bg-green-100 text-green-800';
-      case 'receipt': return 'bg-yellow-100 text-yellow-800';
-      case 'utility': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const isProcessing = doc.status === "processing";
+  const isUnknownSupplier = !doc.supplier_name || doc.supplier_name === "Unknown";
+  const showRoutingNotice = doc.doc_type !== "invoice";
+
+  const getRoutingMessage = () => {
+    switch (doc.doc_type) {
+      case "delivery_note": return "Will move to Deliveries after submission";
+      case "receipt": return "Will move to Receipts after submission";
+      case "utility": return "Will move to Utilities after submission";
+      default: return "Will move to Other Documents after submission";
     }
   };
 
-  const getConfidenceColor = (conf: number) => {
-    if (conf >= 0.8) return 'bg-green-100 text-green-800';
-    if (conf >= 0.6) return 'bg-yellow-100 text-yellow-800';
-    return 'bg-red-100 text-red-800';
+  const renderProgressIndicator = () => {
+    return (
+      <div className="absolute bottom-3 right-3">
+        <ProgressDial
+          processed={doc.progress?.processed_pages}
+          total={doc.progress?.total_pages}
+          indeterminate={!doc.progress?.total_pages && doc.status === "processing"}
+          tooltip={
+            doc.progress?.total_pages
+              ? `${Math.round((Math.min(1, Math.max(0, (doc.progress?.processed_pages ?? 0) / Math.max(1, doc.progress?.total_pages ?? 1)))) * 100)}%`
+              : "Working…"
+          }
+        />
+      </div>
+    );
   };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount);
-  };
-
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('en-GB');
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const handleLineItemUpdate = (rowIndex: number, field: keyof LineItem, value: any) => {
-    setEditedLineItems(prev => prev.map((item, idx) => 
-      idx === rowIndex ? { ...item, [field]: value } : item
-    ));
-  };
-
-  const handleSave = () => {
-    if (onSave) {
-      onSave(docId, { line_items: editedLineItems });
-    }
-  };
-
-  const calculateTotals = () => {
-    const subtotal = editedLineItems.reduce((sum, item) => sum + item.line_total, 0);
-    const vat = editedLineItems.reduce((sum, item) => sum + (item.line_total * item.vat_rate), 0);
-    const total = subtotal + vat;
-    return { subtotal, vat, total };
-  };
-
-  const totals = calculateTotals();
-  const hasMismatch = Math.abs(totals.total - total) > (total * 0.015);
 
   return (
-    <Card className={cn(
-      "relative transition-all duration-200 hover:shadow-lg",
-      isExpanded && "ring-2 ring-blue-200",
-      className
-    )}>
-      {/* Processing Spinner */}
-      {isProcessing && (
-        <div className="absolute bottom-4 right-4 z-10">
-          <div className="flex items-center space-x-2 bg-white rounded-full shadow-lg px-3 py-2">
-            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-            <span className="text-sm font-medium text-blue-600">Processing</span>
+    <div
+      id={`card-${docId}`}
+      className="relative grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] rounded-[var(--owlin-radius)] bg-[var(--owlin-card)] border border-[var(--owlin-stroke)] shadow-[var(--owlin-shadow)] hover:shadow-[var(--owlin-shadow-lg)] hover:-translate-y-[1px] transition-[box-shadow,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]"
+      data-invoice-id={doc.id}
+    >
+      {/* Summary (LEFT column) */}
+      <div className="p-4 lg:p-5 relative">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={isActive}
+          onClick={onToggle}
+          onKeyDown={handleKeyDown}
+          className="text-left outline-none focus:ring-2 focus:ring-[var(--owlin-sapphire)] focus:ring-offset-2 focus:ring-offset-[var(--owlin-card)] rounded-[var(--owlin-radius)]"
+        >
+          {/* Top line - filename */}
+          <div className="text-[12px] text-[var(--owlin-muted)] truncate mb-1">
+            {doc._localFile ? doc._localFile.name : (doc as any).original_filename || doc.invoice_number || `Invoice ${doc.id}`}
           </div>
-        </div>
-      )}
 
-      <CardHeader className="pb-3">
-        {/* Header Row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <Badge className={getDocTypeColor()}>
-              {docType.replace('_', ' ').toUpperCase()}
-            </Badge>
-            <h3 className="font-semibold text-lg">{supplier}</h3>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl font-bold text-gray-900">
-              {formatCurrency(total)}
-            </span>
-            {hasMismatch && (
-              <Badge className="bg-red-100 text-red-800" variant="outline">
-                <AlertTriangle className="w-3 h-3 mr-1" />
-                Mismatch
-              </Badge>
-            )}
-          </div>
-        </div>
-
-        {/* Meta Information */}
-        <div className="grid grid-cols-2 gap-4 mt-3">
-          <div className="flex items-center space-x-2">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-gray-600">
-              {invoiceNumber} • {formatDate(date)}
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <User className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-gray-600">
-              {pageRange ? `Pages ${pageRange}` : 'Page 1'}
-            </span>
-          </div>
-        </div>
-
-        {/* Addresses */}
-        {addresses && (addresses.supplier_address || addresses.delivery_address) && (
-          <div className="grid grid-cols-1 gap-2 mt-3">
-            {addresses.supplier_address && (
-              <div className="flex items-start space-x-2">
-                <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                <div>
-                  <span className="text-xs font-medium text-gray-500">Supplier Address:</span>
-                  <p className="text-sm text-gray-700">{addresses.supplier_address}</p>
-                </div>
-              </div>
-            )}
-            {addresses.delivery_address && (
-              <div className="flex items-start space-x-2">
-                <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                <div>
-                  <span className="text-xs font-medium text-gray-500">Delivery Address:</span>
-                  <p className="text-sm text-gray-700">{addresses.delivery_address}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Status and Confidence */}
-        <div className="flex items-center justify-between mt-3">
-          <div className="flex items-center space-x-2">
-            <Badge className={getStatusColor()}>
-              {status.replace('_', ' ').toUpperCase()}
-            </Badge>
-            <Badge className={getConfidenceColor(confidence)}>
-              {Math.round(confidence * 100)}% Confidence
-            </Badge>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setOpen(!open)}
-              className="text-sm"
+          {/* Main line - supplier, date, caret */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center flex-1 min-w-0 gap-2">
+              <span className={`text-[16px] font-semibold ${isUnknownSupplier ? 'text-[var(--owlin-muted)]' : 'text-[var(--owlin-text)]'}`}>
+                {doc.supplier_name || 'Unknown Supplier'}
+              </span>
+              <span className="text-[13px] text-[var(--owlin-muted)] truncate">
+                {doc.invoice_date}
+              </span>
+            </div>
+            <svg
+              className={`w-4 h-4 text-[var(--owlin-muted)] transition-transform duration-[var(--dur-fast)] ${isActive ? 'rotate-90' : 'rotate-0'}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
             >
-              {open ? 'Hide Details' : 'Show Details'}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="p-1 h-8 w-8"
-            >
-              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </Button>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
           </div>
-        </div>
-      </CardHeader>
 
-      {/* Collapsible Content */}
-      {open && (
-        <CardContent className="pt-0">
-          {/* Line Items Table */}
-          {lineItems.length > 0 && (
-            <div className="mb-6">
-              <LineItemsTable
-                lineItems={editedLineItems}
-                onLineItemUpdate={handleLineItemUpdate}
-                totals={totals}
-                hasMismatch={hasMismatch}
-              />
+          {/* Chips row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="h-[22px] rounded-full px-2 bg-[#F1F5FF] text-[var(--owlin-cerulean)] text-[12px] font-semibold inline-flex items-center">
+                {doc.doc_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </span>
+              {doc.page_range && (
+                <span className="h-[22px] rounded-full px-2 bg-[var(--owlin-bg)] text-[var(--owlin-muted)] text-[12px] inline-flex items-center">
+                  Pages {doc.page_range}
+                </span>
+              )}
+              <span className="h-[22px] rounded-full px-2 bg-[var(--owlin-bg)] text-[12px] inline-flex items-center gap-1">
+                <span className="text-[var(--owlin-muted)]">Total:</span>
+                <span className="tabular font-semibold text-[var(--owlin-text)]">{isProcessing ? '—' : `£${doc.total_amount.toFixed(2)}`}</span>
+              </span>
+            </div>
+
+            {/* right-aligned chip group */}
+            <div className="ml-auto flex items-center gap-2">
+              {!isProcessing && (() => {
+                const { overall: ocrScore, weakest } = computeOverallConfidence(doc.field_confidence || {}, doc.line_items || []);
+                const ocrPct = Math.round((ocrScore || 0) * 100);
+                const tone = ocrScore >= 0.85
+                  ? 'bg-[color-mix(in_oklab,var(--owlin-success)_20%,white)] text-[var(--owlin-rich-black)]'
+                  : ocrScore >= 0.70
+                    ? 'bg-[color-mix(in_oklab,var(--owlin-warning)_25%,white)] text-[var(--owlin-rich-black)]'
+                    : 'bg-[var(--owlin-stroke)] text-[var(--owlin-muted)]';
+                return (
+                  <span
+                    className={`h-[22px] rounded-full px-2 text-[12px] font-semibold inline-flex items-center ${tone}`}
+                    title={`OCR confidence • ${ocrPct}%\n${weakest.length ? 'Low signals: ' + weakest.join(', ') : ''}`}
+                  >
+                    OCR {ocrPct}%
+                  </span>
+                );
+              })()}
+              <span className={`h-[22px] rounded-full px-2 text-[12px] inline-flex items-center ${isProcessing ? 'bg-[var(--owlin-stroke)] text-[var(--owlin-muted)]' : 'bg-[color-mix(in_oklab,var(--owlin-success)_18%,white)] text-[var(--owlin-rich-black)]'}`}>
+                {isProcessing ? 'Processing' : 'Processed'}
+              </span>
+            </div>
+          </div>
+
+          {/* Routing notice */}
+          {showRoutingNotice && (
+            <div className="text-[12px] text-[var(--owlin-muted)] mt-2">
+              {getRoutingMessage()}
             </div>
           )}
+        </div>
+      </div>
 
-          {/* Signature/Handwriting Thumbnails */}
-          {signatureRegions.length > 0 && (
-            <div className="mb-6">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Signatures & Handwriting</h4>
-              <SignatureStrip signatureRegions={signatureRegions} />
-            </div>
-          )}
+      {/* Details pane (RIGHT column) */}
+      <div className={`overflow-hidden transition-[max-height,opacity] duration-[var(--dur-med)] ease-[var(--ease-out)] ${isActive ? 'opacity-100 max-h-[2000px]' : 'opacity-0 max-h-0'}`}>
+        <div className="p-4 lg:p-5 space-y-4 border-t lg:border-t-0 lg:border-l border-[var(--owlin-stroke)]">
+          {/* Action bar */}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setEditMode(!editMode)}
+              className="min-h-[40px] rounded-[12px] px-3 bg-[var(--owlin-sapphire)] text-white hover:brightness-110 transition duration-[var(--dur-fast)]"
+            >
+              {editMode ? 'Done' : 'Edit'}
+            </button>
+            <button className="min-h-[40px] rounded-[12px] px-3 border border-[var(--owlin-stroke)] text-[var(--owlin-cerulean)] bg-transparent hover:bg-[#F9FAFF] transition duration-[var(--dur-fast)]">
+              Open PDF
+            </button>
+            <button className="min-h-[40px] rounded-[12px] px-3 border border-[var(--owlin-stroke)] text-[var(--owlin-cerulean)] bg-transparent hover:bg-[#F9FAFF] transition duration-[var(--dur-fast)]">
+              Split/Merge
+            </button>
+            <button className="min-h-[40px] rounded-[12px] px-3 border border-[var(--owlin-stroke)] text-[var(--owlin-cerulean)] bg-transparent hover:bg-[#F9FAFF] transition duration-[var(--dur-fast)]">
+              ✓ Mark reviewed
+            </button>
+          </div>
 
-          {/* Actions */}
-          <div className="flex items-center justify-between pt-4 border-t">
-            <div className="flex items-center space-x-2">
-              <Button
-                size="sm"
-                onClick={handleSave}
-                disabled={isProcessing}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <Save className="w-4 h-4 mr-1" />
-                Save Changes
-              </Button>
-              {verificationStatus === 'unreviewed' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onMarkReviewed}
-                >
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  Mark Reviewed
-                </Button>
-              )}
+          {/* Addresses */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-[12px] text-[var(--owlin-muted)] mb-1">Deliver to</div>
+              <div className="text-[13px] text-[var(--owlin-text)] whitespace-pre-wrap line-clamp-3">
+                {doc.addresses.delivery_address || 'Not specified'}
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onFlagIssues}
-              >
-                <Flag className="w-4 h-4 mr-1" />
-                Flag Issues
-              </Button>
-              {onSplitMerge && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onSplitMerge}
-                >
-                  <Scissors className="w-4 h-4 mr-1" />
-                  Split/Merge
-                </Button>
-              )}
-              {onOpenPDF && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onOpenPDF}
-                >
-                  <Download className="w-4 h-4 mr-1" />
-                  Open PDF
-                </Button>
-              )}
+            <div>
+              <div className="text-[12px] text-[var(--owlin-muted)] mb-1">Supplier address</div>
+              <div className="text-[13px] text-[var(--owlin-text)] whitespace-pre-wrap line-clamp-3">
+                {doc.addresses.supplier_address || 'Not specified'}
+              </div>
             </div>
           </div>
-        </CardContent>
-      )}
-    </Card>
+
+          {/* Line items */}
+          <LineItemsTable
+            lineItems={doc.line_items}
+            editable={editMode}
+            onEditLineItem={onEditLineItem}
+          />
+
+          {/* Signature strip */}
+          <SignatureStrip regions={doc.signature_regions} />
+        </div>
+      </div>
+
+      {/* Progress indicator */}
+      {renderProgressIndicator()}
+    </div>
   );
-};
-
-export default InvoiceCard; 
+}; 

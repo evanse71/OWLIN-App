@@ -44,11 +44,38 @@ from db_manager import (
     check_duplicate_invoice, check_duplicate_file_hash, log_processing_result
 )
 
+# New imports for signatures and confidence
+try:
+    from ocr.signature_detector import SignatureDetector
+except Exception:
+    SignatureDetector = None  # type: ignore
+
+try:
+    from ocr.confidence_calculator import ConfidenceCalculator
+except Exception:
+    ConfidenceCalculator = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Configuration constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB limit
 CONFIDENCE_REVIEW_THRESHOLD = 0.65  # Flag for manual review if below this
+
+# Feature flags
+def _read_flags() -> Dict[str, Any]:
+    try:
+        with open("data/config/ocr_flags.json", "r") as f:
+            return json.load(f)
+    except Exception:
+        return {
+            "signature_detection": True,
+            "field_confidence": True,
+            "per_line_confidence": True,
+            "enable_receipt_mode": True,
+            "enable_utility_mode": True,
+        }
+
+FLAGS = _read_flags()
 
 @dataclass
 class ProcessingResult:

@@ -26,7 +26,12 @@ def test_enhanced_multi_invoice_detection():
         print("\n🔍 Test 1: Enhanced OCR Engine Availability")
         print("-" * 40)
         
-        from routes.upload_fixed import ENHANCED_OCR_AVAILABLE, get_unified_ocr_engine
+        try:
+            # Prefer absolute import path
+            from backend.routes.upload_fixed import ENHANCED_OCR_AVAILABLE, get_unified_ocr_engine  # type: ignore
+        except Exception:
+            # Fallback to relative when run from repo root
+            from routes.upload_fixed import ENHANCED_OCR_AVAILABLE, get_unified_ocr_engine  # type: ignore
         
         if ENHANCED_OCR_AVAILABLE:
             print("✅ Enhanced OCR engine is available")

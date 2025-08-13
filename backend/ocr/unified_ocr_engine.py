@@ -22,6 +22,9 @@ from PIL import Image
 import numpy as np
 from pathlib import Path
 
+# Initialize logger early so it can be used in import fallbacks
+logger = logging.getLogger(__name__)
+
 # OCR imports
 try:
     from paddleocr import PaddleOCR
@@ -42,10 +45,8 @@ try:
     from backend.ocr.validators import validate_invoice
     LLM_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"LLM modules not available: {e}")
+    logging.getLogger(__name__).warning(f"LLM modules not available: {e}")
     LLM_AVAILABLE = False
-
-logger = logging.getLogger(__name__)
 
 @dataclass
 class ProcessingResult:
@@ -280,7 +281,21 @@ class UnifiedOCREngine:
             else:
                 image = self._optimize_image_for_accuracy(image)
             
-            # Run intelligent OCR
+            # Try LLM processing first if available
+            llm_result = None
+            if LLM_AVAILABLE:
+                try:
+                    llm_result = self._process_with_llm([image])
+                except Exception as e:
+                    logger.warning(f"⚠️ LLM processing failed, falling back to OCR: {e}")
+            
+            if llm_result:
+                # Use LLM results
+                logger.info("✅ Using LLM results for single page")
+                return self._convert_llm_result_to_processing_result(llm_result, start_time, "llm-qwen-vl")
+            
+            # Fallback to OCR processing
+            logger.info("🔄 Falling back to OCR processing for single page")
             ocr_results = self._run_intelligent_ocr(image)
             
             if not ocr_results:
@@ -471,7 +486,8 @@ class UnifiedOCREngine:
             logger.info("📋 Trying Tesseract OCR...")
             tesseract_results = self._run_tesseract(image)
             
-            if self._validate_results(tesseract_results):
+            # Always return Tesseract results if we have any, even if validation fails
+            if tesseract_results:
                 logger.info("✅ Tesseract OCR successful")
                 return tesseract_results
         
@@ -480,13 +496,22 @@ class UnifiedOCREngine:
         if self._load_paddle_ocr():
             paddle_results = self._run_paddle_ocr(image)
             
-            if self._validate_results(paddle_results):
+            # Always return PaddleOCR results if we have any, even if validation fails
+            if paddle_results:
                 logger.info("✅ PaddleOCR successful")
                 return paddle_results
         
         # Strategy 3: Emergency fallback
         logger.warning("⚠️ Using emergency OCR fallback")
-        return self._run_emergency_ocr(image)
+        emergency_results = self._run_emergency_ocr(image)
+        
+        # Always return emergency results if we have any
+        if emergency_results:
+            return emergency_results
+        
+        # If all OCR methods fail, return empty results
+        logger.error("❌ All OCR methods failed")
+        return []
     
     def _run_tesseract(self, image: Image.Image) -> List[OCRResult]:
         """Run Tesseract OCR"""
@@ -589,22 +614,27 @@ class UnifiedOCREngine:
             )]
     
     def _validate_results(self, results: List[OCRResult]) -> bool:
-        """Validate OCR results quality"""
+        """Validate OCR results quality - relaxed validation to allow more results through"""
         if not results:
             return False
         
-        # Check for minimum text content
+        # Check for any text content (relaxed from 10 characters to 1 character)
         total_text = " ".join([r.text for r in results if r.text])
-        if len(total_text.strip()) < 10:
+        if len(total_text.strip()) < 1:
             return False
         
-        # Check confidence scores
+        # Check confidence scores - allow results with any confidence > 0
         valid_results = [r for r in results if r.confidence > 0]
         if not valid_results:
-            return False
+            # If no results with confidence > 0, still allow results with confidence = 0
+            # This happens sometimes with Tesseract
+            return len(results) > 0
         
+        # Calculate average confidence but don't reject based on it
         avg_confidence = sum(r.confidence for r in valid_results) / len(valid_results)
-        return avg_confidence > 0.2
+        
+        # Accept results with any confidence > 0.1, or if we have any text at all
+        return avg_confidence > 0.1 or len(total_text.strip()) > 0
     
     def _extract_structured_data(self, ocr_results: List[OCRResult]) -> Dict[str, Any]:
         """Enhanced structured data extraction with improved field recognition and confidence calculation"""
@@ -757,6 +787,81 @@ class UnifiedOCREngine:
                     extracted["supplier"] = supplier
                     break
             
+            # Prefer Issue/Invoice date over other dates; avoid Due-by
+            issue_date_patterns = [
+                r'(?:issue\s*date|invoice\s*date)\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})',
+                r'(?:issue\s*date|invoice\s*date)\s*[:\-]?\s*(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{4})',
+                r'(?:issue\s*date|invoice\s*date)\s*[:\-]?\s*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2},?\s+\d{4})',
+                # e.g. "Issue date: Friday, 4 July 2025"
+                r'(?:issue\s*date|invoice\s*date)\s*[:\-]?\s*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s*(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{4})',
+            ]
+            month_map_short = {'jan':1,'feb':2,'mar':3,'apr':4,'may':5,'jun':6,'jul':7,'aug':8,'sep':9,'oct':10,'nov':11,'dec':12}
+            date_set = False
+            for pat in issue_date_patterns:
+                m = re.search(pat, text, re.IGNORECASE)
+                if m:
+                    val = m.group(1)
+                    try:
+                        # Try DD/MM/YYYY or similar
+                        m2 = re.match(r'^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$', val)
+                        if m2:
+                            d, mo, y = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+                            if y < 100: y += 2000
+                            if 1 <= mo <= 12 and 1 <= d <= 31:
+                                extracted["date"] = f"{y:04d}-{mo:02d}-{d:02d}"
+                                date_set = True
+                                break
+                        # Try '4 July 2025' or 'Jul 4, 2025'
+                        m3 = re.match(r'^(\d{1,2})\s+([A-Za-z]+)\w*\s+(\d{4})$', val)
+                        if m3:
+                            d, mon, y = int(m3.group(1)), m3.group(2)[:3].lower(), int(m3.group(3))
+                            mo = month_map_short.get(mon, 1)
+                            extracted["date"] = f"{y:04d}-{mo:02d}-{d:02d}"
+                            date_set = True
+                            break
+                        m4 = re.match(r'^([A-Za-z]+)\w*\s+(\d{1,2}),?\s+(\d{4})$', val)
+                        if m4:
+                            mon, d, y = m4.group(1)[:3].lower(), int(m4.group(2)), int(m4.group(3))
+                            mo = month_map_short.get(mon, 1)
+                            extracted["date"] = f"{y:04d}-{mo:02d}-{d:02d}"
+                            date_set = True
+                            break
+                    except Exception:
+                        pass
+            
+            if not date_set:
+                # Fallback: general date search but exclude lines mentioning 'due'
+                date_patterns = [
+                    r'(?:date|dated)\s*[:]*\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})',
+                    r'(\d{4}[\/-]\d{1,2}[\/-]\d{1,2})',
+                    r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{4})',
+                    r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2},?\s+\d{4})',
+                ]
+                text_no_due = "\n".join([ln for ln in text.splitlines() if 'due' not in ln.lower()])
+                m = None
+                for pat in date_patterns:
+                    m = re.search(pat, text_no_due, re.IGNORECASE)
+                    if m:
+                        val = m.group(1)
+                        # Reuse parsing above
+                        try:
+                            m2 = re.match(r'^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$', val)
+                            if m2:
+                                d, mo, y = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+                                if y < 100: y += 2000
+                                if 1 <= mo <= 12 and 1 <= d <= 31:
+                                    extracted["date"] = f"{y:04d}-{mo:02d}-{d:02d}"
+                                    date_set = True
+                                    break
+                            m3 = re.match(r'^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$', val)
+                            if m3:
+                                y, mo, d = int(m3.group(1)), int(m3.group(2)), int(m3.group(3))
+                                extracted["date"] = f"{y:04d}-{mo:02d}-{d:02d}"
+                                date_set = True
+                                break
+                        except Exception:
+                            pass
+            
             # Enhanced invoice number extraction
             invoice_patterns = [
                 r'(?:invoice|inv)[\s#:]*([A-Za-z0-9\-]+)',
@@ -769,23 +874,6 @@ class UnifiedOCREngine:
                 match = re.search(pattern, text, re.IGNORECASE)
                 if match:
                     extracted["invoice_number"] = match.group(1).strip()
-                    break
-            
-            # Enhanced date extraction with more comprehensive patterns
-            date_patterns = [
-                r'(?:date|dated)[\s:]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})',
-                r'(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})',
-                r'(\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})',
-                r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',
-                r'(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})',
-                r'(?:invoice\s+date|inv\s+date)[\s:]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})',
-                r'(?:date|dated)[\s:]*(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})'
-            ]
-            
-            for pattern in date_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    extracted["date"] = match.group(1).strip()
                     break
             
             # Enhanced total amount extraction with VAT handling
@@ -874,56 +962,117 @@ class UnifiedOCREngine:
     
     def _extract_line_items_enhanced(self, ocr_results: List[OCRResult]) -> List[Dict[str, Any]]:
         """Enhanced line item extraction with better pattern recognition"""
-        line_items = []
-        
+        line_items: List[Dict[str, Any]] = []
         try:
-            # Combine all text for analysis
-            all_text = " ".join([r.text for r in ocr_results if r.text])
-            
-            # Look for table-like structures
-            lines = all_text.split('\n')
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
+            import re
+            # Try spatial table extraction if OCR boxes are present
+            try:
+                from .table_extractor import extract_table_data as te_extract, table_rows_to_items
+                ocr_words = []
+                for r in ocr_results:
+                    if r.bounding_box and r.text:
+                        # bbox: [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+                        xs = [p[0] for p in r.bounding_box]
+                        ys = [p[1] for p in r.bounding_box]
+                        left, top = min(xs), min(ys)
+                        width, height = max(xs)-left, max(ys)-top
+                        ocr_words.append({'text': r.text, 'left': left, 'top': top, 'width': width, 'height': height})
+                if ocr_words:
+                    table = te_extract(ocr_words)
+                    mapped = table_rows_to_items(table)
+                    if mapped:
+                        return mapped
+            except Exception:
+                pass
+            all_text = "\n".join([r.text for r in ocr_results if r.text])
+            lines = [ln.strip() for ln in all_text.splitlines() if ln.strip()]
+            row_idx = 0
+            for ln in lines:
+                low = ln.lower()
+                # Skip headers and totals
+                if any(h in low for h in ["qty", "unit price", "line price", "total (ex.", "vat", "total:", "subtotal", "payment", "due by"]):
                     continue
-                
-                # Enhanced line item patterns
-                patterns = [
-                    # Quantity Description Price pattern (with currency symbols)
-                    r'(\d+)\s+([A-Za-z\s]+?)\s*[£$€]?(\d+[.,]\d{2})',
-                    # Description Quantity Price pattern
-                    r'([A-Za-z\s]+?)\s+(\d+)\s+(\d+[.,]\d{2})',
-                    # Price Description pattern
-                    r'(\d+[.,]\d{2})\s+([A-Za-z\s]+)',
-                    # Description Price pattern (with currency symbols)
-                    r'([A-Za-z\s]+?)\s*[£$€]?(\d+[.,]\d{2})'
-                ]
-                
-                for pattern in patterns:
-                    match = re.search(pattern, line, re.IGNORECASE)
-                    if match:
-                        groups = match.groups()
-                        
-                        if len(groups) == 3:  # Quantity Description Price
-                            line_items.append({
-                                "quantity": int(groups[0]),
-                                "description": groups[1].strip(),
-                                "price": float(groups[2].replace(',', '.')),
-                                "confidence": 0.8
-                            })
-                        elif len(groups) == 2:  # Description Price
-                            line_items.append({
-                                "quantity": 1,
-                                "description": groups[0].strip(),
-                                "price": float(groups[1].replace(',', '.')),
-                                "confidence": 0.7
-                            })
-                        break
-                    
+                # Attempt to match: quantity, optional code, description, unit price, optional vat %, line total
+                m = re.search(r"^\s*(\d{1,3})\s+(?:[A-Z0-9\-]{3,}\s+)?(.+?)\s+[£$€]?(\d+[.,]\d{2})\s+(?:[^\d%]+(\d{1,2})%\s+)?[£$€]?(\d+[.,]\d{2})\s*$", ln)
+                if not m:
+                    # Secondary relaxed pattern: description then two prices
+                    m2 = re.search(r"^(.+?)\s+[£$€]?(\d+[.,]\d{2})\s+[£$€]?(\d+[.,]\d{2})$", ln)
+                    if m2:
+                        desc = m2.group(1).strip()
+                        unit_p = float(m2.group(2).replace(',', '.'))
+                        line_t = float(m2.group(3).replace(',', '.'))
+                        # Try to locate a small integer earlier in the line as quantity
+                        qty_candidates = re.findall(r"\b(\d{1,2})\b", desc)
+                        qty = 1.0
+                        for qc in qty_candidates:
+                            val = int(qc)
+                            if 1 <= val <= 50:
+                                qty = float(val)
+                                # Remove that token from description
+                                desc = re.sub(rf"\b{qc}\b", "", desc, count=1).strip()
+                                break
+                        # Extract units like 30L from description
+                        u = re.search(r"\b(\d{1,3})\s*([Ll])\b", desc)
+                        unit = None
+                        if u:
+                            # Do not treat this as quantity; it's a size
+                            unit = u.group(2).upper()
+                        # Apply potential discount per unit if present in line
+                        disc = re.search(r"£\s*(\d+[.,]\d{2})\s*/\s*(\d{1,2})%", ln)
+                        if disc:
+                            try:
+                                dval = float(disc.group(1).replace(',', '.'))
+                                unit_p = max(0.0, unit_p - dval)
+                                line_t = unit_p * qty
+                            except Exception:
+                                pass
+                        line_items.append({
+                            "description": desc,
+                            "quantity": qty,
+                            "unit": unit,
+                            "unit_price": unit_p,
+                            "line_total": line_t,
+                            "row_idx": row_idx,
+                            "confidence": 0.75
+                        })
+                        row_idx += 1
+                    continue
+                qty = float(m.group(1))
+                # If OCR merged tokens and qty is unrealistically large, try to re-derive
+                if qty > 50:
+                    smalls = re.findall(r"\b(\d{1,2})\b", ln)
+                    for s in smalls:
+                        v = int(s)
+                        if 1 <= v <= 50:
+                            qty = float(v)
+                            break
+                desc = m.group(2).strip()
+                # Extract units like 30L from desc to unit, not quantity
+                unit = None
+                um = re.search(r"\b(\d{1,3})\s*([Ll])\b", desc)
+                if um:
+                    unit = um.group(2).upper()
+                unit_p = float(m.group(3).replace(',', '.'))
+                vat_pct = m.group(4)
+                line_t = float(m.group(5).replace(',', '.'))
+                item: Dict[str, Any] = {
+                    "description": desc,
+                    "quantity": qty,
+                    "unit": unit,
+                    "unit_price": unit_p,
+                    "line_total": line_t,
+                    "row_idx": row_idx,
+                    "confidence": 0.85,
+                }
+                if vat_pct is not None:
+                    try:
+                        item["vat_percent"] = float(vat_pct)
+                    except Exception:
+                        pass
+                line_items.append(item)
+                row_idx += 1
         except Exception as e:
             logger.warning(f"⚠️ Enhanced line item extraction failed: {e}")
-        
         return line_items
     
     def _create_error_result(self, error_message: str, start_time: float, file_path: str) -> ProcessingResult:
@@ -1084,6 +1233,79 @@ class UnifiedOCREngine:
             word_count=len(line_items_dict),
             engine_used=engine_used
         )
+
+    async def extract_images_from_file(self, file_path: str) -> List[Image.Image]:
+        """Extract images from a file (PDF or image)"""
+        try:
+            if file_path.lower().endswith('.pdf'):
+                return await self._extract_images_from_pdf(file_path)
+            else:
+                # Single image file
+                image = self._load_image(file_path)
+                return [image] if image else []
+        except Exception as e:
+            logger.error(f"❌ Failed to extract images from file {file_path}: {e}")
+            return []
+
+    async def extract_text_from_image(self, image: Image.Image) -> Dict[str, Any]:
+        """Extract text from a single image"""
+        try:
+            if not self.tesseract_available:
+                return {'text': '', 'confidence': 0.0, 'error': 'Tesseract not available'}
+            
+            # Use Tesseract for text extraction
+            text = pytesseract.image_to_string(image)
+            confidence = 0.8  # Default confidence for Tesseract
+            
+            return {
+                'text': text,
+                'confidence': confidence,
+                'engine': 'tesseract'
+            }
+        except Exception as e:
+            logger.error(f"❌ Failed to extract text from image: {e}")
+            return {
+                'text': '',
+                'confidence': 0.0,
+                'error': str(e)
+            }
+
+    async def _extract_images_from_pdf(self, pdf_path: str) -> List[Image.Image]:
+        """Extract images from PDF file"""
+        try:
+            from pdf2image import convert_from_path
+            
+            # Convert PDF to images
+            images = convert_from_path(pdf_path)
+            logger.info(f"✅ Extracted {len(images)} pages from PDF")
+            return images
+            
+        except ImportError:
+            logger.warning("⚠️ pdf2image not available, trying alternative method")
+            # Fallback: try to use PyMuPDF
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open(pdf_path)
+                images = []
+                
+                for page_num in range(len(doc)):
+                    page = doc.load_page(page_num)
+                    pix = page.get_pixmap()
+                    img_data = pix.tobytes("png")
+                    image = Image.open(io.BytesIO(img_data))
+                    images.append(image)
+                
+                doc.close()
+                logger.info(f"✅ Extracted {len(images)} pages from PDF using PyMuPDF")
+                return images
+                
+            except ImportError:
+                logger.error("❌ Neither pdf2image nor PyMuPDF available for PDF processing")
+                return []
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to extract images from PDF {pdf_path}: {e}")
+            return []
 
 # Global unified instance with lazy loading
 _unified_ocr_engine = None

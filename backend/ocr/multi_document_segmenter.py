@@ -483,20 +483,47 @@ class MultiDocumentSegmenter:
             True if should start new segment
         """
         if not current_segment:
+            logger.info(f"🆕 Starting first segment for page {page_segment.page_index}")
             return True
         
         # Check for document type change
         if page_segment.doc_type != current_segment.doc_type:
+            logger.info(f"🔄 Doc type change: {current_segment.doc_type} → {page_segment.doc_type} (page {page_segment.page_index})")
             return True
         
         # Check for supplier change
         if (page_segment.supplier_guess and current_segment.supplier_guess and 
             page_segment.supplier_guess != current_segment.supplier_guess):
+            logger.info(f"🏢 Supplier change: {current_segment.supplier_guess} → {page_segment.supplier_guess} (page {page_segment.page_index})")
             return True
         
-        # Check for totals block (end of invoice)
+        # Check for invoice number pattern (new invoice indicator)
+        invoice_number_patterns = [
+            r'invoice\s*#?\s*(\d+)',
+            r'inv\s*#?\s*(\d+)',
+            r'bill\s*#?\s*(\d+)',
+            r'receipt\s*#?\s*(\d+)'
+        ]
+        
+        for pattern in invoice_number_patterns:
+            if re.search(pattern, page_segment.text, re.IGNORECASE):
+                logger.info(f"📄 New invoice number detected on page {page_segment.page_index}")
+                return True
+        
+        # Check for totals block (end of invoice) - but don't split here
         text_lower = page_segment.text.lower()
         if any(keyword in text_lower for keyword in ['total', 'amount due', 'grand total', 'final total']):
-            return False  # This is likely the end of a segment
+            logger.info(f"💰 Totals block detected on page {page_segment.page_index} - keeping in current segment")
+            return False
         
+        # Check for header continuity (if headers are very different, might be new doc)
+        if hasattr(page_segment, 'header_simhash') and hasattr(current_segment, 'fingerprint_hashes'):
+            current_header = current_segment.fingerprint_hashes.get('header_simhash', '')
+            if current_header and page_segment.header_simhash:
+                # Simple similarity check (can be enhanced)
+                if current_header != page_segment.header_simhash:
+                    logger.info(f"📋 Header change detected on page {page_segment.page_index}")
+                    return True
+        
+        logger.info(f"✅ Page {page_segment.page_index} continues current segment")
         return False 

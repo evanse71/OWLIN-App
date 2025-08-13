@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, List
 
 # Ensure data directory exists
-DATA_DIR = "data"
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "owlin.db")
 
@@ -209,7 +209,11 @@ def get_all_invoices():
             vat,
             vat_rate,
             total_incl_vat,
-            ocr_text
+            ocr_text,
+            page_range,
+            addresses,
+            signature_regions,
+            verification_status
         FROM invoices
         ORDER BY upload_timestamp DESC
     """)
@@ -246,6 +250,22 @@ def get_all_invoices():
         except Exception:
             conf_pct = 0.0
         
+        # Parse addresses JSON string back to dict
+        addresses = {}
+        if row[17]:  # addresses
+            try:
+                addresses = json.loads(row[17])
+            except (json.JSONDecodeError, TypeError):
+                addresses = {}
+        
+        # Parse signature_regions JSON string back to list
+        signature_regions = []
+        if row[18]:  # signature_regions
+            try:
+                signature_regions = json.loads(row[18])
+            except (json.JSONDecodeError, TypeError):
+                signature_regions = []
+        
         invoices.append({
             "id": row[0],
             "invoice_number": row[1],
@@ -262,7 +282,11 @@ def get_all_invoices():
             "vat": row[12],
             "vat_rate": row[13],
             "total_incl_vat": row[14],
-            "ocr_text": row[15]
+            "ocr_text": row[15],
+            "page_range": row[16],
+            "addresses": addresses,
+            "signature_regions": signature_regions,
+            "verification_status": row[19]
         })
     
     return invoices

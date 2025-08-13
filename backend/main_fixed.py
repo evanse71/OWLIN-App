@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import logging
+import json
 
 # Add backend to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +51,40 @@ except ImportError as e:
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Optional OCR feature modules and flags
+try:
+    from ocr.signature_detector import SignatureDetector  # type: ignore
+except Exception:
+    SignatureDetector = None  # type: ignore
+try:
+    from ocr.confidence_calculator import ConfidenceCalculator  # type: ignore
+except Exception:
+    ConfidenceCalculator = None  # type: ignore
+try:
+    from ocr.receipt_processor import ReceiptProcessor  # type: ignore
+except Exception:
+    ReceiptProcessor = None  # type: ignore
+try:
+    from ocr.utility_processor import UtilityProcessor  # type: ignore
+except Exception:
+    UtilityProcessor = None  # type: ignore
+
+
+def _read_ocr_flags() -> Dict[str, Any]:
+    try:
+        with open("data/config/ocr_flags.json", "r") as f:
+            return json.load(f)
+    except Exception:
+        return {
+            "signature_detection": True,
+            "field_confidence": True,
+            "per_line_confidence": True,
+            "enable_receipt_mode": True,
+            "enable_utility_mode": True,
+        }
+
+FLAGS = _read_ocr_flags()
 
 app = FastAPI(title="Owlin API", version="1.0.0")
 
@@ -113,17 +148,36 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
         logger.info(f"📄 Processing document with unified OCR: {file_path}")
         try:
             unified_engine = get_unified_ocr_engine()
+            logger.info("✅ Got unified OCR engine")
+            
             result = unified_engine.process_document(str(file_path))
+            logger.info(f"📝 Unified OCR result: success={result.success}, confidence={result.overall_confidence}, supplier={result.supplier}, total={result.total_amount}")
             
             if result.success:
                 logger.info(f"✅ OCR completed: {result.engine_used}, confidence: {result.overall_confidence:.2f}")
                 
-                # Use unified result data
-                all_text = result.raw_text
+                # Clean the OCR text for better field extraction
+                cleaned_text = clean_ocr_text(result.raw_text)
+                logger.debug(f"📝 Raw OCR text: {result.raw_text[:200]}...")
+                logger.debug(f"🧹 Cleaned text: {cleaned_text[:200]}...")
+                
+                # Use cleaned text for field extraction if needed
+                all_text = cleaned_text
                 word_count = result.word_count
                 avg_confidence = result.overall_confidence
                 line_items = result.line_items
                 document_type = result.document_type
+
+                # Optional: run signature detection per page if images are available
+                signature_regions = []
+                try:
+                    if FLAGS.get("signature_detection") and SignatureDetector is not None:
+                        images = await unified_engine.extract_images_from_file(str(file_path))
+                        det = SignatureDetector()
+                        for img in images:
+                            signature_regions.extend(det.detect(img))
+                except Exception:
+                    signature_regions = []
                 
                 # Ensure confidence is properly normalized (0-100 for UI)
                 if avg_confidence <= 1.0:
@@ -136,18 +190,31 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
                     "supplier_name": result.supplier,
                     "invoice_number": result.invoice_number,
                     "invoice_date": result.date,
-                    "total_amount": result.total_amount
+                    "total_amount": result.total_amount,
+                    "line_items": line_items,
                 }
+
+                # Field & line confidences
+                field_confidence = None
+                overall_confidence = avg_confidence
+                if FLAGS.get("field_confidence") and ConfidenceCalculator is not None:
+                    calc = ConfidenceCalculator()
+                    ocr_signals = {"avg_confidence": float(avg_confidence) if avg_confidence is not None else 0.6}
+                    field_confidence = calc.field_confidences(extracted_data, ocr_signals)
+                    if FLAGS.get("per_line_confidence") and isinstance(line_items, list):
+                        line_items = calc.line_item_confidences(line_items)
+                    overall_confidence = calc.overall(field_confidence or {}, line_items or [])
                 
                 logger.info(f"📊 Unified OCR completed: {word_count} words, {ui_confidence:.2f} confidence, engine: {result.engine_used}")
-                
             else:
                 logger.error(f"❌ Unified OCR failed: {result.error_message}")
                 # Fallback to basic text processing
                 return await process_file_with_basic_ocr(file_path, original_filename)
-                
+            
         except Exception as e:
             logger.error(f"❌ Unified OCR import/processing failed: {e}")
+            import traceback
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
             # Fallback to basic text processing
             return await process_file_with_basic_ocr(file_path, original_filename)
         
@@ -171,27 +238,9 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
                 logger.info(f"💾 Invoice number: {extracted_data['invoice_number']}")
                 try:
                     # Check if this was LLM processing
-                    field_confidence = None
+                    _field_conf_for_db = field_confidence if field_confidence else None
                     raw_extraction = None
-                    warnings = None
-                    
-                    if result.engine_used.startswith('llm-'):
-                        # Extract LLM-specific data from line items
-                        field_confidence = {}
-                        if line_items:
-                            # Calculate confidence from line items
-                            for item in line_items:
-                                if isinstance(item, dict) and 'confidence' in item:
-                                    field_confidence[item.get('description', 'line_item')] = item['confidence']
-                        
-                        raw_extraction = {
-                            'engine': result.engine_used,
-                            'line_items_count': len(line_items),
-                            'processing_time': result.processing_time
-                        }
-                        
-                        warnings = []
-                    
+                    warnings = []
                     result_save = save_invoice_to_db(
                         invoice_id=file_id,
                         supplier_name=extracted_data["supplier_name"],
@@ -201,17 +250,17 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
                         confidence=avg_confidence,
                         ocr_text=all_text,
                         line_items=line_items,
-                        field_confidence=field_confidence,
+                        field_confidence=_field_conf_for_db,
                         raw_extraction=raw_extraction,
-                        warnings=warnings
+                        warnings=warnings,
+                        addresses={},
+                        signature_regions=signature_regions,
                     )
                     logger.info(f"✅ Invoice save result: {result_save}")
                 except Exception as db_error:
                     logger.error(f"❌ Database save failed: {db_error}")
                     import traceback
                     logger.error(f"❌ Database save traceback: {traceback.format_exc()}")
-            else:
-                logger.info(f"📄 Document type is '{document_type}', not saving to invoices table")
         except Exception as db_error:
             logger.error(f"❌ Database save failed: {db_error}")
         
@@ -226,7 +275,10 @@ async def process_file_with_real_ocr(file_path: Path, original_filename: str) ->
             "line_items": [item.__dict__ if hasattr(item, '__dict__') else item for item in line_items[:10]],  # Limit to first 10 items
             "document_type": document_type,
             "file_id": file_id,
-            "engine_used": result.engine_used
+            "engine_used": result.engine_used,
+            "signature_regions": signature_regions,
+            "field_confidence": field_confidence or {},
+            "overall_confidence": overall_confidence,
         }
         
     except Exception as e:
@@ -600,241 +652,91 @@ async def process_file_with_basic_ocr(file_path: Path, original_filename: str) -
         }
 
 def extract_invoice_data_from_text(text: str) -> Dict[str, Any]:
-    """Extract basic invoice data from OCR text"""
-    text_lower = text.lower()
+    """Simplified and reliable invoice data extraction"""
+    import re
+    from datetime import datetime
     
-    # Extract supplier name - look for the actual supplier (not bill-to)
-    supplier_name = "Unknown Supplier"
-    
-    # Pattern 1: Look for company name in header/logo area (usually at top)
+    # Clean the text first
+    text = text.strip()
     lines = text.split('\n')
-    for i, line in enumerate(lines[:15]):  # Check first 15 lines
-        line_upper = line.upper()
-        # Look for brewing companies, suppliers in header
-        if any(keyword in line_upper for keyword in ['BREWING', 'BREWERY', 'WILD HORSE', 'SUPPLIER', 'CO LTD', 'COMPANY']):
-            supplier_name = line.strip()
-            break
-        # Skip table headers and common invoice words
-        elif any(keyword in line_upper for keyword in ['QTY', 'CODE', 'ITEM', 'UNIT', 'PRICE', 'TOTAL', 'VAT', 'DISCOUNT', 'INVOICE 1', 'INVOICE 2', 'INVOICE #']):
-            continue
-        # Skip empty lines and common invoice labels
-        elif line.strip() and not any(keyword in line_upper for keyword in ['BILL TO:', 'DELIVER TO:', 'DATE:', 'TOTAL:', 'DUE BY:', 'ISSUE DATE:']):
-            # This might be the supplier name if it looks like a company
-            if len(line.strip()) > 3 and not line.strip().isdigit() and not line.strip().startswith('Invoice'):
-                # Additional check: make sure it's not a line item code
-                if not re.match(r'^[A-Z0-9\-]+$', line.strip()) and len(line.strip()) > 10:
-                    supplier_name = line.strip()
-                    break
     
-    # Pattern 2: Look for "Invoice from:" or "Supplier:" patterns
-    if supplier_name == "Unknown Supplier":
-        supplier_match = re.search(r'(?:invoice\s+from|supplier|from):\s*([^\n]+)', text, re.IGNORECASE)
-        if supplier_match:
-            supplier_name = supplier_match.group(1).strip()
-    
-    # Pattern 3: Look for company name patterns in the text
-    if supplier_name == "Unknown Supplier":
-        company_patterns = [
-            r'([A-Z][A-Z\s&]+(?:BREWING|BREWERY|CO|COMPANY|LTD|LIMITED|INC|CORP|LLC))',
-            r'([A-Z][A-Z\s&]+(?:CO\.|COMPANY|LTD\.|LIMITED))',
-            r'([A-Z][A-Z\s&]+(?:BREWING|BREWERY))',
-            r'(WILD\s+HORSE\s+[A-Z\s]+)',  # Specific to your invoice
-        ]
-        
-        for pattern in company_patterns:
-            match = re.search(pattern, text)
-            if match:
-                supplier_name = match.group(1).strip()
-                break
-    
-    # Pattern 4: Look for company name in the first few lines (before "Bill to:")
-    if supplier_name == "Unknown Supplier":
-        lines = text.split('\n')
-        for line in lines[:8]:  # Check first 8 lines
-            if line.strip() and not any(keyword in line.lower() for keyword in ['bill to:', 'invoice #', 'date:', 'total:', 'qty', 'code', 'item', 'unit', 'price', 'issue date:']):
-                # This might be the supplier name
-                supplier_name = line.strip()
-                break
-    
-    # Extract invoice number - look for multiple patterns
+    # Initialize results
+    supplier_name = "Unknown Supplier"
     invoice_number = "Unknown"
-    
-    # Pattern 1: Look for "Invoice #" or "Invoice Number"
-    invoice_match = re.search(r'invoice\s*#?\s*:?\s*([^\n\s]+)', text, re.IGNORECASE)
-    if invoice_match:
-        invoice_number = invoice_match.group(1).strip()
-        # Clean up if it contains other text
-        if "supplier" in invoice_number.lower() or "bill" in invoice_number.lower():
-            # Try alternative pattern
-            alt_match = re.search(r'#\s*(\d+)', text, re.IGNORECASE)
-            if alt_match:
-                invoice_number = alt_match.group(1)
-    else:
-        # Pattern 2: Look for invoice number patterns
-        number_patterns = [
-            r'#\s*(\d+)',
-            r'invoice\s*(\d+)',
-            r'(\d{5,})',  # Look for 5+ digit numbers
-        ]
-        
-        for pattern in number_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                invoice_number = match.group(1)
-                break
-    
-    # Extract total amount - look for multiple patterns
     total_amount = 0.0
+    invoice_date = datetime.now().strftime("%Y-%m-%d")
     
-    # Pattern 1: Look for "Total (inc. VAT):" or "Total including VAT" - PRIORITY
-    vat_total_match = re.search(r'total\s*(?:inc\.?\s*vat|including\s*vat)\s*:?\s*[£$€]?([\d,]+\.?\d*)', text, re.IGNORECASE)
-    if vat_total_match:
-        try:
-            total_amount = float(vat_total_match.group(1).replace(',', ''))
-        except:
-            pass
-    
-    # Pattern 2: Look for "Total:" or "Total Due:" (usually includes VAT)
-    if total_amount == 0.0:
-        total_match = re.search(r'total\s*(?:due)?\s*:?\s*[£$€]?([\d,]+\.?\d*)', text, re.IGNORECASE)
-        if total_match:
-            try:
-                total_amount = float(total_match.group(1).replace(',', ''))
-            except:
-                pass
-    
-    # Pattern 3: Look for "Total:" followed by amount (usually includes VAT)
-    if total_amount == 0.0:
-        simple_total_match = re.search(r'total\s*:?\s*[£$€]?([\d,]+\.?\d*)', text, re.IGNORECASE)
-        if simple_total_match:
-            try:
-                total_amount = float(simple_total_match.group(1).replace(',', ''))
-            except:
-                pass
-    
-    # Pattern 4: Look for currency amounts at the end (largest amount, but not invoice numbers)
-    if total_amount == 0.0:
-        amount_matches = re.findall(r'[£$€]?\s*([\d,]+\.?\d*)', text)
-        amounts = []
-        for amt in amount_matches:
-            try:
-                clean_amt = amt.replace(',', '')
-                if clean_amt.replace('.', '').isdigit():
-                    amount = float(clean_amt)
-                    # Filter out years, small amounts, invoice numbers, and look for larger amounts
-                    if amount > 100 and amount < 100000 and amount != 73318:  # Exclude invoice number
-                        amounts.append(amount)
-            except:
+    # STEP 1: SUPPLIER EXTRACTION (Simplified)
+    # Look for the first line that looks like a company name
+    for line in lines[:10]:  # Check first 10 lines
+        line = line.strip()
+        if len(line) > 5 and len(line) < 100:  # Reasonable length
+            # Skip common invoice words
+            if any(word in line.lower() for word in ['invoice', 'bill to', 'deliver to', 'date:', 'total:', 'qty', 'code', 'item', 'unit', 'price']):
                 continue
-        if amounts:
-            total_amount = max(amounts)  # Take the largest amount as total
-    
-    # Pattern 5: Look for amounts in the last few lines (where totals usually are)
-    if total_amount == 0.0:
-        lines = text.split('\n')
-        for line in reversed(lines[-10:]):  # Check last 10 lines
-            amount_match = re.search(r'[£$€]?\s*([\d,]+\.?\d*)', line)
-            if amount_match:
-                try:
-                    amount = float(amount_match.group(1).replace(',', ''))
-                    if amount > 100 and amount < 100000 and amount != 73318:  # Exclude invoice number
-                        total_amount = amount
-                        break
-                except:
-                    continue
-    
-    # Pattern 6: Look specifically for "Total (inc. VAT): £556.20" pattern
-    if total_amount == 0.0 or total_amount == 2025.0:  # Reset if we got the wrong amount
-        vat_total_match = re.search(r'total\s*\(inc\.?\s*vat\)\s*:?\s*[£$€]?([\d,]+\.?\d*)', text, re.IGNORECASE)
-        if vat_total_match:
-            try:
-                total_amount = float(vat_total_match.group(1).replace(',', ''))
-            except:
-                pass
-    
-    # Pattern 7: Look for the largest amount that's not an invoice number or date
-    if total_amount == 0.0 or total_amount == 2025.0:
-        amount_matches = re.findall(r'[£$€]?\s*([\d,]+\.?\d*)', text)
-        amounts = []
-        for amt in amount_matches:
-            try:
-                clean_amt = amt.replace(',', '')
-                if clean_amt.replace('.', '').isdigit():
-                    amount = float(clean_amt)
-                    # Filter out years, small amounts, invoice numbers, and look for larger amounts
-                    if amount > 50 and amount < 100000 and amount != 73318 and amount != 2025:
-                        amounts.append(amount)
-            except:
+            # Skip if it's just numbers or special characters
+            if re.match(r'^[\d\s\-\.]+$', line):
                 continue
-        if amounts:
-            # Take the largest amount that looks like a total
-            amounts.sort(reverse=True)
-            for amount in amounts:
-                if amount > 100:  # Prefer larger amounts as totals
+            # Skip if it starts with common invoice prefixes
+            if line.lower().startswith(('invoice', 'bill', 'deliver', 'date', 'total')):
+                continue
+            # This looks like a supplier name
+            supplier_name = line
+            break
+    
+    # STEP 2: INVOICE NUMBER EXTRACTION (Simplified)
+    # Look for "Invoice #" or "Invoice Number" patterns
+    invoice_patterns = [
+        r'invoice\s*#?\s*:?\s*(\d+)',
+        r'invoice\s*number\s*:?\s*(\d+)',
+        r'#\s*(\d{3,})',  # 3+ digit numbers after #
+    ]
+    
+    for pattern in invoice_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            invoice_number = match.group(1)
+            break
+    
+    # STEP 3: TOTAL EXTRACTION (Simplified)
+    # Look for "Total:" followed by amount
+    total_patterns = [
+        r'total\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+        r'total\s*\(inc\.?\s*vat\)\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+        r'total\s*due\s*:?\s*[£$€]?\s*([\d,]+\.?\d*)',
+    ]
+    
+    for pattern in total_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                amount = float(amount_str)
+                if amount > 0 and amount < 1000000:  # Reasonable range
                     total_amount = amount
                     break
+            except:
+                continue
     
-    # Extract invoice date - look for multiple patterns
-    invoice_date = datetime.now().strftime("%Y-%m-%d")
-    date_match = re.search(r'(?:issue\s+date|invoice\s+date|date):\s*([^\n]+)', text, re.IGNORECASE)
-    if date_match:
-        date_str = date_match.group(1).strip()
-        try:
-            if ',' in date_str and any(day in date_str.lower() for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']):
-                parsed_date = datetime.strptime(date_str, "%A, %d %B %Y")
-                invoice_date = parsed_date.strftime("%Y-%m-%d")
-            elif '/' in date_str:
-                parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
-                invoice_date = parsed_date.strftime("%Y-%m-%d")
-        except:
-            pass
+    # STEP 4: DATE EXTRACTION (Simplified)
+    # Look for date patterns
+    date_patterns = [
+        r'date\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'invoice\s*date\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',  # General date pattern
+    ]
     
-    if invoice_date == datetime.now().strftime("%Y-%m-%d"):
-        date_patterns = [
-            r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
-            r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})',
-        ]
-        for pattern in date_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                try:
-                    date_str = match.group(1)
-                    if '/' in date_str:
-                        parts = date_str.split('/')
-                        if len(parts[2]) == 2:
-                            date_str = f"{parts[0]}/{parts[1]}/20{parts[2]}"
-                        parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
-                    elif '-' in date_str:
-                        parts = date_str.split('-')
-                        if len(parts[2]) == 2:
-                            date_str = f"{parts[0]}-{parts[1]}-20{parts[2]}"
-                        parsed_date = datetime.strptime(date_str, "%d-%m-%Y")
-                    else:
-                        parsed_date = datetime.strptime(date_str, "%d %b %Y")
+    for pattern in date_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                date_str = match.group(1)
+                if '/' in date_str:
+                    parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
                     invoice_date = parsed_date.strftime("%Y-%m-%d")
                     break
-                except:
-                    pass
-    
-    # Additional check: look for "Friday, 4 July 2025" pattern specifically
-    if invoice_date == datetime.now().strftime("%Y-%m-%d"):
-        specific_date_match = re.search(r'(?:Friday|Monday|Tuesday|Wednesday|Thursday|Saturday|Sunday),\s*(\d{1,2})\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})', text, re.IGNORECASE)
-        if specific_date_match:
-            try:
-                day = int(specific_date_match.group(1))
-                year = int(specific_date_match.group(2))
-                month_str = specific_date_match.group(0).split()[2]  # Get month name
-                month_map = {
-                    'january': 1, 'february': 2, 'march': 3, 'april': 4,
-                    'may': 5, 'june': 6, 'july': 7, 'august': 8,
-                    'september': 9, 'october': 10, 'november': 11, 'december': 12
-                }
-                month = month_map.get(month_str.lower())
-                if month:
-                    parsed_date = datetime(year, month, day)
-                    invoice_date = parsed_date.strftime("%Y-%m-%d")
             except:
-                pass
+                continue
     
     return {
         "supplier_name": supplier_name,
@@ -842,6 +744,28 @@ def extract_invoice_data_from_text(text: str) -> Dict[str, Any]:
         "total_amount": total_amount,
         "invoice_date": invoice_date
     }
+
+
+def clean_ocr_text(text: str) -> str:
+    """Clean OCR text for better field extraction"""
+    import re
+    
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove common OCR artifacts
+    text = re.sub(r'[^\w\s\-\.\,\£\$€\#\@\:\(\)]', '', text)
+    
+    # Fix common OCR errors
+    text = text.replace('OICE', 'INVOICE')
+    text = text.replace('lNVOICE', 'INVOICE')
+    text = text.replace('lnvoice', 'Invoice')
+    text = text.replace('lnvoice #', 'Invoice #')
+    
+    # Clean up currency symbols
+    text = re.sub(r'[£$€]\s*', '£', text)  # Standardize to £
+    
+    return text.strip()
 
 def classify_document_type(text: str) -> str:
     """Classify document type based on content"""
@@ -963,14 +887,11 @@ async def upload_file(file: UploadFile = File(...)):
         
         logger.info(f"📁 File saved: {file_path}")
         
-        # Process file with REAL OCR
-        try:
-            ocr_data = await process_file_with_real_ocr(file_path, file.filename)
-        except Exception as ocr_error:
-            logger.error(f"❌ OCR processing failed: {ocr_error}")
-            # Fallback to text processing for non-image files
-            if file_extension in {'.txt', '.md'}:
-                logger.info("📝 Processing as text file")
+        # Process file based on type
+        if file_extension in {'.txt', '.md'}:
+            # Process text files directly
+            logger.info("📝 Processing as text file")
+            try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     text_content = f.read()
                 extracted_data = extract_invoice_data_from_text(text_content)
@@ -984,11 +905,51 @@ async def upload_file(file: UploadFile = File(...)):
                     "word_count": len(text_content.split()),
                     "line_items": [],
                     "document_type": classify_document_type(text_content),
-                    "file_id": file_id
+                    "file_id": file_id,
+                    "engine_used": "text_processing",
+                    "processing_time": 0.0
                 }
-            else:
-                # For image files that fail OCR, return error
-                raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(ocr_error)}")
+                logger.info(f"✅ Text processing completed: {extracted_data['supplier_name']}, {extracted_data['total_amount']}")
+            except Exception as text_error:
+                logger.error(f"❌ Text processing failed: {text_error}")
+                # Fallback data
+                ocr_data = {
+                    "confidence": 30.0,
+                    "supplier_name": "Text processing failed",
+                    "invoice_number": "Unknown",
+                    "total_amount": 0.0,
+                    "invoice_date": datetime.now().strftime("%Y-%m-%d"),
+                    "raw_text": f"Text processing failed: {str(text_error)}",
+                    "word_count": 0,
+                    "line_items": [],
+                    "document_type": "unknown",
+                    "file_id": file_id,
+                    "engine_used": "fallback",
+                    "processing_time": 0.0
+                }
+        else:
+            # Process image/PDF files with OCR
+            try:
+                ocr_data = await process_file_with_real_ocr(file_path, file.filename)
+            except Exception as ocr_error:
+                logger.error(f"❌ OCR processing failed: {ocr_error}")
+                
+                # Provide fallback data instead of crashing
+                logger.info("🔄 Providing fallback data for failed OCR processing")
+                ocr_data = {
+                    "confidence": 30.0,
+                    "supplier_name": "Processing failed",
+                    "invoice_number": "Unknown",
+                    "total_amount": 0.0,
+                    "invoice_date": datetime.now().strftime("%Y-%m-%d"),
+                    "raw_text": f"OCR processing failed: {str(ocr_error)}",
+                    "word_count": 0,
+                    "line_items": [],
+                    "document_type": "unknown",
+                    "file_id": file_id,
+                    "engine_used": "fallback",
+                    "processing_time": 0.0
+                }
         
         # Check for multi-invoice content using unified detection system
         multi_invoice_detected = False
@@ -1210,6 +1171,8 @@ async def upload_file(file: UploadFile = File(...)):
             "raw_ocr_text": ocr_data["raw_text"],
             "line_items": ocr_data["line_items"],
             "document_type": ocr_data["document_type"],
+            "signature_regions": ocr_data.get("signature_regions", []),
+            "field_confidence": ocr_data.get("field_confidence", {}),
             # ✅ CRITICAL: Nest data under data as frontend expects
             "data": {
                 "confidence": confidence_normalized,
@@ -1313,6 +1276,7 @@ async def upload_file_bulletproof(file: UploadFile = File(...)):
             'file_id': file_id,
             'filename': file.filename,
             'processing_time': intake_result.processing_time,
+            'saved_invoices': [],  # UI expects this key
             'canonical_invoices': [],
             'canonical_documents': [],
             'duplicate_groups': [],
@@ -1323,7 +1287,8 @@ async def upload_file_bulletproof(file: UploadFile = File(...)):
         
         # Convert canonical invoices
         for invoice in intake_result.canonical_invoices:
-            response_data['canonical_invoices'].append({
+            # Create UI-compatible invoice object
+            ui_invoice = {
                 'id': invoice.canonical_id,
                 'supplier_name': invoice.supplier_name,
                 'invoice_number': invoice.invoice_number,
@@ -1333,11 +1298,22 @@ async def upload_file_bulletproof(file: UploadFile = File(...)):
                 'tax': invoice.tax,
                 'total_amount': invoice.total_amount,
                 'confidence': invoice.confidence,
-                'field_confidence': invoice.field_confidence,
+                'field_confidence': invoice.field_confidence or {},
                 'warnings': invoice.warnings,
                 'source_segments': invoice.source_segments,
-                'source_pages': invoice.source_pages
-            })
+                'source_pages': invoice.source_pages,
+                # Add missing fields UI expects
+                'doc_type': 'invoice',
+                'page_range': invoice.source_pages or '',
+                'status': 'processed',
+                'addresses': {'supplier_address': '', 'delivery_address': ''},
+                'signature_regions': [],
+                'line_items': [],
+                'verification_status': 'unreviewed'
+            }
+            
+            response_data['canonical_invoices'].append(ui_invoice)
+            response_data['saved_invoices'].append(ui_invoice)  # Add to saved_invoices for UI
         
         # Convert canonical documents
         for document in intake_result.canonical_documents:

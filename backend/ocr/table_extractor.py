@@ -9,6 +9,50 @@ logger = logging.getLogger(__name__)
 
 Box = Dict[str, any]
 
+# New: snap words to median column rails
+def snap_to_column_rails(ocr_words: List[Box], max_cols: int = 6) -> List[List[Box]]:
+    if not ocr_words:
+        return []
+    # Sort by y
+    words = sorted(ocr_words, key=lambda w: (w['top'] + w['height'] // 2, w['left']))
+    # Row clustering by Y
+    rows: List[List[Box]] = []
+    last_y = None
+    for w in words:
+        y = w['top'] + w['height'] // 2
+        if last_y is None or abs(y - last_y) > 15:
+            rows.append([w])
+        else:
+            rows[-1].append(w)
+        last_y = y
+    # Compute candidate rails from global X distribution
+    xs = sorted([w['left'] for w in ocr_words])
+    if not xs:
+        return rows
+    # K-medoids-ish by quantiles
+    rails = []
+    for k in range(1, min(max_cols, max(2, len(xs)//8)) + 1):
+        # pick k quantiles
+        q = [np.percentile(xs, p) for p in np.linspace(0, 100, k+2)[1:-1]]
+        rails = q
+    # Snap each word to nearest rail index
+    snapped_rows: List[List[Box]] = []
+    for row in rows:
+        cols: Dict[int, List[Box]] = {}
+        for w in row:
+            x = w['left']
+            if not rails:
+                idx = 0
+            else:
+                idx = int(np.argmin([abs(x - r) for r in rails]))
+            cols.setdefault(idx, []).append(w)
+        # Build ordered row by rail index
+        ordered = []
+        for idx in sorted(cols.keys()):
+            ordered.extend(sorted(cols[idx], key=lambda b: b['left']))
+        snapped_rows.append(ordered)
+    return snapped_rows
+
 def extract_table_data(ocr_words: List[Box]) -> List[List[str]]:
     """
     Extract table data from OCR word boxes using spatial clustering.
@@ -23,68 +67,74 @@ def extract_table_data(ocr_words: List[Box]) -> List[List[str]]:
         return []
     
     try:
-        # Cluster by y-coordinate (rows)
-        y_centers = np.array([w['top'] + w['height'] // 2 for w in ocr_words])
-        y_sorted = np.argsort(y_centers)
-        sorted_words = [ocr_words[i] for i in y_sorted]
-        
-        # Group words into rows based on y-coordinate proximity
-        row_clusters = []
-        current_row = []
-        last_y = None
-        
-        for w in sorted_words:
-            y = w['top'] + w['height'] // 2
-            
-            if last_y is None or abs(y - last_y) > 15:  # New row threshold
-                if current_row:
-                    row_clusters.append(current_row)
-                current_row = [w]
-            else:
-                current_row.append(w)
-            last_y = y
-        
-        # Don't forget the last row
-        if current_row:
-            row_clusters.append(current_row)
-        
-        # Process each row to extract columns
-        table = []
-        for row_words in row_clusters:
-            # Sort words in row by x-coordinate
-            row_words = sorted(row_words, key=lambda w: w['left'])
-            
-            # Group words into columns based on x-coordinate proximity
-            cells = []
-            current_cell = []
-            last_x = None
-            
-            for w in row_words:
-                x = w['left']
-                
-                if last_x is None or abs(x - last_x) > 25:  # New column threshold
-                    if current_cell:
-                        cells.append(' '.join([word['text'] for word in current_cell]))
-                    current_cell = [w]
+        # Use rail snapping to stabilize columns
+        snapped_rows = snap_to_column_rails(ocr_words)
+        table: List[List[str]] = []
+        for row_words in snapped_rows:
+            # Merge contiguous words into cells by small gaps
+            cells: List[str] = []
+            if not row_words:
+                continue
+            current = row_words[0]['text']
+            last_right = row_words[0]['left'] + row_words[0]['width']
+            for w in row_words[1:]:
+                gap = w['left'] - last_right
+                if gap > 20:
+                    cells.append(current.strip())
+                    current = w['text']
                 else:
-                    current_cell.append(w)
-                last_x = x
-            
-            # Don't forget the last cell
-            if current_cell:
-                cells.append(' '.join([word['text'] for word in current_cell]))
-            
+                    current += ' ' + w['text']
+                last_right = w['left'] + w['width']
+            if current:
+                cells.append(current.strip())
             if cells:
                 table.append(cells)
-        
-        # Log table structure for debugging
+        # Log for debugging
         log_table_structure(table)
-        
         return table
         
     except Exception as e:
         logger.error(f"Table extraction failed: {str(e)}")
         return []
+
+# Map snapped table rows to invoice line item dicts
+def table_rows_to_items(table: List[List[str]]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for row in table:
+        if len(row) < 3:
+            continue
+        # Heuristic: last two numeric cells likely unit price and line total
+        nums = [i for i, c in enumerate(row) if re.search(r'[£$€]?\s*\d+[.,]\d{2}$', c)]
+        if len(nums) >= 2:
+            unit_idx, total_idx = nums[-2], nums[-1]
+            desc = ' '.join(row[:max(1, unit_idx-1)]).strip()
+            # quantity likely right before unit price
+            qty = None
+            try:
+                qty_candidate = row[unit_idx-1].strip()
+                if re.match(r'^\d+(?:\.\d+)?$', qty_candidate):
+                    qty = float(qty_candidate)
+            except Exception:
+                pass
+            unit_price = float(re.sub(r'[^\d.,]', '', row[unit_idx]).replace(',', '.'))
+            line_total = float(re.sub(r'[^\d.,]', '', row[total_idx]).replace(',', '.'))
+            item: Dict[str, Any] = {
+                'description': desc or row[0],
+                'quantity': qty if qty is not None else 1.0,
+                'unit_price': unit_price,
+                'line_total': line_total,
+            }
+            # optional VAT % somewhere in row
+            for cell in row:
+                m = re.search(r'(\d{1,2})\s*%$', cell)
+                if m:
+                    try:
+                        item['vat_percent'] = float(m.group(1))
+                        break
+                    except Exception:
+                        pass
+            items.append(item)
+    return items
 
 def extract_line_items_from_text(text: str) -> List[Dict[str, Any]]:
     """

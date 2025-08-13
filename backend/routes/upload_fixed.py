@@ -210,6 +210,7 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
             
             # Get enhanced unified OCR engine
             unified_engine = get_unified_ocr_engine()
+            logger.debug("✅ Got unified OCR engine")
             
             # Process document with enhanced OCR
             logger.debug("🔄 Calling enhanced unified OCR engine...")
@@ -217,6 +218,8 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
                 asyncio.to_thread(unified_engine.process_document, filepath),
                 timeout=timeout_seconds
             )
+            
+            logger.debug(f"📝 OCR result: success={result.success}, confidence={result.overall_confidence}, supplier={result.supplier}, total={result.total_amount}")
             
             # Convert enhanced result to legacy format for compatibility
             if result.success:
@@ -1125,3 +1128,42 @@ def preview_file(document_id: str):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"} 
+
+@router.get("/test-ocr")
+async def test_ocr():
+    """Test OCR engine directly"""
+    try:
+        from ocr.unified_ocr_engine import UnifiedOCREngine
+        from PIL import Image, ImageDraw, ImageFont
+        
+        # Create a simple test image
+        img = Image.new('RGB', (400, 200), color='white')
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default()
+        draw.text((50, 50), "INVOICE", fill='black', font=font)
+        draw.text((50, 80), "Supplier: Test Company", fill='black', font=font)
+        draw.text((50, 110), "Total: $100.00", fill='black', font=font)
+        
+        # Save to temp file
+        temp_path = "/tmp/test_ocr.png"
+        img.save(temp_path)
+        
+        # Test OCR engine
+        engine = UnifiedOCREngine()
+        result = engine.process_document(temp_path)
+        
+        # Clean up
+        os.remove(temp_path)
+        
+        return {
+            "success": result.success,
+            "supplier": result.supplier,
+            "invoice_number": result.invoice_number,
+            "total_amount": result.total_amount,
+            "confidence": result.overall_confidence,
+            "raw_text": result.raw_text,
+            "word_count": result.word_count,
+            "engine_used": result.engine_used
+        }
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()} 

@@ -69,7 +69,11 @@ class EnhancedAPIService {
   private uploadProgressCallbacks: Map<string, (progress: UploadProgress) => void>;
 
   constructor() {
-    this.baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002';
+    // Use centralized API base
+    const API_BASE = 
+      process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ||
+      (typeof window !== "undefined" ? `${window.location.origin}` : "http://localhost:8002");
+    this.baseURL = `${API_BASE}`;
     this.uploadProgressCallbacks = new Map();
   }
 
@@ -228,7 +232,8 @@ class EnhancedAPIService {
         throw new Error(`Failed to fetch invoices: ${response.statusText}`);
       }
 
-      const invoices = await response.json();
+      const body = await response.json();
+      const invoices: any[] = Array.isArray(body) ? body : (Array.isArray(body?.invoices) ? body.invoices : []);
       
       // Normalize confidence for all invoices
       return invoices.map((invoice: any) => ({
