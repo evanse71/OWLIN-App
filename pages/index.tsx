@@ -176,12 +176,10 @@ const DashboardPage: React.FC = () => {
   if (loading) {
     return (
       <AppShell>
-        <div className="py-8">
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading dashboard...</p>
-            </div>
+        <div className="py-8 flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-owlin-cerulean mx-auto mb-4"></div>
+            <p className="text-owlin-muted">Loading dashboard...</p>
           </div>
         </div>
       </AppShell>
@@ -190,167 +188,165 @@ const DashboardPage: React.FC = () => {
 
   return (
     <AppShell>
-      <div className="py-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-6">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Owlin Dashboard</h1>
-            {usingFallback && (
-              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg max-w-md mx-auto">
-                <div className="flex items-center justify-center text-sm text-yellow-800">Demo mode - showing sample data</div>
-              </div>
-            )}
-          </div>
+      <div className="py-8 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-semibold text-owlin-text mb-2">Owlin Dashboard</h1>
+          {usingFallback && (
+            <div className="mt-2 p-2 rounded-owlin border border-owlin-stroke bg-[color-mix(in_oklab,var(--owlin-card)_92%,transparent)] max-w-md mx-auto">
+              <div className="flex items-center justify-center text-sm text-owlin-muted">Demo mode - showing sample data</div>
+            </div>
+          )}
+        </div>
 
-          {/* Filters (minimal) */}
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">Start date</label>
-                <input className="w-full border rounded px-3 py-2 text-sm" type="date" value={startDate || ''} onChange={(e) => setStartDate(e.target.value || undefined)} />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">End date</label>
-                <input className="w-full border rounded px-3 py-2 text-sm" type="date" value={endDate || ''} onChange={(e) => setEndDate(e.target.value || undefined)} />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">Venue</label>
-                <input className="w-full border rounded px-3 py-2 text-sm" placeholder="All venues" value={venue || ''} onChange={(e) => setVenue(e.target.value || undefined)} />
-              </div>
-              <div className="flex items-end">
-                <button onClick={fetchWidgets} className="w-full px-3 py-2 bg-gray-800 text-white rounded hover:bg-gray-900">Apply</button>
-              </div>
+        {/* Filters (minimal) */}
+        <div className="bg-owlin-card rounded-owlin shadow-owlin p-4 mb-6 border border-owlin-stroke">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs text-owlin-muted mb-1">Start date</label>
+              <input className="w-full border border-owlin-stroke rounded-owlin px-3 py-2 text-sm bg-owlin-card" type="date" value={startDate || ''} onChange={(e) => setStartDate(e.target.value || undefined)} />
+            </div>
+            <div>
+              <label className="block text-xs text-owlin-muted mb-1">End date</label>
+              <input className="w-full border border-owlin-stroke rounded-owlin px-3 py-2 text-sm bg-owlin-card" type="date" value={endDate || ''} onChange={(e) => setEndDate(e.target.value || undefined)} />
+            </div>
+            <div>
+              <label className="block text-xs text-owlin-muted mb-1">Venue</label>
+              <input className="w-full border border-owlin-stroke rounded-owlin px-3 py-2 text-sm bg-owlin-card" placeholder="All venues" value={venue || ''} onChange={(e) => setVenue(e.target.value || undefined)} />
+            </div>
+            <div className="flex items-end">
+              <button onClick={fetchWidgets} className="w-full px-3 py-2 bg-[var(--owlin-sapphire)] text-white rounded-owlin hover:brightness-110">Apply</button>
             </div>
           </div>
+        </div>
 
-          {/* Top row: Spend, Credits, ROI, Match Rate */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-xs text-gray-500" title="Sum of invoices total in range">Total Spend</div>
-              <div className="text-3xl font-semibold text-gray-900 mt-1">{formatCurrency(spend?.total_spend || dashboardData?.system_metrics.total_value || 0)}</div>
-              <div className={`text-sm mt-1 ${((spend?.delta_percent || 0) >= 0) ? 'text-green-700' : 'text-red-700'}`}>vs prior {pct(spend?.delta_percent)}</div>
-              <Link href="/invoices" className="text-sm text-blue-600 mt-2 inline-block">Open invoices →</Link>
+        {/* Top row: Spend, Credits, ROI, Match Rate */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-xs text-gray-500" title="Sum of invoices total in range">Total Spend</div>
+            <div className="text-3xl font-semibold text-gray-900 mt-1">{formatCurrency(spend?.total_spend || dashboardData?.system_metrics.total_value || 0)}</div>
+            <div className={`text-sm mt-1 ${((spend?.delta_percent || 0) >= 0) ? 'text-green-700' : 'text-red-700'}`}>vs prior {pct(spend?.delta_percent)}</div>
+            <Link href="/invoices" className="text-sm text-owlin-cerulean mt-2 inline-block">Open invoices →</Link>
+          </div>
+
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-xs text-gray-500" title="Sum of confirmed credit recoveries">Credits Recovered (30/90d)</div>
+            <div className="text-3xl font-semibold text-gray-900 mt-1">{formatCurrency(0)}</div>
+            <div className="text-xs text-gray-500 mt-1">Coming soon</div>
+            <Link href="/flagged" className="text-sm text-owlin-cerulean mt-2 inline-block">Open cases →</Link>
+          </div>
+
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-xs text-gray-500" title="CreditsRecovered / LicenseCost">ROI Meter</div>
+            <div className="mt-2">
+              <div className="h-2 rounded bg-owlin-bg">
+                <div className="h-2 rounded bg-green-600" style={{ width: '30%' }}></div>
+              </div>
+              <div className="text-sm text-gray-700 mt-2">£0 per £1 license</div>
             </div>
+          </div>
 
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-xs text-gray-500" title="Sum of confirmed credit recoveries">Credits Recovered (30/90d)</div>
-              <div className="text-3xl font-semibold text-gray-900 mt-1">{formatCurrency(0)}</div>
-              <div className="text-xs text-gray-500 mt-1">Coming soon</div>
-              <Link href="/flagged" className="text-sm text-blue-600 mt-2 inline-block">Open cases →</Link>
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-xs text-gray-500" title="Passed / (Passed + Issues + Failed)">3‑Way Match Rate</div>
+            <div className="text-3xl font-semibold text-gray-900 mt-1">{pct(matchRate?.rate_percent)}</div>
+            <div className="text-sm text-gray-600 mt-1">Passed {matchRate?.passed ?? 0} • Issues {matchRate?.issues ?? 0} • Failed {matchRate?.failed ?? 0}</div>
+            <Link href="/matching-demo" className="text-sm text-owlin-cerulean mt-2 inline-block">Open triage →</Link>
+          </div>
+        </div>
+
+        {/* Issues by Type, Pairing Status, Duplicates Prevented */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold text-gray-900">Issues by Type</div>
+              <div className="text-xs text-gray-500" title="Counts of flagged items by issue type">?</div>
             </div>
-
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-xs text-gray-500" title="CreditsRecovered / LicenseCost">ROI Meter</div>
-              <div className="mt-2">
-                <div className="h-2 rounded bg-gray-100">
-                  <div className="h-2 rounded bg-green-600" style={{ width: '30%' }}></div>
+            <div className="space-y-2">
+              {(issuesByType?.issues || []).slice(0, 6).map((it, idx) => (
+                <div key={idx} className="flex items-center justify-between">
+                  <div className="text-sm text-gray-700 capitalize">{it.issue_type}</div>
+                  <Link href="/flagged" className="text-sm text-owlin-cerulean">{it.count}</Link>
                 </div>
-                <div className="text-sm text-gray-700 mt-2">£0 per £1 license</div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-xs text-gray-500" title="Passed / (Passed + Issues + Failed)">3‑Way Match Rate</div>
-              <div className="text-3xl font-semibold text-gray-900 mt-1">{pct(matchRate?.rate_percent)}</div>
-              <div className="text-sm text-gray-600 mt-1">Passed {matchRate?.passed ?? 0} • Issues {matchRate?.issues ?? 0} • Failed {matchRate?.failed ?? 0}</div>
-              <Link href="/matching-demo" className="text-sm text-blue-600 mt-2 inline-block">Open triage →</Link>
+              ))}
+              {(!issuesByType || issuesByType.issues.length === 0) && (
+                <div className="text-sm text-gray-500">No issues in period</div>
+              )}
             </div>
           </div>
 
-          {/* Issues by Type, Pairing Status, Duplicates Prevented */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-semibold text-gray-900">Issues by Type</div>
-                <div className="text-xs text-gray-500" title="Counts of flagged items by issue type">?</div>
-              </div>
-              <div className="space-y-2">
-                {(issuesByType?.issues || []).slice(0, 6).map((it, idx) => (
-                  <div key={idx} className="flex items-center justify-between">
-                    <div className="text-sm text-gray-700 capitalize">{it.issue_type}</div>
-                    <Link href="/flagged" className="text-sm text-blue-600">{it.count}</Link>
-                  </div>
-                ))}
-                {(!issuesByType || issuesByType.issues.length === 0) && (
-                  <div className="text-sm text-gray-500">No issues in period</div>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Pairing Status</div>
-              <div className="flex gap-2 flex-wrap">
-                <Link href="/document-queue" className="px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm">Paired {pairing?.paired ?? 0}</Link>
-                <Link href="/document-queue" className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 text-sm">Needs Review {pairing?.needs_review ?? 0}</Link>
-                <Link href="/document-queue" className="px-3 py-1 rounded-full bg-red-100 text-red-800 text-sm">Unmatched {pairing?.unmatched ?? 0}</Link>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Duplicates Prevented</div>
-              <div className="text-3xl font-semibold text-gray-900">{duplicates?.duplicates_prevented ?? 0}</div>
-              <div className="text-sm text-gray-600 mt-1">Value {formatCurrency(duplicates?.prevented_value || 0)}</div>
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Pairing Status</div>
+            <div className="flex gap-2 flex-wrap">
+              <Link href="/document-queue" className="px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm">Paired {pairing?.paired ?? 0}</Link>
+              <Link href="/document-queue" className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 text-sm">Needs Review {pairing?.needs_review ?? 0}</Link>
+              <Link href="/document-queue" className="px-3 py-1 rounded-full bg-red-100 text-red-800 text-sm">Unmatched {pairing?.unmatched ?? 0}</Link>
             </div>
           </div>
 
-          {/* Delivery Accuracy (placeholder), Volatile Products */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Delivery Accuracy</div>
-              <div className="text-sm text-gray-500">Heatmap coming soon</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Top Volatile Products (90d)</div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-gray-500">
-                      <th className="text-left py-1">Product</th>
-                      <th className="text-left py-1">Supplier</th>
-                      <th className="text-right py-1">Current</th>
-                      <th className="text-right py-1">Volatility</th>
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Duplicates Prevented</div>
+            <div className="text-3xl font-semibold text-gray-900">{duplicates?.duplicates_prevented ?? 0}</div>
+            <div className="text-sm text-gray-600 mt-1">Value {formatCurrency(duplicates?.prevented_value || 0)}</div>
+          </div>
+        </div>
+
+        {/* Delivery Accuracy (placeholder), Volatile Products */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Delivery Accuracy</div>
+            <div className="text-sm text-gray-500">Heatmap coming soon</div>
+          </div>
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Top Volatile Products (90d)</div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-gray-500">
+                    <th className="text-left py-1">Product</th>
+                    <th className="text-left py-1">Supplier</th>
+                    <th className="text-right py-1">Current</th>
+                    <th className="text-right py-1">Volatility</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(volatileProducts?.products || []).map((p, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="py-1 pr-2 text-gray-800">{p.product}</td>
+                      <td className="py-1 pr-2 text-gray-600">{p.supplier}</td>
+                      <td className="py-1 pl-2 text-right text-gray-800">{formatCurrency(p.current_price)}</td>
+                      <td className="py-1 pl-2 text-right text-gray-800">{(p.volatility_90d * 100).toFixed(1)}%</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {(volatileProducts?.products || []).map((p, idx) => (
-                      <tr key={idx} className="border-t">
-                        <td className="py-1 pr-2 text-gray-800">{p.product}</td>
-                        <td className="py-1 pr-2 text-gray-600">{p.supplier}</td>
-                        <td className="py-1 pl-2 text-right text-gray-800">{formatCurrency(p.current_price)}</td>
-                        <td className="py-1 pl-2 text-right text-gray-800">{(p.volatility_90d * 100).toFixed(1)}%</td>
-                      </tr>
-                    ))}
-                    {(!volatileProducts || volatileProducts.products.length === 0) && (
-                      <tr><td colSpan={4} className="text-sm text-gray-500 py-2">No volatile products found</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                  {(!volatileProducts || volatileProducts.products.length === 0) && (
+                    <tr><td colSpan={4} className="text-sm text-gray-500 py-2">No volatile products found</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
+        </div>
 
-          {/* Unmatched & Low OCR */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Unmatched</div>
-              <div className="flex gap-2 flex-wrap">
-                <Link href="/document-queue" className="px-3 py-1 rounded bg-red-100 text-red-800 text-sm">Notes — {pairing?.unmatched ?? 0}</Link>
-                <Link href="/invoices" className="px-3 py-1 rounded bg-red-100 text-red-800 text-sm">Invoices — {pairing?.unmatched ?? 0}</Link>
-              </div>
+        {/* Unmatched & Low OCR */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Unmatched</div>
+            <div className="flex gap-2 flex-wrap">
+              <Link href="/document-queue" className="px-3 py-1 rounded bg-red-100 text-red-800 text-sm">Notes — {pairing?.unmatched ?? 0}</Link>
+              <Link href="/invoices" className="px-3 py-1 rounded bg-red-100 text-red-800 text-sm">Invoices — {pairing?.unmatched ?? 0}</Link>
             </div>
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Low OCR Confidence</div>
-              <Link href="/document-queue" className="inline-block px-3 py-1 rounded bg-yellow-100 text-yellow-800 text-sm">
-                Needs Review (OCR): {lowOCR?.low_confidence ?? 0}
-              </Link>
-            </div>
-            <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm font-semibold text-gray-900 mb-2">Quick Actions</div>
-              <div className="flex gap-3 flex-wrap text-sm">
-                <Link href="/invoice-agent-demo" className="px-3 py-2 rounded bg-gray-800 text-white">Create Credit Pack</Link>
-                <Link href="/file-preview" className="px-3 py-2 rounded bg-gray-100 text-gray-800">Export to Xero/Sage/QBO</Link>
-                <Link href="/matching-demo" className="px-3 py-2 rounded bg-gray-100 text-gray-800">Pair All Suggestions</Link>
-              </div>
+          </div>
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Low OCR Confidence</div>
+            <Link href="/document-queue" className="inline-block px-3 py-1 rounded bg-yellow-100 text-yellow-800 text-sm">
+              Needs Review (OCR): {lowOCR?.low_confidence ?? 0}
+            </Link>
+          </div>
+          <div className="bg-owlin-card rounded-owlin shadow-owlin p-5 border border-owlin-stroke">
+            <div className="text-sm font-semibold text-gray-900 mb-2">Quick Actions</div>
+            <div className="flex gap-3 flex-wrap text-sm">
+              <Link href="/invoice-agent-demo" className="px-3 py-2 rounded bg-gray-800 text-white">Create Credit Pack</Link>
+              <Link href="/file-preview" className="px-3 py-2 rounded bg-gray-100 text-gray-800">Export to Xero/Sage/QBO</Link>
+              <Link href="/matching-demo" className="px-3 py-2 rounded bg-gray-100 text-gray-800">Pair All Suggestions</Link>
             </div>
           </div>
         </div>

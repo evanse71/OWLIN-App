@@ -282,8 +282,8 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
         <div className="py-8">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading document queue...</p>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-owlin-cerulean mx-auto mb-4"></div>
+              <p className="text-owlin-muted">Loading document queue...</p>
             </div>
           </div>
         </div>
@@ -299,51 +299,30 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
-                  📋 Document Queue
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400 mt-2">
-                  Review and classify uploaded documents
-                </p>
+                <h1 className="text-3xl font-semibold text-owlin-text">📋 Document Queue</h1>
+                <p className="text-owlin-muted mt-2">Review and classify uploaded documents</p>
               </div>
               <div className="flex items-center space-x-4">
                 {/* Auto-refresh toggle */}
                 <div className="flex items-center space-x-3">
                   <label className="flex items-center cursor-pointer">
                     <div className="relative">
-                      <input
-                        type="checkbox"
-                        checked={autoRefresh}
-                        onChange={(e) => setAutoRefresh(e.target.checked)}
-                        className="sr-only"
-                      />
-                      <div className={`block w-14 h-8 rounded-full transition-colors duration-200 ease-in-out ${
-                        autoRefresh ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
-                      }`}>
-                        <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform duration-200 ease-in-out transform ${
-                          autoRefresh ? 'translate-x-6' : 'translate-x-0'
-                        }`}></div>
+                      <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="sr-only" />
+                      <div className={`block w-14 h-8 rounded-full transition-colors duration-200 ease-in-out ${autoRefresh ? 'bg-[var(--owlin-sapphire)]' : 'bg-owlin-bg'}`}>
+                        <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform duration-200 ease-in-out transform ${autoRefresh ? 'translate-x-6' : 'translate-x-0'}`}></div>
                       </div>
                     </div>
-                    <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Auto-refresh
-                    </span>
+                    <span className="ml-3 text-sm font-medium text-owlin-text">Auto-refresh</span>
                   </label>
-                  
-                  {/* Refreshing indicator */}
                   {autoRefresh && isRefreshing && (
-                    <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    <div className="flex items-center space-x-2 text-sm text-owlin-muted">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-owlin-cerulean"></div>
                       <span>Refreshing...</span>
                     </div>
                   )}
                 </div>
 
-                <button
-                  onClick={handleManualRefresh}
-                  disabled={isRefreshing}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={handleManualRefresh} disabled={isRefreshing} className="px-4 py-2 bg-[var(--owlin-sapphire)] text-white rounded-owlin hover:brightness-110 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   🔄 Refresh
                 </button>
               </div>
@@ -351,39 +330,20 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
 
             {/* Selection Toolbar */}
             {showCheckboxes && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+              <div className="bg-owlin-card border border-owlin-stroke rounded-owlin p-4 mb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <label className="flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isAllSelected}
-                        onChange={handleSelectAll}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                      />
-                      <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                        {isAllSelected ? 'Deselect All' : 'Select All'}
-                      </span>
+                      <input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} className="w-4 h-4 text-[var(--owlin-sapphire)] bg-owlin-card border-owlin-stroke rounded focus:ring-owlin-sapphire" />
+                      <span className="ml-2 text-sm font-medium text-owlin-text">{isAllSelected ? 'Deselect All' : 'Select All'}</span>
                     </label>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {selectedCount} of {totalCount} selected
-                    </span>
+                    <span className="text-sm text-owlin-muted">{selectedCount} of {totalCount} selected</span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <button
-                      onClick={handleDeleteSelected}
-                      disabled={selectedCount === 0}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                    >
+                    <button onClick={handleDeleteSelected} disabled={selectedCount === 0} className="px-4 py-2 bg-red-600 text-white rounded-owlin hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm">
                       🗑️ Delete Selected ({selectedCount})
                     </button>
-                    <button
-                      onClick={() => {
-                        setSelectedDocuments(new Set());
-                        setShowCheckboxes(false);
-                      }}
-                      className="px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors text-sm"
-                    >
+                    <button onClick={() => { setSelectedDocuments(new Set()); setShowCheckboxes(false); }} className="px-3 py-2 text-owlin-muted hover:text-owlin-text transition-colors text-sm">
                       ✕ Cancel
                     </button>
                   </div>
@@ -393,54 +353,54 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
 
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <div className="bg-owlin-card rounded-owlin p-4 border border-owlin-stroke shadow-owlin">
                 <div className="flex items-center">
-                  <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
-                    <span className="text-blue-600 dark:text-blue-400 text-xl">📄</span>
+                  <div className="p-2 rounded-owlin bg-[color-mix(in_oklab,var(--owlin-sapphire)_12%,transparent)]">
+                    <span className="text-owlin-cerulean text-xl">📄</span>
                   </div>
                   <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Documents</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{filteredDocuments.length}</p>
+                    <p className="text-sm font-medium text-owlin-muted">Total Documents</p>
+                    <p className="text-2xl font-bold text-owlin-text">{filteredDocuments.length}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <div className="bg-owlin-card rounded-owlin p-4 border border-owlin-stroke shadow-owlin">
                 <div className="flex items-center">
-                  <div className="p-2 bg-yellow-100 dark:bg-yellow-900 rounded-lg">
-                    <span className="text-yellow-600 dark:text-yellow-400 text-xl">⏳</span>
+                  <div className="p-2 rounded-owlin bg-[color-mix(in_oklab,var(--owlin-yellow)_12%,transparent)]">
+                    <span className="text-owlin-yellow text-xl">⏳</span>
                   </div>
                   <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending Review</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    <p className="text-sm font-medium text-owlin-muted">Pending Review</p>
+                    <p className="text-2xl font-bold text-owlin-text">
                       {filteredDocuments.filter(doc => doc.status === 'pending').length}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <div className="bg-owlin-card rounded-owlin p-4 border border-owlin-stroke shadow-owlin">
                 <div className="flex items-center">
-                  <div className="p-2 bg-red-100 dark:bg-red-900 rounded-lg">
-                    <span className="text-red-600 dark:text-red-400 text-xl">❌</span>
+                  <div className="p-2 rounded-owlin bg-[color-mix(in_oklab,var(--owlin-red)_12%,transparent)]">
+                    <span className="text-owlin-red text-xl">❌</span>
                   </div>
                   <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Errors</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    <p className="text-sm font-medium text-owlin-muted">Errors</p>
+                    <p className="text-2xl font-bold text-owlin-text">
                       {filteredDocuments.filter(doc => doc.status === 'failed').length}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <div className="bg-owlin-card rounded-owlin p-4 border border-owlin-stroke shadow-owlin">
                 <div className="flex items-center">
-                  <div className="p-2 bg-orange-100 dark:bg-orange-900 rounded-lg">
-                    <span className="text-orange-600 dark:text-orange-400 text-xl">⚠️</span>
+                  <div className="p-2 rounded-owlin bg-[color-mix(in_oklab,var(--owlin-orange)_12%,transparent)]">
+                    <span className="text-owlin-orange text-xl">⚠️</span>
                   </div>
                   <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Low Confidence</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    <p className="text-sm font-medium text-owlin-muted">Low Confidence</p>
+                    <p className="text-2xl font-bold text-owlin-text">
                       {filteredDocuments.filter(doc => doc.confidence < 0.7).length}
                     </p>
                   </div>
@@ -450,11 +410,11 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
           </div>
 
           {/* Filters and Search */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-4">
+          <div className="bg-owlin-card border border-owlin-stroke rounded-owlin p-4 mb-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
               {/* Search */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-owlin-text">
                   Search Documents
                 </label>
                 <input
@@ -462,19 +422,19 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
                   placeholder="Search by filename or supplier..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-owlin-stroke rounded-md bg-owlin-bg text-owlin-text focus:outline-none focus:ring-2 focus:ring-owlin-sapphire"
                 />
               </div>
 
               {/* Document Type Filter */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-owlin-text">
                   Document Type
                 </label>
                 <select
                   value={documentTypeFilter}
                   onChange={(e) => setDocumentTypeFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-owlin-stroke rounded-md bg-owlin-bg text-owlin-text focus:outline-none focus:ring-2 focus:ring-owlin-sapphire"
                 >
                   <option value="all">All Types</option>
                   <option value="invoice">Invoice</option>
@@ -486,13 +446,13 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
 
               {/* Status Filter */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-owlin-text">
                   Status Filter
                 </label>
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-owlin-stroke rounded-md bg-owlin-bg text-owlin-text focus:outline-none focus:ring-2 focus:ring-owlin-sapphire"
                 >
                   <option value="all">All Statuses</option>
                   <option value="pending">Pending</option>
@@ -503,13 +463,13 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
 
               {/* Sort By */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-owlin-text">
                   Sort By
                 </label>
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-owlin-stroke rounded-md bg-owlin-bg text-owlin-text focus:outline-none focus:ring-2 focus:ring-owlin-sapphire"
                 >
                   <option value="upload_date">Upload Date (Newest)</option>
                   <option value="supplier">Supplier Name</option>
@@ -525,9 +485,9 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
                   type="checkbox"
                   checked={lowConfidenceOnly}
                   onChange={(e) => setLowConfidenceOnly(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="rounded border-owlin-stroke text-[var(--owlin-sapphire)] focus:ring-owlin-sapphire"
                 />
-                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Low Confidence Only</span>
+                <span className="ml-2 text-sm text-owlin-text">Low Confidence Only</span>
               </label>
               
               <label className="flex items-center">
@@ -535,16 +495,16 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
                   type="checkbox"
                   checked={unmatchedOnly}
                   onChange={(e) => setUnmatchedOnly(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="rounded border-owlin-stroke text-[var(--owlin-sapphire)] focus:ring-owlin-sapphire"
                 />
-                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Unmatched Only</span>
+                <span className="ml-2 text-sm text-owlin-text">Unmatched Only</span>
               </label>
             </div>
           </div>
 
           {/* Error Display */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+            <div className="bg-red-50 border border-red-200 rounded-owlin p-4 mb-4">
               <div className="flex items-center">
                 <span className="text-red-600 text-xl mr-2">❌</span>
                 <span className="text-red-700">{error}</span>
@@ -555,11 +515,11 @@ const DocumentQueuePage: React.FC<DocumentQueuePageProps> = () => {
           {/* Documents Grid */}
           {filteredDocuments.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-gray-400 dark:text-gray-500 text-6xl mb-4">📋</div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+              <div className="text-owlin-muted dark:text-owlin-gray-500 text-6xl mb-4">📋</div>
+              <h3 className="text-lg font-medium text-owlin-text dark:text-owlin-gray-100 mb-2">
                 No documents in queue
               </h3>
-              <p className="text-gray-500 dark:text-gray-400">
+              <p className="text-owlin-muted dark:text-owlin-gray-400">
                 All documents have been reviewed or there are no documents matching your filters.
               </p>
             </div>

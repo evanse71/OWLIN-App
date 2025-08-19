@@ -37,6 +37,127 @@ except ImportError:
     async def get_documents_for_review():
         return {"documents": []}
 
+# Import updates routes
+try:
+    from routes.updates import router as updates_router
+except ImportError:
+    # If updates routes are not available, create a dummy router
+    from fastapi import APIRouter
+    updates_router = APIRouter(prefix="/updates", tags=["updates"])
+    
+    @updates_router.get("/available")
+    async def get_available_updates():
+        return {"updates": []}
+
+# Import backup routes
+try:
+    from routes.backups import router as backups_router
+except ImportError:
+    # If backup routes are not available, create a dummy router
+    from fastapi import APIRouter
+    backups_router = APIRouter(prefix="/backups", tags=["backups"])
+    
+    @backups_router.get("")
+    async def list_backups():
+        return {"backups": []}
+
+# Import support pack routes
+# Import suppliers routes
+try:
+    from routes.suppliers import router as suppliers_router
+except ImportError:
+    # If suppliers routes are not available, create a dummy router
+    from fastapi import APIRouter
+    suppliers_router = APIRouter(prefix="/suppliers", tags=["suppliers"])
+    
+    @suppliers_router.get("")
+    async def list_suppliers():
+        return {"suppliers": []}
+
+# Import delivery matching routes
+try:
+    from routes.delivery_matching import router as delivery_matching_router
+except ImportError:
+    # If delivery matching routes are not available, create a dummy router
+    from fastapi import APIRouter
+    delivery_matching_router = APIRouter(prefix="/matching", tags=["matching"])
+    
+    @delivery_matching_router.get("/candidates/{invoice_id}")
+    async def get_match_candidates():
+        return {"candidates": []}
+
+# Import matching v2 routes
+try:
+    from routes.matching_v2 import router as matching_v2_router
+except ImportError:
+    # If matching v2 routes are not available, create a dummy router
+    from fastapi import APIRouter
+    matching_v2_router = APIRouter(prefix="/matching", tags=["matching-v2"])
+    
+    @matching_v2_router.get("/summary")
+    async def get_matching_summary():
+        return {"totals": {}, "pairs": []}
+
+# Import flagged issues routes
+try:
+    from routes.flagged_issues import router as flagged_issues_router
+except ImportError:
+    # If flagged issues routes are not available, create a dummy router
+    from fastapi import APIRouter
+    flagged_issues_router = APIRouter(prefix="/flagged-issues", tags=["flagged-issues"])
+    
+    @flagged_issues_router.get("")
+    async def get_flagged_issues():
+        return {"flagged_issues": []}
+
+# Import flagged issues bulk routes
+try:
+    from routes.flagged_issues_bulk import router as flagged_issues_bulk_router
+except ImportError:
+    # If flagged issues bulk routes are not available, create a dummy router
+    from fastapi import APIRouter
+    flagged_issues_bulk_router = APIRouter(prefix="/flagged-issues", tags=["flagged-issues-bulk"])
+    
+    @flagged_issues_bulk_router.post("/bulk-update")
+    async def bulk_update_flagged_issues():
+        return {"message": "Bulk actions not available"}
+
+# Import supplier behaviour routes
+try:
+    from routes.supplier_behaviour import router as supplier_behaviour_router
+except ImportError:
+    # If supplier behaviour routes are not available, create a dummy router
+    from fastapi import APIRouter
+    supplier_behaviour_router = APIRouter(prefix="/supplier-behaviour", tags=["supplier-behaviour"])
+    
+    @supplier_behaviour_router.post("/event")
+    async def create_supplier_event():
+        return {"message": "Supplier behaviour tracking not available"}
+
+try:
+    from routes.support_packs import router as support_packs_router
+except ImportError:
+    # If support pack routes are not available, create a dummy router
+    from fastapi import APIRouter
+    support_packs_router = APIRouter(prefix="/support-packs", tags=["support-packs"])
+    
+    @support_packs_router.get("")
+    async def list_support_packs():
+        return {"support_packs": []}
+
+# Import license routes
+try:
+    from routes.license import router as license_router
+except ImportError as e:
+    print(f"License routes import error: {e}")
+    # If license routes are not available, create a dummy router
+    from fastapi import APIRouter
+    license_router = APIRouter(prefix="/license", tags=["license"])
+    
+    @license_router.get("/status")
+    async def get_license_status():
+        return {"message": "License system not available"}
+
 # Import bulletproof ingestion system
 try:
     from ingest.intake_router import IntakeRouter
@@ -47,6 +168,16 @@ except ImportError as e:
     BULLETPROOF_INGESTION_AVAILABLE = False
     logger = logging.getLogger(__name__)
     logger.warning(f"⚠️ Bulletproof ingestion system not available: {e}")
+
+# Import recovery routes
+try:
+    from routes.recovery_new import router as recovery_router
+except ImportError:
+    # Create dummy router if import fails
+    recovery_router = APIRouter(prefix="/recovery", tags=["recovery"])
+    @recovery_router.get("/status")
+    async def dummy_recovery_status():
+        return {"error": "Recovery routes not available"}
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -102,6 +233,32 @@ app.include_router(analytics_router, prefix="/api")
 
 # Include document queue routes
 app.include_router(document_queue_router, prefix="/api")
+
+# Include updates routes
+app.include_router(updates_router, prefix="/api")
+
+# Include backup routes
+app.include_router(backups_router, prefix="/api")
+
+# Include support pack routes
+# Include suppliers routes
+app.include_router(suppliers_router, prefix="/api")
+app.include_router(delivery_matching_router, prefix="/api")
+app.include_router(matching_v2_router, prefix="/api")
+app.include_router(support_packs_router, prefix="/api")
+
+# Include license routes
+app.include_router(license_router, prefix="/api")
+
+# Include flagged issues routes
+app.include_router(flagged_issues_router, prefix="/api")
+app.include_router(flagged_issues_bulk_router, prefix="/api")
+
+# Include supplier behaviour routes
+app.include_router(supplier_behaviour_router, prefix="/api")
+
+# Include recovery routes
+app.include_router(recovery_router, prefix="/api")
 
 # Create upload directory
 upload_dir = Path("data/uploads")

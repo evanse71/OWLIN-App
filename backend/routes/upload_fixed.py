@@ -23,6 +23,7 @@ from PIL import Image
 import fitz  # PyMuPDF for PDF processing
 import re
 import asyncio
+from backend.ocr.diag import stage_probe
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -340,6 +341,9 @@ async def upload_invoice(file: UploadFile = File(...)):
     logger.info(f"🚀 Starting invoice upload process for: {file.filename}")
     logger.debug(f"📊 File size: {file.size} bytes")
     logger.debug(f"📋 Content type: {file.content_type}")
+    # Diagnostics tracing
+    import uuid as _uuid
+    run_id = str(_uuid.uuid4())
     
     # ✅ Enhanced input validation
     if not file:
@@ -352,6 +356,7 @@ async def upload_invoice(file: UploadFile = File(...)):
     
     # Temporary file path for processing
     temp_filepath = None
+    temp_doc_id = None
     
     try:
         # Step 1: Validate file
@@ -366,6 +371,7 @@ async def upload_invoice(file: UploadFile = File(...)):
         extension = Path(file.filename).suffix
         temp_filename = f"{file_id}_{timestamp}{extension}"
         temp_filepath = os.path.join(UPLOAD_DIR, temp_filename)
+        temp_doc_id = temp_filename
         
         # Save file
         logger.debug(f"📁 Saving to: {temp_filepath}")
@@ -373,6 +379,18 @@ async def upload_invoice(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
         logger.info(f"✅ File saved as: {temp_filename}")
         
+        # Stage: ingest (basic page count and multi-invoice check preview)
+        @stage_probe("ingest")
+        def _probe_ingest(path: str, *, run_id: str, doc_id: str):
+            page_count = 1
+            try:
+                if path.lower().endswith('.pdf'):
+                    d = fitz.open(path); page_count = len(d); d.close()
+            except Exception:
+                page_count = 0
+            return {"page_count": page_count}
+        _ = _probe_ingest(temp_filepath, run_id=run_id, doc_id=temp_doc_id)
+
         # Step 2.5: Check for multi-invoice PDF with enhanced detection
         logger.info("🔄 Step 2.5: Checking for multi-invoice PDF...")
         multi_invoice_result = None
@@ -485,6 +503,10 @@ async def upload_invoice(file: UploadFile = File(...)):
                     multi_invoice_result = processor.process_multi_invoice_pdf(temp_filepath)
                 
                 if multi_invoice_result and "suggested_documents" in multi_invoice_result:
+                    @stage_probe("ingest")
+                    def _probe_split(meta: dict, *, run_id: str, doc_id: str):
+                        return {"page_count": meta.get("total_pages", 0), "children": len(meta.get("suggested_documents", []))}
+                    _ = _probe_split(multi_invoice_result, run_id=run_id, doc_id=temp_doc_id)
                     suggested_docs = multi_invoice_result["suggested_documents"]
                     if len(suggested_docs) > 1:
                         logger.info(f"✅ Multi-invoice PDF detected! Found {len(suggested_docs)} invoices")
@@ -557,33 +579,36 @@ async def upload_invoice(file: UploadFile = File(...)):
                                 page_range = f"{min(page_numbers)}–{max(page_numbers)}" if page_numbers else "Unknown"
                                 
                                 # Save to database with enhanced OCR results
-                                conn = get_db_connection()
-                                cursor = conn.cursor()
-                                cursor.execute("""
-                                    INSERT INTO invoices (
-                                        id, invoice_number, invoice_date, supplier_name, total_amount,
-                                        status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
-                                        subtotal, vat, vat_rate, total_incl_vat, page_range
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """, (
-                                    invoice_id,
-                                    invoice_number,  # Use enhanced OCR result
-                                    invoice_date,    # Use enhanced OCR result
-                                    supplier_name,   # Use enhanced OCR result
-                                    total_amount,    # Use enhanced OCR result
-                                    'scanned',
-                                    confidence,      # Use enhanced OCR result
-                                    datetime.now().isoformat(),
-                                    invoice_text,
-                                    file.filename,
-                                    0.0,  # subtotal - could be enhanced later
-                                    0.0,  # vat - could be enhanced later
-                                    20.0, # vat_rate
-                                    total_amount,    # Use enhanced total as total_incl_vat
-                                    page_range
-                                ))
-                                conn.commit()
-                                conn.close()
+                                @stage_probe("persist")
+                                def _persist_multi(*, run_id: str, doc_id: str):
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor()
+                                    cursor.execute("""
+                                        INSERT INTO invoices (
+                                            id, invoice_number, invoice_date, supplier_name, total_amount,
+                                            status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
+                                            subtotal, vat, vat_rate, total_incl_vat, page_range
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """, (
+                                        invoice_id,
+                                        invoice_number,
+                                        invoice_date,
+                                        supplier_name,
+                                        total_amount,
+                                        'scanned',
+                                        confidence,
+                                        datetime.now().isoformat(),
+                                        invoice_text,
+                                        file.filename,
+                                        0.0,
+                                        0.0,
+                                        20.0,
+                                        total_amount,
+                                        page_range
+                                    ))
+                                    conn.commit()
+                                    conn.close()
+                                _ = _persist_multi(run_id=run_id, doc_id=invoice_id)
                                 
                                 invoices.append({
                                     "invoice_id": invoice_id,
@@ -656,20 +681,23 @@ async def upload_invoice(file: UploadFile = File(...)):
                         page_range = f"{i+1}–{i+1}"
 
                         # Save to DB
-                        conn = get_db_connection(); cursor = conn.cursor()
-                        cursor.execute("""
-                            INSERT INTO invoices (
-                                id, invoice_number, invoice_date, supplier_name, total_amount,
-                                status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
-                                subtotal, vat, vat_rate, total_incl_vat, page_range
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            invoice_id, invoice_number, invoice_date, supplier_name, total_amount,
-                            'scanned', confidence, datetime.now().isoformat(),
-                            single_result.raw_text or "", file.filename,
-                            0.0, 0.0, 20.0, total_amount, page_range
-                        ))
-                        conn.commit(); conn.close()
+                        @stage_probe("persist")
+                        def _persist_page(*, run_id: str, doc_id: str):
+                            conn = get_db_connection(); cursor = conn.cursor()
+                            cursor.execute("""
+                                INSERT INTO invoices (
+                                    id, invoice_number, invoice_date, supplier_name, total_amount,
+                                    status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
+                                    subtotal, vat, vat_rate, total_incl_vat, page_range
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                invoice_id, invoice_number, invoice_date, supplier_name, total_amount,
+                                'scanned', confidence, datetime.now().isoformat(),
+                                single_result.raw_text or "", file.filename,
+                                0.0, 0.0, 20.0, total_amount, page_range
+                            ))
+                            conn.commit(); conn.close()
+                        _ = _persist_page(run_id=run_id, doc_id=invoice_id)
 
                         invoices.append({
                             "invoice_id": invoice_id,
@@ -713,7 +741,15 @@ async def upload_invoice(file: UploadFile = File(...)):
             timeout_seconds = get_timeout_for_file(temp_filepath)
             logger.info(f"⏱️ Using OCR timeout: {timeout_seconds} seconds")
             
-            ocr_result = await process_upload_with_timeout(temp_filepath, file.filename, timeout_seconds=timeout_seconds)
+            @stage_probe("ocr")
+            def _probe_ocr(path: str, fname: str, *, run_id: str, doc_id: str):
+                res = asyncio.get_event_loop().run_until_complete(process_upload_with_timeout(path, fname, timeout_seconds=timeout_seconds))
+                meta = {
+                    "text_len": len((res.get('raw_ocr_text') or res.get('raw_text') or '') if isinstance(res, dict) else ''),
+                    "confidence": float(res.get('overall_confidence', 0.0) or 0.0) * (100.0 if float(res.get('overall_confidence', 0.0) or 0.0) <= 1.0 else 1.0)
+                }
+                return meta | res if isinstance(res, dict) else res
+            ocr_result = _probe_ocr(temp_filepath, file.filename, run_id=run_id, doc_id=temp_doc_id)
             logger.info("✅ OCR processing completed")
             
             # Check if OCR needs retry
@@ -724,6 +760,38 @@ async def upload_invoice(file: UploadFile = File(...)):
             was_retried = ocr_result.get('was_retried', False)
             
             logger.info(f"📊 OCR Results: {overall_confidence:.1f}% confidence, {total_words} words, retried: {was_retried}")
+            
+            # Step 4: Multi-invoice boundary detection
+            logger.info("🔄 Step 4: Detecting invoice boundaries...")
+            invoice_blocks = []
+            
+            try:
+                # Check if we have page-level OCR results for boundary detection
+                if hasattr(ocr_result, 'ocr_pages') and ocr_result.ocr_pages:
+                    # Convert OCR pages to OCRResult format for boundary detection
+                    from ocr.ocr_engine import OCRResult
+                    ocr_pages = []
+                    for page_data in ocr_result.ocr_pages:
+                        ocr_pages.append(OCRResult(
+                            text=page_data.get('text', ''),
+                            confidence=page_data.get('avg_confidence', 0.8),
+                            bounding_box=[[0,0],[100,0],[100,100],[0,100]],
+                            page_number=page_data.get('page', 1)
+                        ))
+                    
+                    # Use unified OCR engine for boundary detection
+                    if ENHANCED_OCR_AVAILABLE:
+                        unified_engine = get_unified_ocr_engine()
+                        invoice_blocks = unified_engine.detect_invoice_boundaries(ocr_pages)
+                        logger.info(f"✅ Detected {len(invoice_blocks)} invoice blocks")
+                    else:
+                        logger.warning("⚠️ Enhanced OCR not available for boundary detection")
+                else:
+                    logger.info("ℹ️ No page-level OCR data available for boundary detection")
+                    
+            except Exception as boundary_error:
+                logger.warning(f"⚠️ Boundary detection failed: {boundary_error}")
+                # Continue without boundary detection
             
             # If confidence is very low and we haven't retried yet, try again
             if overall_confidence < 15 and not was_retried:
@@ -805,6 +873,24 @@ async def upload_invoice(file: UploadFile = File(...)):
                 raw_text = ""  # Treat as no text extracted
         
         # ✅ Enhanced metadata extraction with fallback
+        @stage_probe("parse")
+        def _probe_parse(text: str, *, run_id: str, doc_id: str):
+            meta = {"items_count": 0, "supplier_found": False, "date_found": False, "total_found": False}
+            items_local: List[Dict[str, Any]] = []
+            try:
+                if text:
+                    from ocr.parse_invoice import parse_invoice
+                    parsed = parse_invoice(text)
+                    if getattr(parsed, 'line_items', None):
+                        items_local.extend([{ 'description': getattr(li, 'description', ''), 'quantity': float(getattr(li, 'quantity', 0.0) or 0.0), 'unit_price': float(getattr(li, 'unit_price', 0.0) or 0.0), 'line_total': float(getattr(li, 'total_price', 0.0) or 0.0), 'confidence': float(getattr(li, 'confidence', 0.7) or 0.7), }] for li in parsed.line_items)
+                    meta["items_count"] = len(items_local)
+                    meta["supplier_found"] = bool(getattr(parsed, 'supplier', None))
+                    meta["date_found"] = bool(getattr(parsed, 'date', None))
+                    meta["total_found"] = bool(getattr(parsed, 'gross_total', None))
+            except Exception:
+                pass
+            return meta
+        _ = _probe_parse(raw_text or "", run_id=run_id, doc_id=temp_doc_id)
         try:
             if raw_text:
                 # Parse using text-based invoice parser for robust extraction
@@ -915,6 +1001,13 @@ async def upload_invoice(file: UploadFile = File(...)):
         except Exception:
             field_confidence = {}
 
+        # Stage: normalize
+        @stage_probe("normalize")
+        def _probe_normalize(meta: Dict[str, Any], *, run_id: str, doc_id: str):
+            currency_found = isinstance(meta.get('total_amount', None), (int, float))
+            return {"currency_found": currency_found}
+        _ = _probe_normalize(metadata, run_id=run_id, doc_id=temp_doc_id)
+
         # ✅ Calculate totals from line items if missing
         if line_items and (metadata.get('total_amount', 0) == 0 or metadata.get('subtotal', 0) == 0):
             calculated_subtotal = sum(item.get('line_total_excl_vat', item.get('total_price', 0)) for item in line_items)
@@ -979,6 +1072,11 @@ async def upload_invoice(file: UploadFile = File(...)):
         else:
             document_status = 'processed'  # Good quality
             logger.info(f"✅ Good OCR quality - confidence: {overall_confidence:.1f}%")
+        # Stage: classify
+        @stage_probe("classify")
+        def _probe_classify(doc_type: str, *, run_id: str, doc_id: str):
+            return {"doc_type": doc_type}
+        _ = _probe_classify(document_status, run_id=run_id, doc_id=temp_doc_id)
         
         # Step 6.5: Run Owlin Agent analysis
         logger.info("🔄 Step 6.5: Running Owlin Agent analysis...")
@@ -1021,30 +1119,34 @@ async def upload_invoice(file: UploadFile = File(...)):
             
             # Create invoice record
             invoice_id = str(uuid.uuid4())
-            cursor.execute("""
-                INSERT INTO invoices (
-                    id, invoice_number, invoice_date, supplier_name, total_amount,
-                    status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
-                    subtotal, vat, vat_rate, total_incl_vat
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                invoice_id,
-                metadata.get('invoice_number', 'Unknown'),
-                metadata.get('invoice_date', datetime.now().strftime("%Y-%m-%d")),
-                metadata.get('supplier_name', 'Unknown'),
-                metadata.get('total_amount', 0.0),
-                'scanned',
-                confidence,
-                datetime.now().isoformat(),
-                raw_text,
-                file.filename,
-                metadata.get('subtotal', 0.0),
-                metadata.get('vat', 0.0),
-                metadata.get('vat_rate', 20.0),
-                metadata.get('total_incl_vat', 0.0)
-            ))
-            
-            conn.commit()
+            # Stage: persist
+            @stage_probe("persist")
+            def _persist_one(*, run_id: str, doc_id: str):
+                cursor.execute("""
+                    INSERT INTO invoices (
+                        id, invoice_number, invoice_date, supplier_name, total_amount,
+                        status, confidence, upload_timestamp, ocr_text, parent_pdf_filename,
+                        subtotal, vat, vat_rate, total_incl_vat
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    invoice_id,
+                    metadata.get('invoice_number', 'Unknown'),
+                    metadata.get('invoice_date', datetime.now().strftime("%Y-%m-%d")),
+                    metadata.get('supplier_name', 'Unknown'),
+                    metadata.get('total_amount', 0.0),
+                    'scanned',
+                    confidence,
+                    datetime.now().isoformat(),
+                    raw_text,
+                    file.filename,
+                    metadata.get('subtotal', 0.0),
+                    metadata.get('vat', 0.0),
+                    metadata.get('vat_rate', 20.0),
+                    metadata.get('total_incl_vat', 0.0)
+                ))
+                conn.commit()
+                return {}
+            _ = _persist_one(run_id=run_id, doc_id=invoice_id)
             conn.close()
             logger.info("✅ Database record created")
         except Exception as db_error:

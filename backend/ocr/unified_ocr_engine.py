@@ -47,11 +47,29 @@ try:
 except ImportError as e:
     logging.getLogger(__name__).warning(f"LLM modules not available: {e}")
     LLM_AVAILABLE = False
+    # Define placeholder types for when LLM is not available
+    ParsedInvoice = None
+    InvoiceParsingPayload = None
 
 # Allow disabling LLM via environment (default: disabled in dev)
 import os as _os
 if _os.getenv("OWLIN_DISABLE_LLM", "1") == "1":
     LLM_AVAILABLE = False
+    # Define placeholder types for when LLM is disabled
+    if 'ParsedInvoice' not in globals():
+        ParsedInvoice = None
+    if 'InvoiceParsingPayload' not in globals():
+        InvoiceParsingPayload = None
+
+@dataclass
+class InvoiceBlock:
+    """Represents a detected invoice block within a multi-invoice PDF"""
+    page_start: int
+    page_end: int
+    confidence: float
+    requires_manual_review: bool
+    header_text: str = ""
+    supplier_guess: str = ""
 
 @dataclass
 class ProcessingResult:
@@ -1168,7 +1186,7 @@ class UnifiedOCREngine:
         img_str = base64.b64encode(buffer.getvalue()).decode()
         return img_str
 
-    def _process_with_llm(self, images: List[Image.Image], hints: Optional[Dict[str, Any]] = None) -> Optional[ParsedInvoice]:
+    def _process_with_llm(self, images: List[Image.Image], hints: Optional[Dict[str, Any]] = None) -> Optional[Any]:
         """Process images with local LLM if available"""
         if not LLM_AVAILABLE:
             logger.info("⚠️ LLM not available, skipping LLM processing")
@@ -1206,7 +1224,7 @@ class UnifiedOCREngine:
             logger.error(f"❌ LLM processing failed: {e}")
             return None
 
-    def _convert_llm_result_to_processing_result(self, llm_result: ParsedInvoice, start_time: float, engine_used: str) -> ProcessingResult:
+    def _convert_llm_result_to_processing_result(self, llm_result: Any, start_time: float, engine_used: str) -> ProcessingResult:
         """Convert LLM result to ProcessingResult"""
         processing_time = time.time() - start_time
         
@@ -1311,6 +1329,139 @@ class UnifiedOCREngine:
         except Exception as e:
             logger.error(f"❌ Failed to extract images from PDF {pdf_path}: {e}")
             return []
+
+    def detect_invoice_boundaries(self, pages: List[OCRResult]) -> List[InvoiceBlock]:
+        """
+        Detect invoice boundaries within a multi-invoice PDF
+        
+        Args:
+            pages: List of OCRResult objects, one per page
+            
+        Returns:
+            List of InvoiceBlock objects representing detected invoice boundaries
+        """
+        logger.info(f"🔍 Detecting invoice boundaries across {len(pages)} pages")
+        
+        if not pages:
+            logger.warning("⚠️ No pages provided for boundary detection")
+            return []
+        
+        # Header regexes to detect new invoice starts
+        header_patterns = [
+            r'\b(?:invoice|inv)\s*(?:no|number|#)\s*[:.]?\s*([A-Z0-9\-/]+)',
+            r'\b(?:invoice|inv)\s*(?:date|dated)\s*[:.]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+            r'\b(?:supplier|vendor|company)\s*[:.]?\s*([A-Za-z\s&]+)',
+            r'\b(?:vat\s*reg|vat\s*registration)\s*[:.]?\s*([A-Z0-9]+)',
+            r'\b(?:bill\s*to|ship\s*to)\s*[:.]?\s*([A-Za-z\s&]+)',
+            r'\b(?:total|amount|sum)\s*[:.]?\s*[£$€]?\s*(\d+[.,]\d{2})',
+        ]
+        
+        # Compile patterns for efficiency
+        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in header_patterns]
+        
+        invoice_blocks = []
+        current_block_start = 0
+        current_block_confidence = 0.0
+        current_header_text = ""
+        current_supplier_guess = ""
+        
+        # Track consecutive pages without new headers
+        pages_without_header = 0
+        max_pages_without_header = 5  # Assume continuation after 5 pages
+        
+        for i, page in enumerate(pages):
+            page_text = page.text.lower() if page.text else ""
+            page_confidence = page.confidence if hasattr(page, 'confidence') else 0.8
+            
+            # Check for invoice headers
+            header_found = False
+            for pattern in compiled_patterns:
+                matches = pattern.findall(page_text)
+                if matches:
+                    header_found = True
+                    current_header_text = matches[0] if matches else ""
+                    logger.debug(f"📄 Page {i+1}: Found header pattern - {current_header_text}")
+                    break
+            
+            # If header found, start new block
+            if header_found and i > 0:
+                # End current block
+                if current_block_start < i:
+                    avg_confidence = current_block_confidence / (i - current_block_start)
+                    requires_review = avg_confidence < 0.6
+                    
+                    invoice_blocks.append(InvoiceBlock(
+                        page_start=current_block_start + 1,  # 1-indexed for UI
+                        page_end=i,
+                        confidence=avg_confidence,
+                        requires_manual_review=requires_review,
+                        header_text=current_header_text,
+                        supplier_guess=current_supplier_guess
+                    ))
+                    logger.info(f"📋 Invoice block {len(invoice_blocks)}: pages {current_block_start+1}-{i}, confidence: {avg_confidence:.2f}")
+                
+                # Start new block
+                current_block_start = i
+                current_block_confidence = page_confidence
+                pages_without_header = 0
+                
+                # Try to extract supplier name from header
+                supplier_match = re.search(r'\b(?:supplier|vendor|company)\s*[:.]?\s*([A-Za-z\s&]+)', page_text, re.IGNORECASE)
+                if supplier_match:
+                    current_supplier_guess = supplier_match.group(1).strip()
+            else:
+                # Continue current block
+                current_block_confidence += page_confidence
+                pages_without_header += 1
+                
+                # Check if we've exceeded continuation threshold
+                if pages_without_header > max_pages_without_header:
+                    logger.warning(f"⚠️ Page {i+1}: Exceeded continuation threshold, marking for manual review")
+                    # Force end of current block and start new one
+                    if current_block_start < i:
+                        avg_confidence = current_block_confidence / (i - current_block_start)
+                        invoice_blocks.append(InvoiceBlock(
+                            page_start=current_block_start + 1,
+                            page_end=i,
+                            confidence=avg_confidence,
+                            requires_manual_review=True,  # Force manual review
+                            header_text=current_header_text,
+                            supplier_guess=current_supplier_guess
+                        ))
+                    
+                    current_block_start = i
+                    current_block_confidence = page_confidence
+                    pages_without_header = 0
+        
+        # Handle final block
+        if current_block_start < len(pages):
+            final_pages = len(pages) - current_block_start
+            avg_confidence = current_block_confidence / final_pages
+            requires_review = avg_confidence < 0.6
+            
+            invoice_blocks.append(InvoiceBlock(
+                page_start=current_block_start + 1,
+                page_end=len(pages),
+                confidence=avg_confidence,
+                requires_manual_review=requires_review,
+                header_text=current_header_text,
+                supplier_guess=current_supplier_guess
+            ))
+            logger.info(f"📋 Final invoice block: pages {current_block_start+1}-{len(pages)}, confidence: {avg_confidence:.2f}")
+        
+        # Edge case: if no boundaries found, create single block
+        if not invoice_blocks and pages:
+            avg_confidence = sum(p.confidence if hasattr(p, 'confidence') else 0.8 for p in pages) / len(pages)
+            invoice_blocks.append(InvoiceBlock(
+                page_start=1,
+                page_end=len(pages),
+                confidence=avg_confidence,
+                requires_manual_review=avg_confidence < 0.6
+            ))
+            logger.info(f"📋 Single invoice block: pages 1-{len(pages)}, confidence: {avg_confidence:.2f}")
+        
+        logger.info(f"✅ Detected {len(invoice_blocks)} invoice blocks")
+        return invoice_blocks
 
 # Global unified instance with lazy loading
 _unified_ocr_engine = None

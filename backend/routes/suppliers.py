@@ -1,8 +1,24 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Dict, Optional
 import sqlite3
 import os
 from datetime import datetime, timedelta
+import uuid
+from uuid import UUID
+
+# Import schemas using absolute path
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from schemas.supplier import SupplierScorecard
+from services.supplier_service import get_supplier_scorecard
+from services.permissions import require_permission
+
+try:
+	from contracts import SupplierScorecard as SupplierScorecardV2
+	from services.supplier_insights_service import compute_scorecard, recompute_metrics, list_insights as list_insights_feed, generate_insights_rules
+	_HAS_V2 = True
+except Exception:
+	_HAS_V2 = False
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
@@ -296,3 +312,122 @@ async def get_suppliers_overview():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") 
+
+@router.get("/scorecard")
+async def get_supplier_scorecard():
+    """Aggregated supplier scorecard metrics.
+    Returns an array of objects with:
+      supplier_id, supplier_name, total_invoices, match_rate, avg_invoice_confidence,
+      total_flagged_issues, credit_value_pending, delivery_reliability_score, last_updated
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+ 
+        # Indexes for performance (idempotent)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON invoices(supplier_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_supplier ON delivery_notes(supplier_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_status ON delivery_notes(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_flagged_supplier ON flagged_issues(supplier_id)")
+ 
+        # Load suppliers list from invoices table (distinct)
+        cursor.execute("SELECT DISTINCT COALESCE(supplier_name, '') FROM invoices WHERE supplier_name IS NOT NULL AND supplier_name != ''")
+        supplier_rows = [r[0] for r in cursor.fetchall()]
+ 
+        results: List[Dict] = []
+        for supplier_name in supplier_rows:
+            # Stable UUID from supplier name
+            supplier_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"owlin:{supplier_name}"))
+ 
+            # Total invoices
+            cursor.execute("SELECT COUNT(*), SUM(CASE WHEN status='matched' THEN 1 ELSE 0 END), AVG(COALESCE(confidence,0)) FROM invoices WHERE supplier_name = ?", (supplier_name,))
+            row = cursor.fetchone() or (0, 0, 0)
+            total_invoices = int(row[0] or 0)
+            matched_invoices = int(row[1] or 0)
+            avg_conf = float(row[2] or 0.0)
+            match_rate = round(100.0 * matched_invoices / total_invoices, 1) if total_invoices > 0 else 0.0
+ 
+            # Flagged issues by supplier_id (may be 0 if supplier_id not set in issues)
+            cursor.execute("SELECT COUNT(*) FROM flagged_issues WHERE supplier_id = ?", (supplier_id,))
+            total_flagged = int((cursor.fetchone() or (0,))[0] or 0)
+ 
+            # Credit value pending: conservative default 0.0 due to missing monetary linkage
+            credit_value_pending = 0.0
+ 
+            # Delivery reliability: percent of delivery notes with status 'matched' for this supplier
+            cursor.execute("SELECT COUNT(*), SUM(CASE WHEN status='matched' THEN 1 ELSE 0 END) FROM delivery_notes WHERE supplier_name = ?", (supplier_name,))
+            drow = cursor.fetchone() or (0, 0)
+            total_dn = int(drow[0] or 0)
+            matched_dn = int(drow[1] or 0)
+            delivery_reliability = round(100.0 * matched_dn / total_dn, 1) if total_dn > 0 else 0.0
+ 
+            # Last updated = latest invoice or delivery note timestamp if available; fallback now
+            cursor.execute("SELECT MAX(COALESCE(updated_at, upload_timestamp)) FROM invoices WHERE supplier_name = ?", (supplier_name,))
+            inv_ts = (cursor.fetchone() or (None,))[0]
+            cursor.execute("SELECT MAX(updated_at) FROM delivery_notes WHERE supplier_name = ?", (supplier_name,))
+            dn_ts = (cursor.fetchone() or (None,))[0]
+            last_updated = inv_ts or dn_ts or datetime.utcnow().isoformat()
+ 
+            results.append({
+                "supplier_id": supplier_id,
+                "supplier_name": supplier_name,
+                "total_invoices": total_invoices,
+                "match_rate": match_rate,
+                "avg_invoice_confidence": round(avg_conf, 1),
+                "total_flagged_issues": total_flagged,
+                "credit_value_pending": credit_value_pending,
+                "delivery_reliability_score": delivery_reliability,
+                "last_updated": last_updated,
+            })
+ 
+        conn.close()
+        return {"items": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.get("/{supplier_id}/scorecard", response_model=SupplierScorecardV2)
+async def get_supplier_scorecard_v2(supplier_id: str, range_days: int = Query(90, ge=1, le=365)):
+	"""Return SupplierScorecard per spec (overall score, categories, insights)."""
+	try:
+		if not _HAS_V2:
+			raise HTTPException(status_code=500, detail="Scorecard service unavailable")
+		# Compute fresh and generate insights (lightweight)
+		generate_insights_rules(supplier_id)
+		result = compute_scorecard(supplier_id)
+		return result
+	except HTTPException:
+		raise
+	except ValueError:
+		raise HTTPException(status_code=404, detail="SUPPLIER_NOT_FOUND")
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"SCORECARD_FAILED: {e}")
+
+
+@router.post("/{supplier_id}/resync-metrics")
+async def resync_supplier_metrics(supplier_id: str, window: int = Query(90, ge=7, le=365)):
+	"""Trigger recomputation of supplier metrics and insights."""
+	try:
+		if not _HAS_V2:
+			raise HTTPException(status_code=500, detail="Service unavailable")
+		recompute_metrics(supplier_id, window_days=window)
+		generate_insights_rules(supplier_id)
+		return {"ok": True}
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Resync failed: {e}")
+
+
+@router.get("/{supplier_id}/insights")
+async def get_supplier_insights_feed(supplier_id: str, limit: int = Query(50, ge=1, le=200)):
+	"""List latest narrative insights for a supplier."""
+	try:
+		if not _HAS_V2:
+			raise HTTPException(status_code=500, detail="Service unavailable")
+		items = list_insights_feed(supplier_id, limit=limit)
+		return {"items": [i.dict() for i in items]}
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to load insights: {e}") 

@@ -37,7 +37,7 @@ previews_dir.mkdir(exist_ok=True)
 # Mount static files for preview images
 app.mount("/previews", StaticFiles(directory="data/previews"), name="previews")
 
-# Include all route modules
+# Include essential route modules only
 app.include_router(upload_fixed.router, prefix="/api")
 app.include_router(upload_review.router, prefix="/api")
 app.include_router(confirm_splits.router, prefix="/api")
@@ -51,6 +51,22 @@ app.include_router(document_queue.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")
 app.include_router(test_ocr.router)
 
+# ✅ Include health check routes
+try:
+    from backend.routes import health
+    app.include_router(health.router, tags=["health"])
+    print("✅ Health check routes loaded")
+except ImportError as e:
+    print(f"⚠️ Health check routes not available: {e}")
+
+# ✅ OCR Harness routes
+try:
+    from backend.routes import ocr_harness
+    app.include_router(ocr_harness.router, prefix="/api", tags=["ocr-harness"])
+    print("✅ OCR Harness routes loaded")
+except ImportError as e:
+    print(f"⚠️ OCR Harness routes not available: {e}")
+
 # ✅ Include enhanced upload routes
 app.include_router(upload_enhanced.router, prefix="/api", tags=["enhanced-upload"])
 
@@ -59,14 +75,6 @@ app.include_router(matching.router, prefix="/api", tags=["matching"])
 
 # ✅ Include upload validation routes
 app.include_router(upload_validation.router, prefix="/api", tags=["upload-validation"])
-
-# ✅ Include bulletproof ingestion routes
-try:
-    from backend.routes import bulletproof_ingestion
-    app.include_router(bulletproof_ingestion.router, prefix="/api", tags=["bulletproof-ingestion"])
-    print("✅ Bulletproof ingestion routes loaded")
-except ImportError as e:
-    print(f"⚠️ Bulletproof ingestion routes not available: {e}")
 
 # ✅ Include dev routes for testing
 app.include_router(dev.router, prefix="/api/dev", tags=["development"])

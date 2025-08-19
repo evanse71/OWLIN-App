@@ -3,6 +3,7 @@ import LineItemsTable from './LineItemsTable';
 import SignatureStrip from './SignatureStrip';
 import ProgressDial from './ProgressDial';
 import { computeOverallConfidence } from './confidence';
+import { useRouter } from 'next/router';
 
 interface Invoice {
   id: string;
@@ -38,6 +39,7 @@ export default function InvoiceCard({
 }: InvoiceCardProps) {
   const [editMode, setEditMode] = useState(false);
   const docId = doc.id;
+  const router = useRouter();
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -133,6 +135,16 @@ export default function InvoiceCard({
                 <span className="text-[var(--owlin-muted)]">Total:</span>
                 <span className="tabular font-semibold text-[var(--owlin-text)]">{isProcessing ? '—' : `£${doc.total_amount.toFixed(2)}`}</span>
               </span>
+              {/* Warning badge (heuristic: very low confidence or no line items) */}
+              {(!isProcessing && ((doc as any).confidence !== undefined && (doc as any).confidence < 50 || (doc.line_items || []).length === 0)) && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); router.push(`/diagnostics/ocr?docId=${encodeURIComponent(docId)}`); }}
+                  className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 hover:opacity-90 transition"
+                  title="OCR issues — view report"
+                >
+                  ⚠️ OCR issues
+                </button>
+              )}
             </div>
 
             {/* right-aligned chip group */}
@@ -212,6 +224,7 @@ export default function InvoiceCard({
             lineItems={doc.line_items}
             editable={editMode}
             onEditLineItem={onEditLineItem}
+            invoiceId={doc.id}
           />
 
           {/* Signature strip */}

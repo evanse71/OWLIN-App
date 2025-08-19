@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from typing import List, Dict, Optional
 from db import get_all_invoices, get_all_delivery_notes, get_db_connection
 from ocr.parse_invoice import parse_invoice, extract_line_items
 from ocr.field_extractor import extract_invoice_metadata
+from services.invoice_query import invoice_query_service, InvoiceFilter, InvoiceSort
 import os
 import logging
 from datetime import datetime
@@ -15,61 +16,81 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 @router.get("/")
-async def get_invoices():
-    """Get all invoices with optional filtering."""
+async def get_invoices(
+    venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
+    supplier_name: Optional[str] = Query(None, description="Filter by supplier name"),
+    date_start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    status: Optional[List[str]] = Query(None, description="Filter by status"),
+    search_text: Optional[str] = Query(None, description="Search in supplier, invoice number, date"),
+    only_flagged: bool = Query(False, description="Show only flagged invoices"),
+    only_unmatched: bool = Query(False, description="Show only unmatched invoices"),
+    only_with_credit: bool = Query(False, description="Show only invoices with credit"),
+    include_utilities: bool = Query(True, description="Include utility bills"),
+    sort_by: str = Query("date_desc", description="Sort order"),
+    limit: Optional[int] = Query(None, description="Limit number of results"),
+    offset: int = Query(0, description="Offset for pagination"),
+    role: str = Query("viewer", description="User role for defaults")
+):
+    """Get invoices with advanced filtering and sorting."""
     try:
-        logger.info("Fetching all invoices and delivery notes")
-        invoices = get_all_invoices()
-        delivery_notes = get_all_delivery_notes()
+        logger.info(f"Fetching invoices with filters: venue={venue_id}, supplier={supplier_name}, status={status}")
         
-        logger.debug(f"Found {len(invoices)} invoices and {len(delivery_notes)} delivery notes")
+        # Build filter object
+        filters = InvoiceFilter(
+            venue_id=venue_id,
+            supplier_name=supplier_name,
+            date_start=date_start,
+            date_end=date_end,
+            status=status,
+            search_text=search_text,
+            only_flagged=only_flagged,
+            only_unmatched=only_unmatched,
+            only_with_credit=only_with_credit,
+            include_utilities=include_utilities
+        )
         
-        # Group documents by status
-        def group_documents_by_status(invoices, delivery_notes):
-            scanned_awaiting_match = []
-            matched = []
-            unmatched = []
-            
-            # Process invoices
-            for invoice in invoices:
-                # ✅ Handle both dict and object access
-                status = invoice.get('status') if isinstance(invoice, dict) else getattr(invoice, 'status', 'scanned')
-                if status == 'matched':
-                    matched.append(invoice)
-                elif status == 'unmatched':
-                    unmatched.append(invoice)
-                elif status == 'scanned':
-                    scanned_awaiting_match.append(invoice)
-            
-            # Process delivery notes
-            for dn in delivery_notes:
-                # ✅ Handle both dict and object access
-                status = dn.get('status') if isinstance(dn, dict) else getattr(dn, 'status', 'scanned')
-                if status == 'matched':
-                    matched.append(dn)
-                elif status == 'unmatched':
-                    unmatched.append(dn)
-                elif status == 'scanned':
-                    scanned_awaiting_match.append(dn)
-            
-            return {
-                "scanned_awaiting_match": scanned_awaiting_match,
-                "matched": matched,
-                "unmatched": unmatched
-            }
+        # Build sort object
+        sort = InvoiceSort(
+            sort_by=sort_by,
+            limit=limit,
+            offset=offset
+        )
         
-        grouped_documents = group_documents_by_status(invoices, delivery_notes)
+        # Execute query
+        result = invoice_query_service.query_invoices(filters, sort, role)
         
-        logger.info(f"Grouped documents: {len(grouped_documents['scanned_awaiting_match'])} scanned, {len(grouped_documents['matched'])} matched, {len(grouped_documents['unmatched'])} unmatched")
+        logger.info(f"Query returned {len(result.invoices)} invoices in {result.query_time_ms:.2f}ms")
         
         return {
-            "invoices": invoices,
-            "delivery_notes": delivery_notes,
-            "grouped": grouped_documents
+            "invoices": result.invoices,
+            "count": result.total_count,
+            "filters_applied": result.filters_applied,
+            "query_time_ms": result.query_time_ms
         }
         
     except Exception as e:
         logger.exception(f"Error fetching invoices: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.get("/suppliers")
+async def get_suppliers():
+    """Get list of distinct suppliers for dropdown."""
+    try:
+        suppliers = invoice_query_service.get_distinct_suppliers()
+        return {"suppliers": suppliers}
+    except Exception as e:
+        logger.exception(f"Error fetching suppliers: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.get("/venues")
+async def get_venues():
+    """Get list of distinct venues for dropdown."""
+    try:
+        venues = invoice_query_service.get_distinct_venues()
+        return {"venues": venues}
+    except Exception as e:
+        logger.exception(f"Error fetching venues: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/summary")

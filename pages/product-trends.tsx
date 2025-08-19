@@ -30,7 +30,7 @@ const ProductTrendsPage: React.FC = () => {
 
   const fetchAvailableProducts = async () => {
     try {
-      const response = await fetch('http://localhost:8002/api/products/available');
+      const response = await fetch('/api/products/available', { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Failed to fetch available products');
       }
@@ -46,7 +46,7 @@ const ProductTrendsPage: React.FC = () => {
     try {
       setLoading(true);
       const forecastPromises = products.map(async (product) => {
-        const response = await fetch(`http://localhost:8002/api/products/forecast/${encodeURIComponent(product)}?months_ahead=${timeframe}`);
+        const response = await fetch(`/api/products/forecast/${encodeURIComponent(product)}?months_ahead=${timeframe}`);
         if (!response.ok) {
           throw new Error(`Failed to fetch forecast for ${product}`);
         }
@@ -68,18 +68,12 @@ const ProductTrendsPage: React.FC = () => {
         <div className="py-8">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
+              <h1 className="text-3xl font-semibold text-owlin-text" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
                 Product Price Trends
               </h1>
               <div className="flex items-center space-x-4">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Timeframe:
-                </label>
-                <select
-                  value={timeframe}
-                  onChange={(e) => setTimeframe(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                <label className="text-sm font-medium text-owlin-text">Timeframe:</label>
+                <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)} className="px-3 py-2 border border-owlin-stroke rounded-owlin bg-owlin-card text-owlin-text text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-owlin-sapphire">
                   <option value="3">3 months</option>
                   <option value="6">6 months</option>
                   <option value="12">12 months</option>
@@ -87,7 +81,7 @@ const ProductTrendsPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-owlin-cerulean"></div>
             </div>
           </div>
         </div>
@@ -101,32 +95,21 @@ const ProductTrendsPage: React.FC = () => {
         <div className="py-8">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
+              <h1 className="text-3xl font-semibold text-owlin-text" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
                 Product Price Trends
               </h1>
               <div className="flex items-center space-x-4">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Timeframe:
-                </label>
-                <select
-                  value={timeframe}
-                  onChange={(e) => setTimeframe(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                <label className="text-sm font-medium text-owlin-text">Timeframe:</label>
+                <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)} className="px-3 py-2 border border-owlin-stroke rounded-owlin bg-owlin-card text-owlin-text text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-owlin-sapphire">
                   <option value="3">3 months</option>
                   <option value="6">6 months</option>
                   <option value="12">12 months</option>
                 </select>
               </div>
             </div>
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-800">Error loading forecast data: {error}</p>
-              <button 
-                onClick={() => fetchAvailableProducts()}
-                className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                Retry
-              </button>
+            <div className="bg-owlin-card border border-owlin-stroke rounded-owlin p-4">
+              <p className="text-red-700">Error loading forecast data: {error}</p>
+              <button onClick={() => fetchAvailableProducts()} className="mt-2 px-4 py-2 bg-[var(--owlin-sapphire)] text-white rounded-owlin hover:brightness-110">Retry</button>
             </div>
           </div>
         </div>
@@ -139,18 +122,12 @@ const ProductTrendsPage: React.FC = () => {
       <div className="py-8">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
+            <h1 className="text-3xl font-semibold text-owlin-text" style={{ fontFamily: 'Work Sans, system-ui, sans-serif' }}>
               Product Price Trends
             </h1>
             <div className="flex items-center space-x-4">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Timeframe:
-              </label>
-              <select
-                value={timeframe}
-                onChange={(e) => setTimeframe(e.target.value)}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
+              <label className="text-sm font-medium text-owlin-text">Timeframe:</label>
+              <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)} className="px-3 py-2 border border-owlin-stroke rounded-owlin bg-owlin-card text-owlin-text text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-owlin-sapphire">
                 <option value="3">3 months</option>
                 <option value="6">6 months</option>
                 <option value="12">12 months</option>
@@ -160,7 +137,7 @@ const ProductTrendsPage: React.FC = () => {
           
           {forecastData.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 dark:text-gray-400">No forecast data available</p>
+              <p className="text-owlin-muted">No forecast data available</p>
             </div>
           ) : (
             <div className="space-y-4">
