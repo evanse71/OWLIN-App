@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "export": "next build && next export",
-    "deploy": "npm run export && touch out/.nojekyll"
+    "deploy": "npm run export && touch out/.nojekyll",
+    "generate:openapi": "node -e \"console.log('ensure backend running for fresh schema')\" && npx openapi-typescript backend/openapi.json -o frontend/lib/apiClient.ts"
   },
   "dependencies": {
     "@types/formidable": "^3.4.5",
@@ -17,6 +18,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",
+    "dayjs": "^1.11.13",
     "eslint": "^8",
     "eslint-config-next": "14.0.0",
     "form-data": "^4.0.4",
@@ -28,11 +30,14 @@
     "react": "^18",
     "react-dom": "^18",
     "react-markdown": "^10.1.0",
+    "react-virtuoso": "^4.14.0",
     "recharts": "^3.1.2",
     "tailwindcss": "^3.3.0",
     "typescript": "^5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.54.2",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

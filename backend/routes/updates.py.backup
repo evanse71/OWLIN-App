@@ -1,0 +1,122 @@
+from __future__ import annotations
+from fastapi import APIRouter, Depends, HTTPException, Request
+from uuid import UUID
+from typing import List
+
+from ..contracts import UpdateBundle, ChangelogEntry
+from ..services.permissions import require_permission
+from ..services import update_manager as svc
+
+router = APIRouter(prefix="/api/updates", tags=["updates"])
+
+
+@router.get("/available", response_model=List[UpdateBundle])
+async def available_updates(request: Request):
+	"""List available update bundles."""
+	updates = svc.list_available_updates()
+	
+	# Convert to contract format
+	result = []
+	for update in updates:
+		result.append(UpdateBundle(
+			id=UUID(update["id"]),
+			filename=update["filename"],
+			version=update["version"],
+			build=update["build"],
+			created_at=update["created_at"],
+			description=update["description"],
+			verified=update["verified"],
+			reason=update["reason"]
+		))
+	
+	return result
+
+
+@router.post("/verify/{bundle_id}", response_model=UpdateBundle)
+async def verify_bundle(bundle_id: UUID, request: Request):
+	"""Verify a specific bundle (GM only)."""
+	_ = require_permission("settings.manage_roles")(request)  # GM permission
+	
+	result = svc.verify_bundle(str(bundle_id))
+	
+	if not result["ok"]:
+		raise HTTPException(400, result["reason"])
+	
+	# Get updated bundle info
+	updates = svc.list_available_updates()
+	bundle = next((u for u in updates if u["id"] == str(bundle_id)), None)
+	
+	if not bundle:
+		raise HTTPException(404, "Bundle not found")
+	
+	return UpdateBundle(
+		id=UUID(bundle["id"]),
+		filename=bundle["filename"],
+		version=bundle["version"],
+		build=bundle["build"],
+		created_at=bundle["created_at"],
+		description=bundle["description"],
+		verified=bundle["verified"],
+		reason=bundle["reason"]
+	)
+
+
+@router.post("/apply/{bundle_id}")
+async def apply_update(bundle_id: UUID, request: Request):
+	"""Apply an update (GM only)."""
+	_ = require_permission("recovery.restore")(request)  # GM permission
+	
+	# Get bundle filename
+	updates = svc.list_available_updates()
+	bundle = next((u for u in updates if u["id"] == str(bundle_id)), None)
+	
+	if not bundle:
+		raise HTTPException(404, "Bundle not found")
+	
+	if bundle["verified"] != "ok":
+		raise HTTPException(400, "Bundle not verified")
+	
+	# Apply update
+	from pathlib import Path
+	zip_path = Path("updates") / bundle["filename"]
+	
+	result = svc.apply_update(str(zip_path))
+	
+	if not result["ok"]:
+		raise HTTPException(400, f"Update failed: {'; '.join(result['reasons'])}")
+	
+	return {
+		"ok": True,
+		"message": "Update applied successfully",
+		"snapshot": result["snapshot"],
+		"changelog_id": result["changelog_id"]
+	}
+
+
+@router.post("/rollback/{changelog_id}")
+async def rollback_update(changelog_id: UUID, request: Request):
+	"""Rollback to a previous version (GM only)."""
+	_ = require_permission("recovery.restore")(request)  # GM permission
+	
+	# This would need to be implemented to find the rollback snapshot
+	# For now, return a placeholder
+	raise HTTPException(501, "Rollback not yet implemented")
+
+
+@router.get("/changelog", response_model=List[ChangelogEntry])
+async def get_changelog(request: Request):
+	"""Get changelog entries."""
+	entries = svc.get_changelog()
+	
+	result = []
+	for entry in entries:
+		result.append(ChangelogEntry(
+			id=UUID(entry["id"]),
+			version=entry["version"],
+			build=entry["build"],
+			applied_at=entry["applied_at"],
+			status=entry["status"],
+			notes=entry["notes"]
+		))
+	
+	return result 

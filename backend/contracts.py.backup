@@ -1,0 +1,478 @@
+from __future__ import annotations
+from typing import List, Optional, Literal, Dict
+from uuid import UUID
+from datetime import date, datetime
+from pydantic import BaseModel, conint
+
+
+class LineItem(BaseModel):
+	id: UUID
+	description: str
+	qty: float
+	unit_price_pennies: int
+	total_pennies: int
+	uom: Optional[str] = None
+	sku: Optional[str] = None
+
+
+# Alias for delivery note items (same shape)
+class DnLineItem(LineItem):
+	pass
+
+
+class Invoice(BaseModel):
+	id: UUID
+	supplier_name: str
+	invoice_number: str
+	invoice_date: date
+	total_amount_pennies: int
+	vat_amount_pennies: int
+	currency: Literal["GBP"]
+	status: Literal["pending", "scanned", "matched", "flagged"]
+	confidence: conint(ge=0, le=100)
+	line_items: List[LineItem]
+	delivery_note_id: Optional[UUID] = None
+
+
+class DeliveryNote(BaseModel):
+	id: UUID
+	supplier_name: Optional[str]
+	note_number: Optional[str]
+	date: Optional[date]
+	status: Literal["pending", "parsed", "matched", "rejected"]
+	ocr_confidence: conint(ge=0, le=100)
+	matched_invoice_id: Optional[UUID]
+	items: List[DnLineItem]
+
+
+class InvoiceSummary(BaseModel):
+	id: UUID
+	supplier_name: str
+	invoice_number: str
+	invoice_date: Optional[date]
+	total_amount_pennies: int
+	vat_amount_pennies: int
+	currency: Literal["GBP"]
+	status: Literal["pending", "scanned", "matched", "flagged"]
+	confidence: conint(ge=0, le=100)
+
+
+class MatchCandidate(BaseModel):
+	invoice: InvoiceSummary
+	score: float
+	breakdown: Dict[str, float]
+
+
+class MatchSuggestionsResponse(BaseModel):
+	delivery_note_id: UUID
+	candidates: List[MatchCandidate]
+
+
+class MatchConfirmRequest(BaseModel):
+	delivery_note_id: UUID
+	invoice_id: UUID
+
+
+class MatchRejectRequest(BaseModel):
+	delivery_note_id: UUID
+
+
+class OkResponse(BaseModel):
+	ok: bool
+
+
+# Insights contracts
+from pydantic import confloat
+from typing import Literal as _Literal
+
+class TimeSeriesPoint(BaseModel):
+	t: date
+	v: float
+	n: Optional[int] = None
+
+class MetricSeries(BaseModel):
+	metric: _Literal["spend", "price_volatility", "on_time_rate", "mismatch_rate", "confidence_median"]
+	bucket: _Literal["day", "week", "month"]
+	points: List[TimeSeriesPoint]
+
+class InsightBadge(BaseModel):
+	label: str
+	value: str
+	tone: _Literal["neutral", "ok", "warn", "error"]
+	tooltip: Optional[str] = None
+
+class InsightSummary(BaseModel):
+	supplier_id: UUID
+	period_start: date
+	period_end: date
+	top_badges: List[InsightBadge]
+	series: List[MetricSeries]
+
+class InsightAlert(BaseModel):
+	id: UUID
+	supplier_id: UUID
+	occurred_at: datetime
+	metric: str
+	severity: conint(ge=1, le=3)
+	message: str
+	delta_pct: Optional[float] = None
+
+class InsightAlertsResponse(BaseModel):
+	supplier_id: UUID
+	alerts: List[InsightAlert]
+
+
+class FlaggedIssue(BaseModel):
+	id: UUID
+	invoice_id: UUID
+	severity: Literal["low", "med", "high"]
+	kind: Literal["price_change", "missing_item", "overcharge", "mismatch"]
+	message: str
+	created_at: datetime
+	resolved_at: Optional[datetime] = None
+
+
+class Supplier(BaseModel):
+	id: UUID
+	name: str
+
+
+class User(BaseModel):
+	id: UUID
+	name: str
+	role: Literal["GM", "Finance", "ShiftLead"] 
+
+
+# Forecasting & Budgets contracts
+class PricePoint(BaseModel):
+	t: date
+	p: float
+
+class ForecastBand(BaseModel):
+	lower: float
+	upper: float
+	confidence: conint(ge=50, le=99) = 80
+
+class ItemForecast(BaseModel):
+	item_id: UUID
+	horizon: conint(ge=1, le=12)
+	model: Literal["SES", "MA"]
+	alpha: Optional[confloat(ge=0.05, le=0.95)] = None
+	points: List[PricePoint]
+	forecast: List[PricePoint]
+	band: ForecastBand
+
+class AggregateForecast(BaseModel):
+	scope_type: Literal["supplier", "category", "site"]
+	scope_id: UUID
+	horizon: conint(ge=1, le=12)
+	model: Literal["SES", "MA"]
+	forecast: List[PricePoint]
+	band: ForecastBand
+
+class BudgetGuardrail(BaseModel):
+	id: UUID
+	scope_type: Literal["item", "supplier", "category", "site"]
+	scope_id: UUID
+	period_start: date
+	period_end: date
+	amount_pennies: int
+	hard_limit: bool
+	created_by: UUID
+	created_at: datetime
+
+class BudgetViolation(BaseModel):
+	id: UUID
+	guardrail_id: UUID
+	occurred_at: datetime
+	projected_spend_pennies: int
+	threshold_pennies: int
+	severity: conint(ge=1, le=3)
+
+class BudgetViolationsResponse(BaseModel):
+	violations: List[BudgetViolation]
+
+
+# Recovery & Conflict contracts
+class IntegrityReport(BaseModel):
+	ok: bool
+	reasons: List[str]
+	db_version: Optional[str] = None
+	last_backup_at: Optional[datetime] = None
+
+class BackupEntry(BaseModel):
+	id: UUID
+	name: str
+	created_at: datetime
+	size_bytes: int
+	checksum_sha256: str
+	path: str
+
+class RestoreDryRunRequest(BaseModel):
+	backup_id: UUID
+
+class FieldDiff(BaseModel):
+	column: str
+	old: Optional[str] = None
+	new: Optional[str] = None
+	decision: Literal["keep_old", "use_new", "manual"] = "use_new"
+
+class RowDiff(BaseModel):
+	table: str
+	pk: str
+	diffs: List[FieldDiff]
+
+class DiffReport(BaseModel):
+	backup_id: UUID
+	rows: List[RowDiff]
+	summary: Dict[str, int]
+
+class ApplyResolutionRequest(BaseModel):
+	backup_id: UUID
+	decisions: List[RowDiff] 
+
+
+# RBAC contracts
+class Role(BaseModel):
+	id: UUID
+	name: str
+	description: Optional[str] = None
+
+class Permission(BaseModel):
+	code: str
+	description: str
+
+class RoleWithPerms(Role):
+	permissions: List[Permission]
+
+class User(BaseModel):
+	id: UUID
+	email: str
+	display_name: str
+	is_active: bool
+
+class Venue(BaseModel):
+	id: UUID
+	name: str
+	code: str
+
+class UserRoleAssignment(BaseModel):
+	user_id: UUID
+	role_id: UUID
+	venue_id: UUID
+
+class CreateRoleRequest(BaseModel):
+	name: str
+	description: Optional[str] = None
+	permissions: List[str]
+
+class UpdateRoleRequest(CreateRoleRequest):
+	id: UUID
+
+class CreateUserRequest(BaseModel):
+	email: str
+	display_name: str
+
+class AssignRoleRequest(BaseModel):
+	user_id: UUID
+	role_id: UUID
+	venue_id: UUID
+
+class LoginRequest(BaseModel):
+	email: str
+
+class SessionInfo(BaseModel):
+	session_id: UUID
+	user: User
+	expires_at: datetime
+
+
+# Update Bundle contracts
+class UpdateBundle(BaseModel):
+	id: UUID
+	filename: str
+	version: str
+	build: str
+	created_at: datetime
+	description: Optional[str] = None
+	verified: Literal["pending", "ok", "failed"] = "pending"
+	reason: Optional[str] = None
+
+class UpdateAction(BaseModel):
+	action: Literal["alembic_upgrade", "copy_tree", "run_hook"]
+	revision: Optional[str] = None
+	from_path: Optional[str] = None
+	to_path: Optional[str] = None
+	mode: Optional[Literal["merge", "replace"]] = "merge"
+	path: Optional[str] = None
+	timeout_sec: Optional[int] = 120
+
+class UpdatePlan(BaseModel):
+	bundle: UpdateBundle
+	steps: List[UpdateAction]
+
+class ChangelogEntry(BaseModel):
+	id: UUID
+	version: str
+	build: str
+	applied_at: datetime
+	status: Literal["success", "rollback", "failed"]
+	notes: Optional[str] = None
+
+class RollbackPoint(BaseModel):
+	id: UUID
+	created_at: datetime
+	version_before: Optional[str] = None
+	backup_zip: str
+
+
+# GM Dashboard contracts
+class KpiCard(BaseModel):
+	title: str
+	value: str
+	delta: Optional[str] = None
+	trend: Literal["up", "down", "neutral"] = "neutral"
+	series: List[float] = []
+
+class SeriesPoint(BaseModel):
+	date: str
+	value: float
+
+class VenueSeries(BaseModel):
+	venue_id: UUID
+	venue_name: str
+	series: List[SeriesPoint]
+
+class VenueRow(BaseModel):
+	venue_id: UUID
+	venue_name: str
+	total_invoices: int
+	total_spend: float
+	match_rate: float
+	avg_confidence: float
+	flagged_issues: int
+	delivery_reliability: float
+
+class DashboardSummary(BaseModel):
+	period: str
+	total_venues: int
+	total_invoices: int
+	total_spend: float
+	avg_match_rate: float
+	avg_confidence: float
+	total_issues: int
+	kpi_cards: List[KpiCard]
+	venue_comparison: List[VenueRow]
+	trends: List[VenueSeries]
+
+class RefreshRequest(BaseModel):
+	venue_ids: Optional[List[UUID]] = None
+	force: bool = False
+
+
+# Supplier Timeline & Escalation contracts
+class SupplierBadge(BaseModel):
+	label: str
+	tone: Literal['ok', 'warn', 'error', 'neutral'] = 'neutral'
+	tooltip: Optional[str] = None
+
+class SupplierSummary(BaseModel):
+	supplier_id: UUID
+	supplier_name: str
+	venue_id: Optional[UUID] = None
+	mismatch_rate: float
+	on_time_rate: float
+	price_volatility: float
+	badges: List[SupplierBadge]
+
+class TimelineEvent(BaseModel):
+	id: UUID
+	ts: datetime
+	type: Literal['INVOICE', 'DELIVERY', 'ISSUE_OPENED', 'ISSUE_RESOLVED', 'PRICE_SPIKE', 'ESCALATION_OPENED', 'ESCALATION_UPDATED', 'ESCALATION_RESOLVED']
+	title: str
+	summary: Optional[str] = None
+	ref_id: Optional[UUID] = None
+	severity: Optional[Literal['info', 'warn', 'error']] = 'info'
+
+class EscalationNote(BaseModel):
+	id: UUID
+	author_id: UUID
+	body: str
+	created_at: datetime
+
+class Escalation(BaseModel):
+	id: UUID
+	supplier_id: UUID
+	venue_id: UUID
+	level: int
+	status: Literal['OPEN', 'ACK', 'IN_PROGRESS', 'WAITING_VENDOR', 'RESOLVED', 'CLOSED']
+	title: str
+	description: Optional[str] = None
+	due_at: Optional[datetime] = None
+	opened_by: UUID
+	assigned_to: Optional[UUID] = None
+	created_at: datetime
+	updated_at: datetime
+	notes: List[EscalationNote] = []
+
+class CreateEscalationRequest(BaseModel):
+	supplier_id: UUID
+	venue_id: UUID
+	level: int = 1
+	title: str
+	description: Optional[str] = None
+	assigned_to: Optional[UUID] = None
+
+class UpdateEscalationRequest(BaseModel):
+	status: Optional[Literal['ACK', 'IN_PROGRESS', 'WAITING_VENDOR', 'RESOLVED', 'CLOSED']] = None
+	level: Optional[int] = None
+	assigned_to: Optional[UUID] = None
+	add_note: Optional[str] = None
+
+class TimelineResponse(BaseModel):
+	summary: SupplierSummary
+	events: List[TimelineEvent]
+
+
+# Recovery Mode & Conflict Resolver contracts
+class ConflictLog(BaseModel):
+	id: UUID
+	table_name: str
+	conflict_type: Literal['schema', 'row', 'cell']
+	detected_at: datetime
+	details: dict
+
+class ConflictResolution(BaseModel):
+	id: UUID
+	conflict_id: UUID
+	action: Literal['applied', 'rolled_back', 'ignored']
+	resolved_by: UUID
+	resolved_at: datetime
+
+class TableDiff(BaseModel):
+	table_name: str
+	diff_type: Literal['schema', 'row', 'cell']
+	html_diff: str
+	json_diff: dict
+	summary: str
+
+class ConflictListItem(BaseModel):
+	id: UUID
+	table_name: str
+	conflict_type: Literal['schema', 'row', 'cell']
+	detected_at: datetime
+	resolved: bool
+	summary: str
+
+class ResolveConflictRequest(BaseModel):
+	action: Literal['apply', 'rollback', 'ignore']
+	notes: Optional[str] = None
+
+class RecoveryStatus(BaseModel):
+	active: bool
+	reason: Optional[str] = None
+	activated_at: Optional[datetime] = None
+	activated_by: Optional[UUID] = None
+
+class ActivateRecoveryRequest(BaseModel):
+	reason: str 

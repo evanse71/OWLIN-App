@@ -1,0 +1,418 @@
+from __future__ import annotations
+import os
+import shutil
+import zipfile
+import tempfile
+import subprocess
+import hashlib
+import json
+from pathlib import Path
+from datetime import datetime
+from uuid import uuid4
+from typing import Optional, List, Tuple, Dict
+from sqlite3 import connect
+import os
+
+try:
+	from nacl.signing import VerifyKey
+	from nacl.exceptions import BadSignatureError
+	PYNACL_AVAILABLE = True
+except ImportError:
+	PYNACL_AVAILABLE = False
+	VerifyKey = None
+	BadSignatureError = Exception
+
+# Constants
+APP_ROOT = Path(".")
+UPDATES_DIR = Path("updates")
+BACKUPS_DIR = Path("backups")
+PUBKEY_PATH = Path("backend/updates_pubkey_ed25519.hex")
+DB_PATH = os.path.join("data", "owlin.db")
+
+
+def _get_conn():
+	os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+	return connect(DB_PATH)
+
+
+def ensure_update_tables():
+	"""Ensure update-related tables exist."""
+	conn = _get_conn()
+	cur = conn.cursor()
+	
+	# Updates metadata table
+	cur.execute("""
+	CREATE TABLE IF NOT EXISTS updates_meta (
+		id TEXT PRIMARY KEY,
+		filename TEXT NOT NULL,
+		version TEXT NOT NULL,
+		build TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		verified TEXT CHECK (verified IN ('pending','ok','failed')) NOT NULL DEFAULT 'pending',
+		reason TEXT NULL,
+		checksum_sha256 TEXT NOT NULL,
+		applied_at TIMESTAMP NULL,
+		result TEXT NULL
+	)""")
+	
+	# Rollback points table
+	cur.execute("""
+	CREATE TABLE IF NOT EXISTS rollback_points (
+		id TEXT PRIMARY KEY,
+		created_at TIMESTAMP NOT NULL,
+		version_before TEXT NULL,
+		backup_zip TEXT NOT NULL
+	)""")
+	
+	# Changelog entries table
+	cur.execute("""
+	CREATE TABLE IF NOT EXISTS changelog_entries (
+		id TEXT PRIMARY KEY,
+		version TEXT NOT NULL,
+		build TEXT NOT NULL,
+		applied_at TIMESTAMP NOT NULL,
+		status TEXT CHECK (status IN ('success','rollback','failed')) NOT NULL,
+		notes TEXT NULL
+	)""")
+	
+	# Create indexes
+	cur.execute("CREATE INDEX IF NOT EXISTS idx_updates_meta_ver ON updates_meta(version, build)")
+	cur.execute("CREATE INDEX IF NOT EXISTS idx_changelog_ver ON changelog_entries(version, applied_at DESC)")
+	
+	conn.commit()
+	conn.close()
+
+
+def _digest_bundle(zip_path: str) -> bytes:
+	"""Create deterministic digest of bundle contents."""
+	with zipfile.ZipFile(zip_path, 'r') as z:
+		manifest = z.read('manifest.json')
+		names = sorted([n for n in z.namelist() if not n.endswith('/') and n != 'signature.sig'])
+		catalog = "\n".join(f"{n}:{z.getinfo(n).file_size}" for n in names).encode('utf-8')
+	
+	h = hashlib.sha256()
+	h.update(manifest)
+	h.update(catalog)
+	return h.digest()
+
+
+def verify_signature(zip_path: str) -> Tuple[bool, str]:
+	"""Verify Ed25519 signature of bundle."""
+	if not PYNACL_AVAILABLE:
+		return False, "PyNaCl not available"
+	
+	if not PUBKEY_PATH.exists():
+		return False, "Public key not found"
+	
+	try:
+		with open(PUBKEY_PATH, 'r') as f:
+			pub_hex = f.read().strip()
+		
+		vk = VerifyKey(bytes.fromhex(pub_hex))
+		
+		with zipfile.ZipFile(zip_path, 'r') as z:
+			sig = z.read('signature.sig')
+		
+		digest = _digest_bundle(zip_path)
+		vk.verify(digest, sig)
+		return True, "ok"
+	except BadSignatureError:
+		return False, "signature mismatch"
+	except Exception as e:
+		return False, f"verification error: {str(e)}"
+
+
+def _space_ok(min_bytes: int = 200 * 1024 * 1024) -> bool:
+	"""Check if sufficient disk space is available."""
+	try:
+		st = os.statvfs(".")
+		return st.f_bavail * st.f_frsize >= min_bytes
+	except:
+		return True  # Assume OK if we can't check
+
+
+def _create_snapshot() -> Path:
+	"""Create atomic rollback snapshot."""
+	BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+	
+	timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+	out = BACKUPS_DIR / f"rollback_{timestamp}.zip"
+	
+	with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+		# Backup critical files and directories
+		for rel in ["data/owlin.db", "backend", "frontend"]:
+			p = APP_ROOT / rel
+			if p.is_dir():
+				for base, _, files in os.walk(p):
+					for f in files:
+						fp = Path(base) / f
+						z.write(fp, arcname=str(fp.relative_to(APP_ROOT)))
+			elif p.exists():
+				z.write(p, arcname=str(p.relative_to(APP_ROOT)))
+	
+	return out
+
+
+def preflight(zip_path: str) -> Tuple[bool, List[str]]:
+	"""Run preflight checks before applying update."""
+	reasons = []
+	
+	# Check disk space
+	if not _space_ok():
+		reasons.append("Insufficient disk space")
+	
+	# Verify signature
+	ok, why = verify_signature(zip_path)
+	if not ok:
+		reasons.append(f"Signature: {why}")
+	
+	# Check if ZIP is valid
+	try:
+		with zipfile.ZipFile(zip_path, 'r') as z:
+			if 'manifest.json' not in z.namelist():
+				reasons.append("Missing manifest.json")
+			if 'signature.sig' not in z.namelist():
+				reasons.append("Missing signature.sig")
+	except Exception as e:
+		reasons.append(f"Invalid ZIP: {str(e)}")
+	
+	return len(reasons) == 0, reasons
+
+
+def apply_update(zip_path: str) -> Dict:
+	"""Apply update with atomic rollback capability."""
+	ensure_update_tables()
+	
+	# Preflight checks
+	ok, reasons = preflight(zip_path)
+	if not ok:
+		return {"ok": False, "reasons": reasons}
+	
+	# Create rollback snapshot
+	snapshot_path = _create_snapshot()
+	
+	try:
+		# Extract bundle
+		work = Path(tempfile.mkdtemp(prefix="owlin_update_"))
+		with zipfile.ZipFile(zip_path, 'r') as z:
+			z.extractall(work)
+		
+		# Parse manifest
+		manifest = json.loads((work / "manifest.json").read_text())
+		
+		# Execute steps
+		for step in manifest.get("steps", []):
+			action = step["action"]
+			
+			if action == "alembic_upgrade":
+				revision = step.get("revision", "head")
+				subprocess.check_call(["alembic", "upgrade", revision], cwd=str(APP_ROOT))
+			
+			elif action == "copy_tree":
+				src = work / step["from_path"]
+				dst = APP_ROOT / step["to_path"]
+				mode = step.get("mode", "merge")
+				
+				if mode == "replace" and dst.exists():
+					shutil.rmtree(dst)
+				
+				shutil.copytree(src, dst, dirs_exist_ok=True)
+			
+			elif action == "run_hook":
+				hook_path = work / step["path"]
+				timeout = step.get("timeout_sec", 120)
+				subprocess.check_call(["python", str(hook_path)], timeout=timeout)
+		
+		# Record success
+		conn = _get_conn()
+		cur = conn.cursor()
+		
+		changelog_id = str(uuid4())
+		cur.execute("""
+			INSERT INTO changelog_entries (id, version, build, applied_at, status, notes)
+			VALUES (?, ?, ?, ?, ?, ?)
+		""", (
+			changelog_id,
+			manifest.get("version", "unknown"),
+			manifest.get("build", "unknown"),
+			datetime.utcnow().isoformat(),
+			"success",
+			manifest.get("description", "")
+		))
+		
+		conn.commit()
+		conn.close()
+		
+		return {
+			"ok": True,
+			"snapshot": str(snapshot_path),
+			"changelog_id": changelog_id
+		}
+		
+	except Exception as e:
+		# Rollback on failure
+		try:
+			rollback_to(str(snapshot_path))
+		except:
+			pass  # Rollback failed, but we tried
+		
+		# Record failure
+		conn = _get_conn()
+		cur = conn.cursor()
+		
+		cur.execute("""
+			INSERT INTO changelog_entries (id, version, build, applied_at, status, notes)
+			VALUES (?, ?, ?, ?, ?, ?)
+		""", (
+			str(uuid4()),
+			manifest.get("version", "unknown") if 'manifest' in locals() else "unknown",
+			manifest.get("build", "unknown") if 'manifest' in locals() else "unknown",
+			datetime.utcnow().isoformat(),
+			"failed",
+			f"Error: {str(e)}"
+		))
+		
+		conn.commit()
+		conn.close()
+		
+		return {"ok": False, "reasons": [str(e)]}
+
+
+def rollback_to(snapshot_zip: str) -> bool:
+	"""Rollback to a previous snapshot."""
+	try:
+		with zipfile.ZipFile(snapshot_zip, 'r') as z:
+			z.extractall(APP_ROOT)
+		return True
+	except Exception:
+		return False
+
+
+def list_available_updates() -> List[Dict]:
+	"""List available update bundles."""
+	ensure_update_tables()
+	
+	updates = []
+	UPDATES_DIR.mkdir(exist_ok=True)
+	
+	for zip_file in UPDATES_DIR.glob("*.zip"):
+		try:
+			with zipfile.ZipFile(zip_file, 'r') as z:
+				if 'manifest.json' in z.namelist():
+					manifest = json.loads(z.read('manifest.json').decode('utf-8'))
+					
+					# Check if we have metadata for this file
+					conn = _get_conn()
+					cur = conn.cursor()
+					
+					cur.execute("""
+						SELECT id, verified, reason FROM updates_meta 
+						WHERE filename = ?
+					""", (zip_file.name,))
+					
+					row = cur.fetchone()
+					if row:
+						update_id, verified, reason = row
+					else:
+						# Create new metadata entry
+						update_id = str(uuid4())
+						cur.execute("""
+							INSERT INTO updates_meta (id, filename, version, build, created_at, checksum_sha256)
+							VALUES (?, ?, ?, ?, ?, ?)
+						""", (
+							update_id,
+							zip_file.name,
+							manifest.get("version", "unknown"),
+							manifest.get("build", "unknown"),
+							manifest.get("created_at", datetime.utcnow().isoformat()),
+							hashlib.sha256(zip_file.read_bytes()).hexdigest()
+						))
+						verified = "pending"
+						reason = None
+						conn.commit()
+					
+					conn.close()
+					
+					updates.append({
+						"id": update_id,
+						"filename": zip_file.name,
+						"version": manifest.get("version", "unknown"),
+						"build": manifest.get("build", "unknown"),
+						"created_at": manifest.get("created_at", datetime.utcnow().isoformat()),
+						"description": manifest.get("description"),
+						"verified": verified,
+						"reason": reason
+					})
+		except Exception as e:
+			# Skip invalid bundles
+			continue
+	
+	return updates
+
+
+def verify_bundle(bundle_id: str) -> Dict:
+	"""Verify a specific bundle."""
+	ensure_update_tables()
+	
+	conn = _get_conn()
+	cur = conn.cursor()
+	
+	cur.execute("SELECT filename FROM updates_meta WHERE id = ?", (bundle_id,))
+	row = cur.fetchone()
+	
+	if not row:
+		return {"ok": False, "reason": "Bundle not found"}
+	
+	filename = row[0]
+	zip_path = UPDATES_DIR / filename
+	
+	if not zip_path.exists():
+		return {"ok": False, "reason": "Bundle file not found"}
+	
+	# Run verification
+	ok, reasons = preflight(str(zip_path))
+	
+	# Update metadata
+	status = "ok" if ok else "failed"
+	reason = "; ".join(reasons) if reasons else None
+	
+	cur.execute("""
+		UPDATE updates_meta SET verified = ?, reason = ? WHERE id = ?
+	""", (status, reason, bundle_id))
+	
+	conn.commit()
+	conn.close()
+	
+	return {
+		"ok": ok,
+		"verified": status,
+		"reason": reason
+	}
+
+
+def get_changelog() -> List[Dict]:
+	"""Get changelog entries."""
+	ensure_update_tables()
+	
+	conn = _get_conn()
+	cur = conn.cursor()
+	
+	cur.execute("""
+		SELECT id, version, build, applied_at, status, notes 
+		FROM changelog_entries 
+		ORDER BY applied_at DESC
+	""")
+	
+	entries = []
+	for row in cur.fetchall():
+		entries.append({
+			"id": row[0],
+			"version": row[1],
+			"build": row[2],
+			"applied_at": row[3],
+			"status": row[4],
+			"notes": row[5]
+		})
+	
+	conn.close()
+	return entries 

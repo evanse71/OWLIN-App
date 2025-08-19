@@ -1,0 +1,84 @@
+# Page snapshot
+
+```yaml
+- complementary:
+  - text: Owlin
+  - navigation:
+    - link "Dashboard":
+      - /url: /
+    - link "Invoices":
+      - /url: /invoices
+    - link "Document Queue":
+      - /url: /document-queue
+    - link "Flagged Issues":
+      - /url: /flagged
+    - link "Suppliers":
+      - /url: /suppliers
+    - link "Product Trends":
+      - /url: /product-trends
+    - link "Settings":
+      - /url: /settings
+    - link "OCR Diagnostics":
+      - /url: /diagnostics/ocr
+- banner:
+  - text: Invoices
+  - textbox "Search"
+- main:
+  - complementary "Invoice filters and controls":
+    - heading "Filters" [level=3]
+    - text: Search invoices
+    - textbox "Search invoices"
+    - text: Search through supplier names, invoice numbers, and dates Venue
+    - combobox "Venue":
+      - option "All Venues" [selected]
+      - option "All Venues"
+    - text: Filter invoices by venue location Supplier
+    - combobox "Supplier":
+      - option "All Suppliers" [selected]
+      - option "Heineken UK"
+      - option "Test Supplier A"
+      - option "Test Supplier B"
+      - option "Test Supplier C"
+    - text: Filter invoices by supplier name Date Range From date
+    - textbox "From date"
+    - text: To date
+    - textbox "To date"
+    - text: Filter invoices by date range Quick Filters
+    - group "Quick filter options":
+      - switch "Show only flagged invoices": Only flagged
+      - switch "Show only unmatched invoices": Only unmatched
+      - switch "Show only invoices with credit": Only with credit
+    - text: Sort By
+    - combobox "Sort By":
+      - option "Date (Newest first)" [selected]
+      - option "Date (Oldest first)"
+      - option "Supplier (A-Z)"
+      - option "Amount (High to low)"
+      - option "Amount (Low to high)"
+  - button "Drop invoices or delivery notes here":
+    - img "Upload"
+    - heading "Drop invoices or delivery notes here" [level=3]
+    - paragraph: Supports PDF files up to 50MB
+    - button "Browse Files"
+  - navigation "Invoice list":
+    - button "Invoice INV-2025-001 from FreshCo Supplies, parsed":
+      - text: INV-2025-001
+      - heading "FreshCo Supplies" [level=3]
+      - text: 15 Aug 25 £1,247.50
+      - img "Expand"
+      - text: ✅ Ready
+      - img "Success"
+      - text: 92.5% OCR results are reliable. Minimal review needed. 0
+    - button "Invoice MB-2025-089 from Metro Beverages, flagged":
+      - text: MB-2025-089
+      - heading "Metro Beverages" [level=3]
+      - text: 14 Aug 25 £892.30
+      - img "Expand"
+      - text: ⚠️ Issues
+      - img "Clock"
+      - text: 78.2% Some uncertainty detected. Please double-check totals. 0
+  - text: Select an invoice to view details
+- button "Open Next.js Dev Tools":
+  - img
+- alert
+```
