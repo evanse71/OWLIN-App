@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DocumentPairData } from '@types/matching';
+import type { DocumentPairData } from '@/types/matching';
 
 type Props = { pair: DocumentPairData; onSelect?: (id: string) => void };
 

@@ -12,7 +12,7 @@
       "@pages/*": ["./pages/*"],
       "@types/*": ["./types/*"]
     },
-    "types": ["vite/client"],
+    "types": ["node"],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
@@ -28,5 +28,5 @@
     ]
   },
   "include": ["./**/*.ts", "./**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "tests/**", "__tests__/**"]
+  "exclude": ["node_modules", "dist", "build", "src/**", "**/*.test.*", "**/*.spec.*", "tests/**", "__tests__/**"]
 } 

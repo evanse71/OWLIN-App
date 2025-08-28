@@ -14,9 +14,9 @@ import {
   getUnmatchedDNCount,
   getOpenIssuesCount,
   createInvoice,
-  createDeliveryNote,
-  reprocessInvoice
+  createDeliveryNote
 } from '@/lib/api'
+import { reprocessInvoice } from '@/lib/api.real'
 import type { InvoiceSummary, DeliveryNote, LineItem } from '@/types'
 import { 
   Trash2,
