@@ -1,318 +1,217 @@
-from __future__ import annotations
-import sqlite3
-import os
-import shutil
-import zipfile
-import tempfile
+#!/usr/bin/env python3
+"""
+Support Pack Export Service
+
+Exports diagnostic information including database, audit logs, config, and recent OCR results
+"""
+
 import json
-import hashlib
-from pathlib import Path
-from datetime import datetime
-from uuid import uuid4
-from typing import List, Dict, Optional, Generator
+import zipfile
+import sqlite3
 import logging
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Constants
-APP_ROOT = Path(__file__).parent.parent.parent
-SUPPORT_PACKS_DIR = APP_ROOT / "support_packs"
-DB_PATH = APP_ROOT / "data" / "owlin.db"
-LOGS_DIR = APP_ROOT / "data" / "logs"
-BACKUPS_DIR = APP_ROOT / "backups"
-CONFIG_PATH = APP_ROOT / "data" / "settings.json"
-
-def _get_conn():
-    """Get database connection."""
-    return sqlite3.connect(DB_PATH)
-
-def _ensure_directories():
-    """Ensure required directories exist."""
-    SUPPORT_PACKS_DIR.mkdir(parents=True, exist_ok=True)
-
-def _get_app_version() -> str:
-    """Get current app version."""
-    try:
-        version_file = APP_ROOT / "backend" / "version.json"
-        if version_file.exists():
-            with open(version_file, 'r') as f:
-                data = json.load(f)
-                return data.get("version", "1.0.0")
-    except Exception:
-        pass
-    return "1.0.0"
-
-def _sanitize_config(config: Dict) -> Dict:
-    """Sanitize configuration to remove sensitive data."""
-    sanitized = config.copy()
+class SupportPackExporter:
+    """Support pack exporter for diagnostic information"""
     
-    # Remove sensitive keys
-    sensitive_keys = ['password', 'secret', 'token', 'key', 'api_key', 'private']
-    for key in list(sanitized.keys()):
-        if any(sensitive in key.lower() for sensitive in sensitive_keys):
-            del sanitized[key]
+    def __init__(self, base_path: Optional[Path] = None):
+        if base_path is None:
+            base_path = Path(__file__).parent.parent
+        self.base_path = base_path
+        self.db_path = base_path / "owlin.db"
+        self.audit_log_path = base_path / "audit.log"
+        self.config_path = base_path / "ocr" / "ocr_config.json"
+        self.ocr_metrics_path = base_path / "data" / "ocr_metrics.log"
     
-    return sanitized
-
-def _generate_environment_report() -> str:
-    """Generate environment report."""
-    import platform
-    import sys
-    
-    report = []
-    report.append("OWLIN Environment Report")
-    report.append("=" * 50)
-    report.append(f"Generated: {datetime.utcnow().isoformat()}")
-    report.append(f"Python Version: {sys.version}")
-    report.append(f"Platform: {platform.platform()}")
-    report.append(f"Architecture: {platform.architecture()}")
-    report.append(f"App Version: {_get_app_version()}")
-    
-    # Disk space
-    try:
-        st = os.statvfs(str(APP_ROOT))
-        free_gb = (st.f_bavail * st.f_frsize) / (1024**3)
-        total_gb = (st.f_blocks * st.f_frsize) / (1024**3)
-        report.append(f"Disk Space: {free_gb:.1f}GB free of {total_gb:.1f}GB total")
-    except Exception:
-        report.append("Disk Space: Unable to determine")
-    
-    # Database info
-    try:
-        conn = _get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-        table_count = cur.fetchone()[0]
-        report.append(f"Database Tables: {table_count}")
+    def export_support_pack(self, output_path: Optional[Path] = None) -> Path:
+        """
+        Export a complete support pack
         
-        # Get some basic stats
-        cur.execute("PRAGMA page_count")
-        page_count = cur.fetchone()[0]
-        cur.execute("PRAGMA page_size")
-        page_size = cur.fetchone()[0]
-        db_size_mb = (page_count * page_size) / (1024**2)
-        report.append(f"Database Size: {db_size_mb:.1f}MB")
+        Args:
+            output_path: Output path for the zip file
+            
+        Returns:
+            Path to the exported support pack
+        """
+        if output_path is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = self.base_path / "support_packs" / f"support_pack_{timestamp}.zip"
         
-        conn.close()
-    except Exception:
-        report.append("Database Info: Unable to determine")
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"📦 Creating support pack: {output_path}")
+        
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # 1. Database (read-only copy)
+            if self.db_path.exists():
+                self._add_database_snapshot(zipf)
+            else:
+                logger.warning("⚠️ Database not found")
+            
+            # 2. Audit log
+            if self.audit_log_path.exists():
+                zipf.write(self.audit_log_path, "audit.log")
+                logger.info("✅ Added audit.log")
+            else:
+                logger.warning("⚠️ Audit log not found")
+            
+            # 3. OCR config
+            if self.config_path.exists():
+                zipf.write(self.config_path, "ocr_config.json")
+                logger.info("✅ Added ocr_config.json")
+            else:
+                logger.warning("⚠️ OCR config not found")
+            
+            # 4. Recent OCR results (last 50)
+            self._add_recent_ocr_results(zipf)
+            
+            # 5. System info
+            self._add_system_info(zipf)
+            
+            # 6. OCR metrics
+            if self.ocr_metrics_path.exists():
+                zipf.write(self.ocr_metrics_path, "ocr_metrics.log")
+                logger.info("✅ Added ocr_metrics.log")
+        
+        logger.info(f"✅ Support pack created: {output_path}")
+        return output_path
     
-    return "\n".join(report)
-
-def _create_support_pack_zip(notes: Optional[str] = None) -> Tuple[str, int, Dict]:
-    """Create support pack ZIP file and return (path, size_bytes, manifest)."""
-    _ensure_directories()
+    def _add_database_snapshot(self, zipf: zipfile.ZipFile):
+        """Add a read-only snapshot of the database"""
+        try:
+            # Create a temporary copy for export
+            temp_db_path = self.base_path / "temp_export.db"
+            
+            # Copy database
+            import shutil
+            shutil.copy2(self.db_path, temp_db_path)
+            
+            # Add to zip
+            zipf.write(temp_db_path, "owlin.db")
+            
+            # Clean up
+            temp_db_path.unlink()
+            
+            logger.info("✅ Added database snapshot")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to add database snapshot: {e}")
     
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    pack_filename = f"support_pack_{timestamp}.zip"
-    pack_path = SUPPORT_PACKS_DIR / pack_filename
+    def _add_recent_ocr_results(self, zipf: zipfile.ZipFile):
+        """Add recent OCR results from audit log"""
+        try:
+            if not self.db_path.exists():
+                return
+            
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            
+            # Get last 50 OCR processing events
+            cursor.execute("""
+                SELECT metadata_json, created_at
+                FROM audit_log 
+                WHERE action = 'OCR_PROCESSING' 
+                ORDER BY created_at DESC 
+                LIMIT 50
+            """)
+            
+            results = []
+            for row in cursor.fetchall():
+                metadata_json, created_at = row
+                if metadata_json:
+                    try:
+                        metadata = json.loads(metadata_json)
+                        results.append({
+                            "created_at": created_at,
+                            "metadata": metadata
+                        })
+                    except json.JSONDecodeError:
+                        continue
+            
+            conn.close()
+            
+            # Write to JSON file in zip
+            ocr_results_data = {
+                "exported_at": datetime.now().isoformat(),
+                "total_results": len(results),
+                "results": results
+            }
+            
+            zipf.writestr("recent_ocr_results.json", json.dumps(ocr_results_data, indent=2))
+            logger.info(f"✅ Added {len(results)} recent OCR results")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to add recent OCR results: {e}")
     
-    manifest = {}
+    def _add_system_info(self, zipf: zipfile.ZipFile):
+        """Add system information"""
+        try:
+            import platform
+            import sys
+            
+            system_info = {
+                "exported_at": datetime.now().isoformat(),
+                "platform": {
+                    "system": platform.system(),
+                    "release": platform.release(),
+                    "version": platform.version(),
+                    "machine": platform.machine(),
+                    "processor": platform.processor()
+                },
+                "python": {
+                    "version": sys.version,
+                    "executable": sys.executable
+                },
+                "paths": {
+                    "base_path": str(self.base_path),
+                    "db_path": str(self.db_path),
+                    "config_path": str(self.config_path)
+                }
+            }
+            
+            zipf.writestr("system_info.json", json.dumps(system_info, indent=2))
+            logger.info("✅ Added system info")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to add system info: {e}")
     
-    with zipfile.ZipFile(pack_path, "w", zipfile.ZIP_DEFLATED) as z:
-        # Add database snapshot
-        if DB_PATH.exists():
-            z.write(DB_PATH, arcname="data/owlin.db")
-            with open(DB_PATH, 'rb') as f:
-                manifest["data/owlin.db"] = hashlib.sha256(f.read()).hexdigest()
+    def get_support_pack_info(self) -> Dict[str, Any]:
+        """Get information about what would be included in a support pack"""
+        info = {
+            "database": self.db_path.exists(),
+            "audit_log": self.audit_log_path.exists(),
+            "config": self.config_path.exists(),
+            "ocr_metrics": self.ocr_metrics_path.exists(),
+            "base_path": str(self.base_path)
+        }
         
-        # Add latest backup (if exists)
-        if BACKUPS_DIR.exists():
-            backup_files = list(BACKUPS_DIR.glob("backup_*.zip"))
-            if backup_files:
-                latest_backup = max(backup_files, key=lambda f: f.stat().st_mtime)
-                z.write(latest_backup, arcname=f"backups/{latest_backup.name}")
-                with open(latest_backup, 'rb') as f:
-                    manifest[f"backups/{latest_backup.name}"] = hashlib.sha256(f.read()).hexdigest()
-        
-        # Add logs (truncated to last 10MB per file)
-        if LOGS_DIR.exists():
-            for log_file in LOGS_DIR.glob("*.log"):
-                try:
-                    with open(log_file, 'r') as f:
-                        content = f.read()
-                        # Truncate to last 10MB
-                        if len(content) > 10 * 1024 * 1024:
-                            content = content[-10 * 1024 * 1024:]
-                        z.writestr(f"logs/{log_file.name}", content)
-                        manifest[f"logs/{log_file.name}"] = hashlib.sha256(content.encode()).hexdigest()
-                except Exception as e:
-                    logger.warning(f"Failed to add log file {log_file}: {e}")
-        
-        # Add environment report
-        env_report = _generate_environment_report()
-        z.writestr("environment.txt", env_report)
-        manifest["environment.txt"] = hashlib.sha256(env_report.encode()).hexdigest()
-        
-        # Add sanitized config
-        if CONFIG_PATH.exists():
+        # Count recent OCR results
+        if self.db_path.exists():
             try:
-                with open(CONFIG_PATH, 'r') as f:
-                    config = json.load(f)
-                sanitized_config = _sanitize_config(config)
-                z.writestr("config.json", json.dumps(sanitized_config, indent=2))
-                manifest["config.json"] = hashlib.sha256(json.dumps(sanitized_config).encode()).hexdigest()
-            except Exception as e:
-                logger.warning(f"Failed to add config: {e}")
+                conn = sqlite3.connect(str(self.db_path))
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT COUNT(*) FROM audit_log 
+                    WHERE action = 'OCR_PROCESSING'
+                """)
+                info["recent_ocr_count"] = cursor.fetchone()[0]
+                conn.close()
+            except Exception:
+                info["recent_ocr_count"] = 0
         
-        # Add manifest
-        z.writestr("manifest.json", json.dumps(manifest, indent=2))
-    
-    return str(pack_path), pack_path.stat().st_size, manifest
+        return info
 
-def _record_support_pack(pack_id: str, path: str, size_bytes: int, notes: Optional[str] = None):
-    """Record support pack in database."""
-    conn = _get_conn()
-    cur = conn.cursor()
-    
-    # Ensure support_pack_index table exists
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS support_pack_index(
-            id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            path TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            notes TEXT,
-            has_checksum INTEGER NOT NULL DEFAULT 1,
-            app_version TEXT NOT NULL
-        )
-    """)
-    
-    cur.execute("""
-        INSERT INTO support_pack_index (id, created_at, path, size_bytes, notes, has_checksum, app_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        pack_id,
-        datetime.utcnow().isoformat(),
-        path,
-        size_bytes,
-        notes,
-        1,  # has_checksum
-        _get_app_version()
-    ))
-    
-    conn.commit()
-    conn.close()
+# Global exporter instance
+_support_pack_exporter: Optional[SupportPackExporter] = None
 
-def pack_create(notes: Optional[str] = None) -> Dict:
-    """Create a new support pack."""
-    try:
-        pack_id = str(uuid4())
-        path, size_bytes, manifest = _create_support_pack_zip(notes)
-        _record_support_pack(pack_id, path, size_bytes, notes)
-        
-        logger.info(f"Support pack created: {pack_id} ({size_bytes} bytes)")
-        
-        return {
-            "id": pack_id,
-            "created_at": datetime.utcnow().isoformat(),
-            "path": path,
-            "size_bytes": size_bytes,
-            "notes": notes,
-            "app_version": _get_app_version()
-        }
-    except Exception as e:
-        logger.error(f"Support pack creation failed: {e}")
-        raise
-
-def pack_list() -> List[Dict]:
-    """List all support packs."""
-    conn = _get_conn()
-    cur = conn.cursor()
-    
-    # Ensure table exists
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS support_pack_index(
-            id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            path TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            notes TEXT,
-            has_checksum INTEGER NOT NULL DEFAULT 1,
-            app_version TEXT NOT NULL
-        )
-    """)
-    
-    cur.execute("""
-        SELECT id, created_at, path, size_bytes, notes, has_checksum, app_version
-        FROM support_pack_index
-        ORDER BY created_at DESC
-    """)
-    
-    packs = []
-    for row in cur.fetchall():
-        packs.append({
-            "id": row[0],
-            "created_at": row[1],
-            "path": row[2],
-            "size_bytes": row[3],
-            "notes": row[4],
-            "has_checksum": bool(row[5]),
-            "app_version": row[6]
-        })
-    
-    conn.close()
-    return packs
-
-def pack_stream(pack_id: str) -> Optional[Generator[bytes, None, None]]:
-    """Stream support pack file."""
-    try:
-        # Get pack info
-        conn = _get_conn()
-        cur = conn.cursor()
-        
-        cur.execute("SELECT path FROM support_pack_index WHERE id = ?", (pack_id,))
-        row = cur.fetchone()
-        
-        if not row:
-            return None
-        
-        pack_path = row[0]
-        conn.close()
-        
-        if not Path(pack_path).exists():
-            return None
-        
-        # Stream file in chunks
-        chunk_size = 8192
-        with open(pack_path, 'rb') as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                yield chunk
-    
-    except Exception as e:
-        logger.error(f"Support pack streaming failed: {e}")
-        return None
-
-def pack_get_info(pack_id: str) -> Optional[Dict]:
-    """Get support pack information."""
-    try:
-        conn = _get_conn()
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT id, created_at, path, size_bytes, notes, has_checksum, app_version
-            FROM support_pack_index WHERE id = ?
-        """, (pack_id,))
-        
-        row = cur.fetchone()
-        conn.close()
-        
-        if not row:
-            return None
-        
-        return {
-            "id": row[0],
-            "created_at": row[1],
-            "path": row[2],
-            "size_bytes": row[3],
-            "notes": row[4],
-            "has_checksum": bool(row[5]),
-            "app_version": row[6]
-        }
-    
-    except Exception as e:
-        logger.error(f"Failed to get support pack info: {e}")
-        return None
+def get_support_pack_exporter() -> SupportPackExporter:
+    """Get global support pack exporter instance"""
+    global _support_pack_exporter
+    if _support_pack_exporter is None:
+        _support_pack_exporter = SupportPackExporter()
+    return _support_pack_exporter

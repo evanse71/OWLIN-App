@@ -1,82 +1,101 @@
-# OWLIN-App
-Invoice auditing and supplier insights tool for hospitality
+# Owlin App - Lovable UI Implementation
 
-## Local LLM Parser (Sellable + Licensed)
+This project has been updated with the Lovable UI design system, replacing the previous Next.js implementation with a modern React + Vite setup.
 
-OWLIN now includes a local, offline invoice/receipt parser that yields high-accuracy line-item tables and per-field confidence, including multi-page and multi-invoice PDFs and supermarket receipts.
+## Features
 
-### Local Model Setup
+- **Modern UI**: Clean, professional interface using Lovable design tokens
+- **Responsive Design**: Works on desktop and mobile devices
+- **Real-time Processing**: OCR processing with job polling
+- **Invoice Management**: Upload, edit, and manage invoices
+- **Delivery Note Pairing**: Match delivery notes with invoices
+- **Backend Integration**: FastAPI + SQLite backend for data persistence
 
-#### Option A (Default): Qwen2.5-VL via Ollama
+## Tech Stack
 
-1. Install Ollama:
-```bash
-brew install ollama  # macOS
-# or visit https://ollama.ai for other platforms
-```
+- **Frontend**: React 18 + TypeScript + Vite
+- **UI Components**: Custom components with Tailwind CSS
+- **Backend**: FastAPI + SQLite
+- **OCR**: Tesseract via pytesseract
+- **Styling**: Tailwind CSS with custom design tokens
 
-2. Pull the Qwen2.5-VL model:
-```bash
-ollama pull qwen2.5-vl:latest
-```
+## Quick Start
 
-3. Set environment variables:
-```bash
-export LLM_BACKEND=qwen-vl
-export MODEL_HOST_URL=http://localhost:11434
-```
-
-4. Start Ollama:
-```bash
-ollama serve
-```
-
-#### Option B (Optional): Llama 3.1 + Surya
-
-1. Install Llama 3.1:
-```bash
-ollama pull llama3.1:8b
-```
-
-2. Install Surya:
-```bash
-pip install surya-ocr
-```
-
-3. Set environment variables:
-```bash
-export LLM_BACKEND=llama-surya
-export MODEL_HOST_URL=http://localhost:11434
-```
-
-### Configuration
-
-Add these environment variables to your `.env` file:
+### Backend Setup
 
 ```bash
-# LLM Configuration
-LLM_BACKEND=qwen-vl                    # Default: qwen-vl
-LOCAL_LLM_ENABLED=true                 # Default: true
-MODEL_HOST_URL=http://localhost:11434  # Ollama default
+cd backend
+pip install fastapi uvicorn[standard] pytesseract opencv-python
+python3 -m uvicorn app:app --reload --port 8001
 ```
 
-### Features
+### Frontend Setup
 
-- **High-accuracy line-item extraction** with confidence scores
-- **Multi-page and multi-invoice PDF support**
-- **Supermarket receipt parsing**
-- **Local processing** - no data leaves your device
-- **OCR fallback** when LLM is unavailable
-- **Comprehensive validation** with warnings for anomalies
+```bash
+npm install
+VITE_USE_FAKE_BACKEND=false npm run dev
+```
 
-### Compliance & Licensing
+The application will be available at:
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8001
 
-- **Qwen2.5-VL**: Apache-2.0 License
-- **Llama 3.1**: Llama Community License (optional)
-- **Surya**: Apache-2.0 License (optional)
+## Project Structure
 
-See `THIRD_PARTY_LICENSES/` for full license texts.
+```
+src/
+├── components/          # UI components
+│   ├── layout/         # Layout components (Sidebar, etc.)
+│   ├── ui/            # Base UI components (Button, Card, etc.)
+│   └── invoices/      # Invoice-specific components
+├── hooks/             # Custom React hooks
+├── lib/               # Utilities and API clients
+├── pages/             # Page components
+└── types.ts           # TypeScript type definitions
+```
 
-## Improved OCR Pipeline
+## Key Features
 
-This update introduces an optional module `backend/ocr_pipeline.py` which preprocesses images (grayscale, deskew, threshold, noise reduction) before running Tesseract with a tuned configuration. The module provides `parse_document()` returning structured line items, totals and a confidence score with a flag for low-confidence results.
+### Invoice Management
+- Upload documents for OCR processing
+- View processing progress with real-time updates
+- Edit invoice details and line items
+- Confidence scoring for OCR results
+
+### Delivery Note Pairing
+- View unmatched delivery notes
+- Pair delivery notes with invoices
+- Compare delivery notes and invoices for discrepancies
+
+### Modern UI
+- Collapsible sidebar navigation
+- Responsive design with mobile support
+- Toast notifications for user feedback
+- Clean, professional styling
+
+## API Endpoints
+
+- `GET /invoices` - List all invoices
+- `GET /invoices/{id}` - Get specific invoice details
+- `POST /upload` - Upload document for OCR processing
+- `GET /jobs/{job_id}` - Get job status
+- `GET /delivery-notes/unmatched` - Get unmatched delivery notes
+- `POST /pair` - Pair delivery note with invoice
+- `POST /submit` - Submit documents to Owlin
+
+## Development
+
+The project uses:
+- **Vite** for fast development and building
+- **TypeScript** for type safety
+- **Tailwind CSS** for styling
+- **React Router** for navigation
+- **FastAPI** for the backend API
+
+## Design System
+
+The UI follows the Lovable design system with:
+- Consistent spacing and typography
+- Professional color palette
+- Accessible component design
+- Responsive layouts

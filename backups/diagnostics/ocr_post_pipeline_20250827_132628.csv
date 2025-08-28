@@ -1,0 +1,1 @@
+invoice_id,file_hash,filename,page_range,supplier,invoice_number,invoice_date,confidence,status,line_items,subtotal_p,vat_total_p,total_p,issues_count
