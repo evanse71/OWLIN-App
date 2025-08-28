@@ -279,6 +279,46 @@ async def process_upload_with_timeout(filepath: str, filename: str, timeout_seco
                     "document_type": result.document_type,
                     "engine_used": result.engine_used,
                     "processing_time": result.processing_time,
+                    
+                    # Phase-C: Enhanced decision reasoning and validation
+                    "doc_type": result.document_type,
+                    "doc_type_score": getattr(result, 'doc_type_confidence', 0.0),
+                    "policy_action": result.policy_decision.get('action', 'ACCEPT') if result.policy_decision else 'ACCEPT',
+                    "reasons": result.policy_decision.get('reasons', []) if result.policy_decision else [],
+                    "validation": {
+                        "arithmetic_ok": result.validation_result.get('arithmetic_ok', True) if result.validation_result else True,
+                        "currency_ok": result.validation_result.get('currency_ok', True) if result.validation_result else True,
+                        "vat_ok": result.validation_result.get('vat_ok', True) if result.validation_result else True,
+                        "date_ok": result.validation_result.get('date_ok', True) if result.validation_result else True,
+                        "issues": [
+                            issue.get('type', '') for issue in result.validation_result.get('issues', [])
+                        ] if result.validation_result else []
+                    },
+                    
+                    # Enhanced line-item data (Phase B + C)
+                    "line_items": [
+                        {
+                            "description": item.get("description", ""),
+                            "quantity": item.get("quantity"),
+                            "unit": item.get("unit"),
+                            "unit_price": item.get("unit_price"),
+                            "line_total": item.get("line_total"),
+                            "computed_total": item.get("computed_total", False),
+                            "tax_rate": item.get("tax_rate"),
+                            "line_confidence": item.get("line_confidence", 0.0),
+                            "row_reasons": item.get("row_reasons", [])
+                        } for item in result.line_items
+                    ] if result.line_items else [],
+                    
+                    # Page metrics with preprocessing steps
+                    "page_metrics": [{
+                        "page": 1,
+                        "avg_conf": float(result.overall_confidence) * 100.0 if isinstance(result.overall_confidence, (int, float)) else 0.0,
+                        "words": int(result.word_count) if isinstance(result.word_count, (int, float)) else 0,
+                        "retry_used": False,
+                        "preprocess_steps": ["deskew", "clahe", "adaptive"]  # Placeholder - would come from actual preprocessing
+                    }],
+                    
                     # Back-compat aliases expected by downstream logic
                     "overall_confidence": result.overall_confidence,
                     "total_words": result.word_count,

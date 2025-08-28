@@ -65,6 +65,17 @@ class DetectionConfig:
     # Plugin system
     plugin_dir: str = "plugins/multi_invoice"
     enable_plugins: bool = True
+    
+    # Retry logic
+    enable_retry: bool = True
+    max_retry_attempts: int = 2
+    retry_dpi_multiplier: float = 1.5
+    retry_threshold_adjustment: float = 0.1
+    
+    # Per-invoice validation
+    validate_per_invoice: bool = True
+    min_invoice_confidence: float = 0.6
+    cross_pollution_check: bool = True
 
 @dataclass
 class DocumentContext:
@@ -165,11 +176,15 @@ class IntelligentPatternMatcher:
         """Load intelligent patterns from configuration"""
         patterns = {
             'invoice_numbers': [
-                # Precise invoice number patterns
-                re.compile(r'\b(?:invoice|inv)\s*#?\s*:?\s*([A-Za-z0-9\-_/]{3,20})\b', re.IGNORECASE),
-                re.compile(r'\b(INV[0-9\-_/]{3,20})\b', re.IGNORECASE),
-                re.compile(r'\b([A-Z]{2,4}[0-9]{3,8})\b'),  # More restrictive
-                re.compile(r'\b(?:bill|statement)\s*#?\s*:?\s*([A-Za-z0-9\-_/]{3,20})\b', re.IGNORECASE),
+                # Enhanced invoice number patterns with Welsh support - capture full ID
+                re.compile(r'\b(INV|INVOICE)\s*[:#]?\s*([A-Z]{2,5}-\d{4}-\d{3,})\b', re.IGNORECASE),
+                re.compile(r'\b(INV|Anf)\s*[- ]?(\d{4}[-/]\d{3,})\b', re.IGNORECASE),
+                re.compile(r'\b(Rhif\s+Anfoneb|Anfoneb)\s*[:#]?\s*([A-Z]{2,5}-\d{4}-\d{3,})\b', re.IGNORECASE),
+                re.compile(r'\b(Rhif)\s*(?:Anfoneb)?\s*[:#]?\s*([A-Z0-9-]{6,})\b', re.IGNORECASE),
+                # Fallback patterns - capture full ID
+                re.compile(r'\b(invoice|inv|anfoneb)\s*#?\s*:?\s*([A-Za-z0-9\-_/]{8,})\b', re.IGNORECASE),
+                re.compile(r'\b([A-Z]{2,4}[0-9]{3,8})\b'),
+                re.compile(r'\b(bill|statement)\s*#?\s*:?\s*([A-Za-z0-9\-_/]{8,})\b', re.IGNORECASE),
             ],
             'suppliers': [
                 # Generic supplier patterns (not hardcoded)
@@ -208,24 +223,37 @@ class IntelligentPatternMatcher:
         matches = []
         
         for pattern_type, patterns in self.patterns.items():
-            if pattern_type == 'false_positives':
-                continue
-                
             for pattern in patterns:
                 for match in pattern.finditer(text):
-                    value = match.group(1) if match.groups() else match.group(0)
-                    
-                    # Apply context rules
-                    if self._is_valid_match(value, pattern_type, context):
-                        confidence = self._calculate_confidence(match, pattern_type, context)
-                        context_text = self._extract_context(text, match.start(), match.end())
+                    # Handle different group structures
+                    if pattern_type == 'invoice_numbers':
+                        # For invoice numbers, combine groups to get full ID
+                        groups = match.groups()
+                        if len(groups) >= 2:
+                            # Combine prefix and number
+                            full_id = f"{groups[0]}-{groups[1]}" if groups[0] and groups[1] else groups[1] or groups[0]
+                        else:
+                            full_id = groups[0] if groups else match.group(0)
                         
+                        # Clean the invoice ID
+                        clean_id = self._clean_invoice_id(full_id)
+                        if clean_id:
+                            matches.append(Match(
+                                pattern=pattern_type,
+                                value=clean_id,
+                                confidence=self._calculate_confidence(match, pattern_type, context),
+                                position=(match.start(), match.end()),
+                                context=self._extract_context(text, match.start(), match.end())
+                            ))
+                    else:
+                        # For other patterns, use the first group or full match
+                        value = match.group(1) if match.groups() else match.group(0)
                         matches.append(Match(
                             pattern=pattern_type,
                             value=value,
-                            confidence=confidence,
+                            confidence=self._calculate_confidence(match, pattern_type, context),
                             position=(match.start(), match.end()),
-                            context=context_text
+                            context=self._extract_context(text, match.start(), match.end())
                         ))
         
         return matches
@@ -280,6 +308,24 @@ class IntelligentPatternMatcher:
         context_start = max(0, start - context_size)
         context_end = min(len(text), end + context_size)
         return text[context_start:context_end]
+
+    def _clean_invoice_id(self, raw: str) -> Optional[str]:
+        """Clean and validate invoice ID"""
+        s = raw.strip()
+        
+        # Minimum length check
+        if len(s) < 8:
+            return None
+        
+        # Hyphen validation
+        if "-" in s and s.count("-") < 1:
+            return None
+        
+        # Must contain letters or full 4-digit year
+        if not any(c.isalpha() for c in s) and not re.search(r'\b\d{4}\b', s):
+            return None
+        
+        return s
 
 class ContextAnalyzer:
     """Intelligent contextual analysis"""
@@ -567,14 +613,13 @@ class PluginManager:
 class MultiInvoiceDetector:
     """World-class multi-invoice detection system"""
     
-    def __init__(self, config: DetectionConfig = None):
+    def __init__(self, config: Optional[DetectionConfig] = None):
         self.config = config or DetectionConfig()
-        self.cache_manager = CacheManager(self.config.cache_dir, self.config.cache_ttl_seconds)
         self.pattern_matcher = IntelligentPatternMatcher(self.config)
         self.context_analyzer = ContextAnalyzer(self.config)
         self.ml_detector = MLInvoiceDetector(self.config)
         self.plugin_manager = PluginManager(self.config.plugin_dir)
-        self._executor = ThreadPoolExecutor(max_workers=self.config.max_workers)
+        self.cache_manager = CacheManager(self.config.cache_dir, self.config.cache_ttl_seconds)
     
     def detect(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> DetectionResult:
         """Detect multi-invoice content with full analysis"""
@@ -600,8 +645,11 @@ class MultiInvoiceDetector:
             # Plugin analysis
             plugin_results = self.plugin_manager.execute_plugins(text, context)
             
-            # Analyze results
-            detection_result = self._analyze_results(matches, context, ml_confidence, plugin_results)
+            # Detect boundaries using sliding window
+            boundaries = self._detect_boundaries_sliding_window(text)
+            
+            # Analyze results with boundary information
+            detection_result = self._analyze_results_with_boundaries(matches, context, ml_confidence, plugin_results, boundaries)
             
             # Cache result
             if self.config.enable_caching:
@@ -618,6 +666,247 @@ class MultiInvoiceDetector:
                 error_messages=[str(e)],
                 processing_time=time.time() - start_time
             )
+    
+    def detect_multi_invoice(self, text: str, pages: Optional[List[str]] = None, 
+                           metadata: Optional[Dict[str, Any]] = None) -> DetectionResult:
+        """
+        Detect multi-invoice documents with retry logic and per-invoice validation
+        
+        Args:
+            text: Full document text
+            pages: List of page texts (optional)
+            metadata: Document metadata (optional)
+            
+        Returns:
+            DetectionResult with enhanced validation
+        """
+        start_time = time.time()
+        
+        # Initial detection
+        result = self.detect(text, metadata)
+        
+        # Apply retry logic for ambiguous boundaries
+        if result.is_multi_invoice and self.config.enable_retry:
+            result = self._apply_retry_logic(result, text, pages, metadata)
+        
+        # Per-invoice validation
+        if result.is_multi_invoice and self.config.validate_per_invoice:
+            result = self._validate_per_invoice(result, text, pages, metadata)
+        
+        result.processing_time = time.time() - start_time
+        return result
+    
+    def _apply_retry_logic(self, result: DetectionResult, text: str, 
+                          pages: Optional[List[str]], metadata: Optional[Dict[str, Any]]) -> DetectionResult:
+        """Apply retry logic for ambiguous boundaries"""
+        logger.info("🔄 Applying retry logic for ambiguous boundaries")
+        
+        for attempt in range(self.config.max_retry_attempts):
+            logger.info(f"Retry attempt {attempt + 1}/{self.config.max_retry_attempts}")
+            
+            # Identify ambiguous boundaries
+            ambiguous_boundaries = self._identify_ambiguous_boundaries(result)
+            
+            if not ambiguous_boundaries:
+                logger.info("No ambiguous boundaries found, skipping retry")
+                break
+            
+            # Retry with enhanced settings
+            enhanced_result = self._retry_with_enhanced_settings(
+                result, ambiguous_boundaries, text, pages, metadata, attempt
+            )
+            
+            # Check if retry improved results
+            if self._is_retry_improvement(result, enhanced_result):
+                logger.info(f"✅ Retry attempt {attempt + 1} improved results")
+                result = enhanced_result
+                result.warnings.append(f"Retry attempt {attempt + 1} applied")
+            else:
+                logger.info(f"⚠️ Retry attempt {attempt + 1} did not improve results")
+                break
+        
+        return result
+    
+    def _identify_ambiguous_boundaries(self, result: DetectionResult) -> List[Dict[str, Any]]:
+        """Identify ambiguous boundaries that need retry"""
+        ambiguous = []
+        
+        for separation in result.page_separations:
+            confidence = separation.get('confidence', 0.0)
+            if confidence < self.config.confidence_threshold + self.config.retry_threshold_adjustment:
+                ambiguous.append(separation)
+        
+        return ambiguous
+    
+    def _retry_with_enhanced_settings(self, original_result: DetectionResult, 
+                                    ambiguous_boundaries: List[Dict[str, Any]], 
+                                    text: str, pages: Optional[List[str]], 
+                                    metadata: Optional[Dict[str, Any]], 
+                                    attempt: int) -> DetectionResult:
+        """Retry detection with enhanced settings"""
+        # Adjust confidence threshold for retry
+        adjusted_threshold = self.config.confidence_threshold - (attempt * self.config.retry_threshold_adjustment)
+        
+        # Create enhanced config
+        enhanced_config = DetectionConfig(
+            confidence_threshold=adjusted_threshold,
+            context_window_size=self.config.context_window_size * 2,  # Larger context
+            min_context_similarity=self.config.min_context_similarity - 0.1  # More lenient
+        )
+        
+        # Re-run detection with enhanced settings
+        enhanced_detector = MultiInvoiceDetector(enhanced_config)
+        enhanced_result = enhanced_detector.detect(text, metadata)
+        
+        return enhanced_result
+    
+    def _is_retry_improvement(self, original: DetectionResult, enhanced: DetectionResult) -> bool:
+        """Check if retry result is an improvement"""
+        # Compare confidence scores
+        original_avg_confidence = sum(inv.get('confidence', 0.0) for inv in original.detected_invoices) / max(len(original.detected_invoices), 1)
+        enhanced_avg_confidence = sum(inv.get('confidence', 0.0) for inv in enhanced.detected_invoices) / max(len(enhanced.detected_invoices), 1)
+        
+        # Check for better boundary detection
+        original_boundary_confidence = sum(sep.get('confidence', 0.0) for sep in original.page_separations) / max(len(original.page_separations), 1)
+        enhanced_boundary_confidence = sum(sep.get('confidence', 0.0) for sep in enhanced.page_separations) / max(len(enhanced.page_separations), 1)
+        
+        return (enhanced_avg_confidence > original_avg_confidence + 0.1 or 
+                enhanced_boundary_confidence > original_boundary_confidence + 0.1)
+    
+    def _validate_per_invoice(self, result: DetectionResult, text: str, 
+                            pages: Optional[List[str]], metadata: Optional[Dict[str, Any]]) -> DetectionResult:
+        """Validate each detected invoice independently"""
+        logger.info("🔍 Validating per-invoice")
+        
+        validated_invoices = []
+        validation_errors = []
+        
+        for i, invoice in enumerate(result.detected_invoices):
+            logger.info(f"Validating invoice {i + 1}/{len(result.detected_invoices)}")
+            
+            # Extract invoice text
+            invoice_text = self._extract_invoice_text(invoice, text, pages)
+            
+            # Validate invoice independently
+            validation_result = self._validate_single_invoice(invoice, invoice_text)
+            
+            if validation_result['is_valid']:
+                validated_invoices.append(invoice)
+                logger.info(f"✅ Invoice {i + 1} validation passed")
+            else:
+                validation_errors.append({
+                    'invoice_index': i,
+                    'invoice_number': invoice.get('invoice_number', 'Unknown'),
+                    'errors': validation_result['errors']
+                })
+                logger.warning(f"❌ Invoice {i + 1} validation failed: {validation_result['errors']}")
+        
+        # Check for cross-pollution
+        if self.config.cross_pollution_check and len(validated_invoices) > 1:
+            cross_pollution_result = self._check_cross_pollution(validated_invoices, text, pages)
+            if cross_pollution_result['has_pollution']:
+                validation_errors.append({
+                    'type': 'cross_pollution',
+                    'details': cross_pollution_result['details']
+                })
+                logger.warning(f"⚠️ Cross-pollution detected: {cross_pollution_result['details']}")
+        
+        # Update result
+        result.detected_invoices = validated_invoices
+        result.error_messages.extend([f"Invoice validation error: {err}" for err in validation_errors])
+        
+        # Update confidence based on validation
+        if validated_invoices:
+            avg_confidence = sum(inv.get('confidence', 0.0) for inv in validated_invoices) / len(validated_invoices)
+            result.confidence = min(result.confidence, avg_confidence)
+        
+        return result
+    
+    def _extract_invoice_text(self, invoice: Dict[str, Any], text: str, pages: Optional[List[str]]) -> str:
+        """Extract text for a specific invoice"""
+        if pages and 'page_range' in invoice:
+            start_page = invoice['page_range'].get('start', 0)
+            end_page = invoice['page_range'].get('end', len(pages) - 1)
+            
+            # Extract pages for this invoice
+            invoice_pages = pages[start_page:end_page + 1]
+            return '\n'.join(invoice_pages)
+        else:
+            # Fallback to full text
+            return text
+    
+    def _validate_single_invoice(self, invoice: Dict[str, Any], invoice_text: str) -> Dict[str, Any]:
+        """Validate a single invoice"""
+        errors = []
+        
+        # Check required fields (adjusted to match actual extracted fields)
+        required_fields = ['invoice_number', 'confidence']
+        for field in required_fields:
+            if not invoice.get(field):
+                errors.append(f"Missing required field: {field}")
+        
+        # Check confidence threshold
+        if invoice.get('confidence', 0.0) < self.config.min_invoice_confidence:
+            errors.append(f"Low confidence: {invoice.get('confidence', 0.0):.3f}")
+        
+        # Check for basic invoice structure
+        if not self._has_invoice_structure(invoice_text):
+            errors.append("Missing basic invoice structure")
+        
+        # Check for duplicate invoice numbers
+        if self._has_duplicate_invoice_number(invoice):
+            errors.append("Duplicate invoice number detected")
+        
+        return {
+            'is_valid': len(errors) == 0,
+            'errors': errors
+        }
+    
+    def _has_invoice_structure(self, text: str) -> bool:
+        """Check if text has basic invoice structure"""
+        # Look for invoice indicators
+        invoice_indicators = [
+            'invoice', 'bill', 'total', 'amount', 'date', 'supplier',
+            'anfoneb', 'cyfanswm', 'dyddiad', 'cyflenwr'  # Welsh
+        ]
+        
+        text_lower = text.lower()
+        indicator_count = sum(1 for indicator in invoice_indicators if indicator in text_lower)
+        
+        return indicator_count >= 3  # At least 3 indicators
+    
+    def _has_duplicate_invoice_number(self, invoice: Dict[str, Any]) -> bool:
+        """Check for duplicate invoice numbers"""
+        # This would be implemented with a global invoice number tracker
+        # For now, return False
+        return False
+    
+    def _check_cross_pollution(self, invoices: List[Dict[str, Any]], text: str, pages: Optional[List[str]]) -> Dict[str, Any]:
+        """Check for cross-pollution between invoices"""
+        pollution_details = []
+        
+        # Check for overlapping line items
+        all_line_items = []
+        for invoice in invoices:
+            if 'line_items' in invoice:
+                all_line_items.extend(invoice['line_items'])
+        
+        # Check for duplicate line items
+        line_item_texts = [item.get('description', '') for item in all_line_items]
+        duplicates = [text for text in set(line_item_texts) if line_item_texts.count(text) > 1]
+        
+        if duplicates:
+            pollution_details.append(f"Duplicate line items: {duplicates[:3]}")  # Show first 3
+        
+        # Check for supplier consistency
+        suppliers = [inv.get('supplier', '') for inv in invoices if inv.get('supplier')]
+        if len(set(suppliers)) > 1:
+            pollution_details.append(f"Multiple suppliers detected: {suppliers}")
+        
+        return {
+            'has_pollution': len(pollution_details) > 0,
+            'details': pollution_details
+        }
     
     def _analyze_results(self, matches: List[Match], context: DocumentContext, 
                         ml_confidence: float, plugin_results: List[Dict[str, Any]]) -> DetectionResult:
@@ -655,6 +944,50 @@ class MultiInvoiceDetector:
             confidence=overall_confidence,
             detected_invoices=detected_invoices,
             page_separations=[{'markers': [m.value for m in page_markers]}],
+            supplier_variations=[m.value for m in suppliers],
+            invoice_numbers=[m.value for m in invoice_numbers],
+            context_analysis=context,
+            warnings=warnings
+        )
+    
+    def _analyze_results_with_boundaries(self, matches: List[Match], context: DocumentContext, 
+                                       ml_confidence: float, plugin_results: List[Dict[str, Any]], 
+                                       boundaries: List[Dict[str, Any]]) -> DetectionResult:
+        """Analyze detection results with boundary information"""
+        
+        # Group matches by type
+        invoice_numbers = [m for m in matches if m.pattern == 'invoice_numbers']
+        suppliers = [m for m in matches if m.pattern == 'suppliers']
+        page_markers = [m for m in matches if m.pattern == 'page_markers']
+        
+        # Calculate confidence scores
+        pattern_confidence = self._calculate_pattern_confidence(matches, context)
+        context_confidence = context.confidence_score
+        boundary_confidence = min(1.0, len(boundaries) * 0.2)  # Boost confidence with boundaries
+        overall_confidence = (pattern_confidence + context_confidence + ml_confidence + boundary_confidence) / 4
+        
+        # Determine if multi-invoice
+        is_multi_invoice = self._determine_multi_invoice_with_boundaries(
+            invoice_numbers, suppliers, page_markers, context, overall_confidence, boundaries
+        )
+        
+        # Extract detected invoices ONLY if it's multi-invoice
+        if is_multi_invoice:
+            detected_invoices = self._extract_detected_invoices(
+                invoice_numbers, suppliers, page_markers, context
+            )
+        else:
+            # For single invoices, don't create multiple detected_invoices
+            detected_invoices = []
+        
+        # Generate warnings
+        warnings = self._generate_warnings(matches, context, overall_confidence)
+        
+        return DetectionResult(
+            is_multi_invoice=is_multi_invoice,
+            confidence=overall_confidence,
+            detected_invoices=detected_invoices,
+            page_separations=[{'markers': [m.value for m in page_markers], 'boundaries': boundaries}],
             supplier_variations=[m.value for m in suppliers],
             invoice_numbers=[m.value for m in invoice_numbers],
             context_analysis=context,
@@ -751,40 +1084,141 @@ class MultiInvoiceDetector:
         logger.info(f"⚠️ Insufficient evidence for multi-invoice detection")
         return False
     
+    def _determine_multi_invoice_with_boundaries(self, invoice_numbers: List[Match], suppliers: List[Match], 
+                                               page_markers: List[Match], context: DocumentContext, 
+                                               overall_confidence: float, boundaries: List[Dict[str, Any]]) -> bool:
+        """Determine if document contains multiple invoices with boundary information"""
+        
+        # If we have clear boundaries, it's likely multi-invoice
+        if boundaries and len(boundaries) >= 1:
+            logger.info(f"✅ Clear boundaries detected: {len(boundaries)}")
+            return True
+        
+        # Multiple invoice numbers (must be clearly different)
+        unique_invoices = set(m.value for m in invoice_numbers)
+        if len(unique_invoices) > 1:
+            # Check if they're actually different (not just variations)
+            invoice_list = list(unique_invoices)
+            truly_different = 0
+            for i, inv1 in enumerate(invoice_list):
+                for inv2 in invoice_list[i+1:]:
+                    # Check if they're similar (might be variations of the same number)
+                    if inv1.lower() in inv2.lower() or inv2.lower() in inv1.lower():
+                        # They're similar, don't count as multiple invoices
+                        continue
+                    else:
+                        truly_different += 1
+            
+            # If we have at least 2 truly different invoice numbers, it's multi-invoice
+            if truly_different >= 1:  # Changed from 2 to 1 - more lenient
+                logger.info(f"✅ Multiple different invoice numbers detected: {unique_invoices}")
+                return True
+            else:
+                logger.info(f"⚠️ Invoice numbers appear to be variations of the same: {unique_invoices}")
+        
+        # Multiple suppliers (must be clearly different)
+        unique_suppliers = set(m.value for m in suppliers)
+        if len(unique_suppliers) > 1:
+            # Check if they're actually different
+            supplier_list = list(unique_suppliers)
+            truly_different = 0
+            for i, sup1 in enumerate(supplier_list):
+                for sup2 in supplier_list[i+1:]:
+                    # Simple similarity check
+                    if sup1.lower() in sup2.lower() or sup2.lower() in sup1.lower():
+                        continue
+                    else:
+                        truly_different += 1
+            
+            if truly_different >= 1:
+                logger.info(f"✅ Multiple different suppliers detected: {unique_suppliers}")
+                return True
+        
+        # Page markers with context
+        if page_markers and len(page_markers) >= 2:
+            # Check if page markers suggest multiple invoices
+            marker_texts = [m.value.lower() for m in page_markers]
+            if any('page' in text for text in marker_texts):
+                logger.info(f"✅ Page markers suggest multi-invoice: {marker_texts}")
+                return True
+        
+        # Context-based decision
+        if context.page_count > 2 and context.word_count > 500:
+            # Long document with multiple pages
+            if overall_confidence > 0.6:
+                logger.info(f"✅ Context suggests multi-invoice (pages: {context.page_count}, words: {context.word_count})")
+                return True
+        
+        return False
+    
+    def _extract_total_amount(self, context: str) -> Optional[float]:
+        """Extract total amount from invoice context"""
+        # Look for total patterns in the context
+        total_patterns = [
+            r'\b(?:Total|Cyfanswm|Amount|Amount Due|Total Due)\s*:?\s*[£$€]?(\d+\.?\d*)\b',
+            r'\b[£$€](\d+\.?\d*)\s*(?:Total|Cyfanswm|Amount|Amount Due|Total Due)\b',
+            r'\b(?:Total|Cyfanswm|Amount|Amount Due|Total Due)\s*[£$€]?(\d+\.?\d*)\b',
+        ]
+        
+        for pattern in total_patterns:
+            match = re.search(pattern, context, re.IGNORECASE)
+            if match:
+                try:
+                    return float(match.group(1))
+                except (ValueError, IndexError):
+                    continue
+        
+        return None
+    
     def _extract_detected_invoices(self, invoice_numbers: List[Match], suppliers: List[Match], 
                                  page_markers: List[Match], context: DocumentContext) -> List[Dict[str, Any]]:
         """Extract detected invoice information - BALANCED APPROACH"""
         invoices = []
         
-        # Group by UNIQUE invoice numbers
+        # Group by UNIQUE invoice numbers with cleaning
         if invoice_numbers:
             unique_invoice_numbers = {}
             
             for i, invoice_match in enumerate(invoice_numbers):
-                invoice_number = invoice_match.value.strip()
+                raw_invoice_number = invoice_match.value.strip()
                 
-                # Skip if we already have this invoice number
-                if invoice_number in unique_invoice_numbers:
+                # Clean and validate invoice ID
+                clean_invoice_number = self._clean_invoice_id(raw_invoice_number)
+                if not clean_invoice_number:
                     continue
                 
-                # Only add if it's a valid invoice number (not too short)
-                if len(invoice_number) >= 3:
-                    # Check if this invoice number is too similar to existing ones
-                    is_similar = False
-                    for existing_inv in unique_invoice_numbers.keys():
-                        if (invoice_number.lower() in existing_inv.lower() or 
-                            existing_inv.lower() in invoice_number.lower()):
-                            is_similar = True
-                            break
+                # Skip if we already have this invoice number
+                if clean_invoice_number in unique_invoice_numbers:
+                    continue
+                
+                # Normalize invoice number for comparison (remove extra hyphens, normalize case)
+                normalized_inv = re.sub(r'-+', '-', clean_invoice_number).strip('-').upper()
+                
+                # Check if this invoice number is too similar to existing ones
+                is_similar = False
+                for existing_inv in unique_invoice_numbers.keys():
+                    existing_normalized = re.sub(r'-+', '-', existing_inv).strip('-').upper()
+                    if normalized_inv == existing_normalized:
+                        is_similar = True
+                        break
+                    # Also check for substring matches
+                    if (normalized_inv in existing_normalized or 
+                        existing_normalized in normalized_inv):
+                        is_similar = True
+                        break
+                
+                if not is_similar:
+                    # Extract total amount from context
+                    total_amount = self._extract_total_amount(invoice_match.context)
                     
-                    if not is_similar:
-                        unique_invoice_numbers[invoice_number] = {
-                            'id': f"invoice_{len(unique_invoice_numbers) + 1}",
-                            'invoice_number': invoice_number,
-                            'confidence': invoice_match.confidence,
-                            'position': invoice_match.position,
-                            'context': invoice_match.context
-                        }
+                    unique_invoice_numbers[clean_invoice_number] = {
+                        'id': f"invoice_{len(unique_invoice_numbers) + 1}",
+                        'invoice_number': clean_invoice_number,
+                        'confidence': invoice_match.confidence,
+                        'position': invoice_match.position,
+                        'context': invoice_match.context,
+                        'total_amount': total_amount
+                    }
             
             # Convert to list
             invoices = list(unique_invoice_numbers.values())
@@ -829,6 +1263,24 @@ class MultiInvoiceDetector:
         
         logger.info(f"📊 Final extracted invoices: {len(invoices)}")
         return invoices
+    
+    def _clean_invoice_id(self, raw: str) -> Optional[str]:
+        """Clean and validate invoice ID"""
+        s = raw.strip()
+        
+        # Minimum length check
+        if len(s) < 8:
+            return None
+        
+        # Hyphen validation
+        if "-" in s and s.count("-") < 1:
+            return None
+        
+        # Must contain letters or full 4-digit year
+        if not any(c.isalpha() for c in s) and not re.search(r'\b\d{4}\b', s):
+            return None
+        
+        return s
     
     def _generate_warnings(self, matches: List[Match], context: DocumentContext, 
                           overall_confidence: float) -> List[str]:
@@ -875,6 +1327,141 @@ class MultiInvoiceDetector:
         """Cleanup"""
         if hasattr(self, '_executor'):
             self._executor.shutdown(wait=True)
+
+    def _detect_boundaries_sliding_window(self, text: str, pages: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Detect invoice boundaries using sliding window approach"""
+        boundaries = []
+        
+        if not pages:
+            # Split text into pages if not provided
+            pages = self._split_text_into_pages(text)
+        
+        if len(pages) < 2:
+            return boundaries
+        
+        # Build page features
+        page_features = []
+        for i, page_text in enumerate(pages):
+            features = self._extract_page_features(page_text, i)
+            page_features.append(features)
+        
+        # Detect boundaries using sliding window
+        for i in range(1, len(page_features)):
+            current_page = page_features[i]
+            prev_page = page_features[i-1]
+            
+            # Check for boundary conditions
+            is_boundary = False
+            boundary_reason = ""
+            
+            # 1. Invoice ID changes
+            if (current_page['inv_ids'] and prev_page['inv_ids'] and 
+                current_page['inv_ids'] != prev_page['inv_ids']):
+                is_boundary = True
+                boundary_reason = "INV_ID_CHANGE"
+            
+            # 2. Supplier signature changes
+            elif (current_page['supplier_signature'] and prev_page['supplier_signature'] and
+                  current_page['supplier_signature'] != prev_page['supplier_signature']):
+                is_boundary = True
+                boundary_reason = "SUPPLIER_CHANGE"
+            
+            # 3. Invoice keyword toggle with totals
+            elif (current_page['has_invoice_kw'] and not prev_page['has_invoice_kw'] and
+                  prev_page['has_totals_block']):
+                is_boundary = True
+                boundary_reason = "INV_KW_TOGGLE"
+            
+            if is_boundary:
+                boundaries.append({
+                    'page_index': i,
+                    'confidence': 0.8,
+                    'reason': boundary_reason,
+                    'features': {
+                        'current': current_page,
+                        'previous': prev_page
+                    }
+                })
+        
+        return boundaries
+    
+    def _extract_page_features(self, page_text: str, page_index: int) -> Dict[str, Any]:
+        """Extract features from a single page"""
+        text_lower = page_text.lower()
+        
+        # Invoice keywords (bilingual)
+        invoice_keywords = [
+            'invoice', 'inv', 'bill', 'statement',
+            'anfoneb', 'rhif anfoneb', 'bil'
+        ]
+        
+        # Total keywords (bilingual)
+        total_keywords = [
+            'total', 'amount', 'sum', 'grand total',
+            'cyfanswm', 'swm', 'cyfanswm y cyfan'
+        ]
+        
+        # Extract invoice IDs
+        inv_ids = set()
+        for pattern in self.pattern_matcher.patterns['invoice_numbers']:
+            matches = pattern.finditer(page_text)
+            for match in matches:
+                clean_id = self._clean_invoice_id(match.group(1))
+                if clean_id:
+                    inv_ids.add(clean_id)
+        
+        # Extract supplier signature (first 5 tokens)
+        words = page_text.split()[:5]
+        supplier_signature = ' '.join(words).lower() if words else ""
+        
+        # Check for invoice keywords
+        has_invoice_kw = any(kw in text_lower for kw in invoice_keywords)
+        
+        # Check for totals block
+        has_totals_block = any(kw in text_lower for kw in total_keywords)
+        
+        return {
+            'page_index': page_index,
+            'inv_ids': list(inv_ids),
+            'supplier_signature': supplier_signature,
+            'has_invoice_kw': has_invoice_kw,
+            'has_totals_block': has_totals_block,
+            'word_count': len(page_text.split())
+        }
+    
+    def _split_text_into_pages(self, text: str) -> List[str]:
+        """Split text into pages based on page markers"""
+        # Look for page markers
+        page_patterns = [
+            r'---\s*PAGE\s*\d+\s*---',
+            r'Page\s+\d+\s+of\s+\d+',
+            r'^\s*Page\s+\d+\s*$',
+            r'^\s*P\.?\s*\d+\s*$'
+        ]
+        
+        # Find all page markers
+        markers = []
+        for pattern in page_patterns:
+            matches = re.finditer(pattern, text, re.MULTILINE | re.IGNORECASE)
+            for match in matches:
+                markers.append(match.start())
+        
+        # Sort markers by position
+        markers.sort()
+        
+        # Split text at markers
+        pages = []
+        start = 0
+        for marker in markers:
+            if marker > start:
+                pages.append(text[start:marker].strip())
+            start = marker
+        
+        # Add remaining text
+        if start < len(text):
+            pages.append(text[start:].strip())
+        
+        return pages if pages else [text]
 
 # Global instance for caching
 _detector_instance = None

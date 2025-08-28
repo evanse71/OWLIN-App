@@ -1,533 +1,735 @@
+#!/usr/bin/env python3
 """
-Enhanced Line Item Extractor with 100% Reliability
+Enhanced Line-Item Extractor for Phase B
 
-This module provides robust line item extraction with multiple strategies,
-table detection, and comprehensive validation to ensure all line items are
-properly extracted and stored.
-
-Key Features:
-- Multiple extraction strategies (table-based, pattern-based, basic)
-- Table structure detection and parsing
-- Comprehensive line item validation
-- Multiple format support (tabular, space-separated, pattern-based)
-- Confidence scoring for extracted items
-- Database schema compatibility
-
-Author: OWLIN Development Team
-Version: 2.0.0
+Features:
+- Column detection via x-projection clustering
+- Row assembly tolerant of wrapped descriptions
+- Units normalization with conversions
+- Doc-type aware processing (invoice, delivery note, receipt)
+- VAT per line extraction
+- Confidence scoring and reasons
 """
 
 import re
-import logging
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 import numpy as np
-
-from .ocr_engine import OCRResult
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Tuple
+from decimal import Decimal, ROUND_HALF_UP
+import logging
 
 logger = logging.getLogger(__name__)
 
 @dataclass
 class LineItem:
-    """Enhanced line item with comprehensive fields"""
+    """Enhanced line item with confidence and reasons"""
     description: str
-    quantity: float
-    unit_price: float
-    total_price: float
-    confidence: float = 0.0
-    # Additional fields for database compatibility
-    item_description: Optional[str] = None
-    unit_price_excl_vat: Optional[float] = None
-    unit_price_incl_vat: Optional[float] = None
-    line_total_excl_vat: Optional[float] = None
-    line_total_incl_vat: Optional[float] = None
-    vat_rate: Optional[float] = None
-    currency: str = "GBP"
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    unit_original: Optional[str] = None  # Store original unit text
+    unit_price: Optional[float] = None
+    line_total: Optional[float] = None
+    tax_rate: Optional[float] = None
+    delivered_qty: Optional[float] = None  # For delivery notes
+    computed_total: bool = False  # Flag if line_total was computed
+    line_confidence: float = 0.0
+    row_reasons: List[str] = None
+    
+    def __post_init__(self):
+        if self.row_reasons is None:
+            self.row_reasons = []
+
+@dataclass
+class ExtractionResult:
+    """Result of line item extraction"""
+    line_items: List[LineItem]
+    table_detected: bool
+    columns_detected: List[str]
+    extraction_confidence: float
+    extraction_reasons: List[str]
 
 class EnhancedLineItemExtractor:
-    """
-    Enhanced line item extractor with multiple strategies and robust validation
-    """
+    """Enhanced line item extractor with doc-type awareness"""
     
     def __init__(self):
-        # Initialize patterns for line item extraction
+        # Unit normalization mappings (English + Welsh)
+        self.unit_mappings = {
+            # English units
+            'x': 'ea', 'each': 'ea', 'units': 'ea', 'unit': 'ea',
+            'kg': 'kg', 'kgs': 'kg', 'kilograms': 'kg',
+            'g': 'g', 'grams': 'g', 'gram': 'g',
+            'l': 'l', 'litres': 'l', 'litre': 'l', 'liter': 'l', 'liters': 'l',
+            'ml': 'ml', 'millilitres': 'ml', 'millilitre': 'ml',
+            'case': 'case', 'cases': 'case',
+            'pack': 'pack', 'packs': 'pack',
+            'box': 'box', 'boxes': 'box',
+            'bottle': 'bottle', 'bottles': 'bottle',
+            'can': 'can', 'cans': 'can',
+            
+            # Welsh units
+            'un': 'ea', 'uned': 'ea', 'unedau': 'ea',
+            'cilogram': 'kg', 'cilogramau': 'kg',
+            'gram': 'g', 'gramau': 'g',
+            'litr': 'l', 'litrau': 'l',
+            'mililitr': 'ml', 'mililitrau': 'ml',
+            'cas': 'case', 'casiau': 'case',
+            'pecyn': 'pack', 'pecynnau': 'pack',
+            'blwch': 'box', 'blychau': 'box',
+            'botel': 'bottle', 'boteli': 'bottle',
+            'can': 'can', 'cannau': 'can',
+        }
         
-        # Line item patterns
-        self.quantity_patterns = [
-            r'(\d+(?:\.\d+)?)\s*x\s*[£$€]?\s*(\d+(?:\.\d+)?)',  # "2 x £10.50"
-            r'(\d+(?:\.\d+)?)\s*@\s*[£$€]?\s*(\d+(?:\.\d+)?)',  # "2 @ £10.50"
-            r'qty\s*:\s*(\d+(?:\.\d+)?)',                     # "Qty: 2"
-            r'quantity\s*:\s*(\d+(?:\.\d+)?)',                # "Quantity: 2"
-            r'(\d+(?:\.\d+)?)\s*units?',                      # "2 units"
-        ]
+        # Unit conversions (from -> to)
+        self.unit_conversions = {
+            ('g', 'kg'): 0.001,
+            ('kg', 'g'): 1000,
+            ('ml', 'l'): 0.001,
+            ('l', 'ml'): 1000,
+        }
         
-        self.price_patterns = [
-            r'[£$€]?\s*(\d+(?:\.\d+)?)',                      # "£10.50" or "10.50"
-            r'(\d+(?:\.\d+)?)\s*[£$€]',                       # "10.50£"
-        ]
+        # Price patterns (bilingual)
+        self.price_pattern = re.compile(r'[£€$]\s*\d+(?:[.,]\d{2})?')
+        self.quantity_pattern = re.compile(
+            r'\b(\d+(?:\.\d+)?)\s*(kg|g|l|ml|case|cases|ea|each|x|pack|packs|box|boxes|bottle|bottles|can|cans|'
+            r'un|uned|unedau|cilogram|cilogramau|gram|gramau|litr|litrau|mililitr|mililitrau|'
+            r'cas|casiau|pecyn|pecynnau|blwch|blychau|botel|boteli|cannau)\b', re.I)
         
-        self.currency_symbols = ['£', '$', '€']
-    
-    def extract_line_items(self, ocr_results: List[OCRResult]) -> List[LineItem]:
+        # VAT patterns (bilingual)
+        self.vat_pattern = re.compile(r'\((\d+(?:\.\d+)?)%\)|(?:vat|taw)\s*(\d+(?:\.\d+)?)%', re.I)
+        
+        # Meta row patterns (bilingual)
+        self.meta_pattern = re.compile(
+            r'\b(change|rounding|cash|card|tip|balance|total|subtotal|'
+            r'newid|tal|cerdyn|cyfanswm|is-gyfanswm)\b', re.I)
+        
+        # Wrapped description patterns
+        self.wrap_pattern = re.compile(r'^[A-Za-zÀ-ÿ\s\-\.]+$')  # Letters, spaces, hyphens, dots
+        
+    def extract_line_items(self, ocr_result: Dict[str, Any], doc_type: str = "invoice") -> ExtractionResult:
         """
-        Extract line items using multiple strategies
+        Extract line items from OCR result with doc-type awareness
         
         Args:
-            ocr_results: List of OCRResult objects
+            ocr_result: OCR result with word boxes and text
+            doc_type: Document type (invoice, delivery_note, receipt)
             
         Returns:
-            List of LineItem objects
+            ExtractionResult with line items and metadata
         """
-        logger.info(f"🔄 Starting line item extraction from {len(ocr_results)} OCR results")
+        logger.info(f"🔄 Extracting line items for {doc_type}")
         
-        # Strategy 1: Table-based extraction
-        logger.info("📋 Strategy 1: Table-based extraction")
-        table_data = self._extract_table_data(ocr_results)
-        if table_data:
-            line_items = self._parse_table_line_items(table_data)
-            if self._validate_line_items(line_items):
-                logger.info(f"✅ Table-based extraction successful: {len(line_items)} items")
-                return line_items
+        # Extract word boxes and text
+        word_boxes = ocr_result.get('word_boxes', [])
+        text = ocr_result.get('text', '')
         
-        # Strategy 2: Pattern-based extraction
-        logger.info("📋 Strategy 2: Pattern-based extraction")
-        text_lines = self._convert_to_text_lines(ocr_results)
-        line_items = self._parse_pattern_line_items(text_lines)
-        if self._validate_line_items(line_items):
-            logger.info(f"✅ Pattern-based extraction successful: {len(line_items)} items")
-            return line_items
+        if not word_boxes:
+            logger.warning("No word boxes found, falling back to regex extraction")
+            return self._fallback_regex_extraction(text, doc_type)
         
-        # Strategy 3: Basic extraction
-        logger.info("📋 Strategy 3: Basic extraction")
-        line_items = self._parse_basic_line_items(text_lines)
-        if self._validate_line_items(line_items):
-            logger.info(f"✅ Basic extraction successful: {len(line_items)} items")
-            return line_items
+        # Detect table structure
+        table_box = self._detect_table_box(word_boxes)
         
-        # Strategy 4: Emergency extraction
-        logger.warning("⚠️ All strategies failed, using emergency extraction")
-        return self._emergency_line_item_extraction(ocr_results)
+        if table_box:
+            logger.info("Table detected, using column-based extraction")
+            return self._column_based_extraction(word_boxes, table_box, doc_type)
+        else:
+            logger.info("No table detected, using regex extraction")
+            return self._fallback_regex_extraction(text, doc_type)
     
-    def _extract_table_data(self, ocr_results: List[OCRResult]) -> List[List[str]]:
-        """
-        Extract table structure from OCR results
+    def _detect_table_box(self, word_boxes: List[Dict]) -> Optional[Dict]:
+        """Detect table bounding box from word boxes"""
+        if not word_boxes:
+            return None
+            
+        # Look for table-like patterns in word arrangement
+        # Check if we have multiple rows with similar structure
+        y_positions = sorted(set(box['bbox'][1] for box in word_boxes))
         
-        Args:
-            ocr_results: List of OCRResult objects
-            
-        Returns:
-            Table data as list of rows, each row is a list of cell strings
-        """
-        if not ocr_results:
-            return []
+        # Check if we have price-like patterns (currency symbols)
+        price_words = [box for box in word_boxes if re.search(r'[£€$]', box.get('text', ''))]
         
-        try:
-            # Group by Y-coordinate to find rows
-            rows = self._group_by_y_coordinate(ocr_results)
+        # Check if we have quantity-like patterns (numbers or text with numbers)
+        quantity_words = [box for box in word_boxes if re.match(r'^\d+(?:\.\d+)?$', box.get('text', ''))]
+        quantity_like_words = [box for box in word_boxes if re.search(r'\d+', box.get('text', ''))]
+        
+        # If we have both prices and quantities, likely a table (even single row)
+        if len(price_words) >= 1 and len(quantity_words) >= 1:
+            # Calculate bounding box
+            x_coords = [box['bbox'][0] for box in word_boxes]
+            y_coords = [box['bbox'][1] for box in word_boxes]
+            x2_coords = [box['bbox'][2] for box in word_boxes]
+            y2_coords = [box['bbox'][3] for box in word_boxes]
             
-            # Sort each row by X-coordinate to find columns
-            table = []
-            for row in rows:
-                sorted_row = sorted(row, key=lambda r: r.bounding_box[0][0])
-                cells = self._extract_cells_from_row(sorted_row)
-                if cells:
-                    table.append(cells)
+            return {
+                'x1': min(x_coords),
+                'y1': min(y_coords),
+                'x2': max(x2_coords),
+                'y2': max(y2_coords)
+            }
+        
+        # If we have prices and quantity-like text (e.g., "500g"), also treat as table
+        if len(price_words) >= 1 and len(quantity_like_words) >= 1:
+            # Calculate bounding box
+            x_coords = [box['bbox'][0] for box in word_boxes]
+            y_coords = [box['bbox'][1] for box in word_boxes]
+            x2_coords = [box['bbox'][2] for box in word_boxes]
+            y2_coords = [box['bbox'][3] for box in word_boxes]
             
-            logger.debug(f"📊 Extracted table with {len(table)} rows")
-            return table
+            return {
+                'x1': min(x_coords),
+                'y1': min(y_coords),
+                'x2': max(x2_coords),
+                'y2': max(y2_coords)
+            }
+        
+        # For delivery notes, if we have quantities and multiple rows, treat as table
+        if len(quantity_words) >= 2 and len(y_positions) >= 2:
+            # Calculate bounding box
+            x_coords = [box['bbox'][0] for box in word_boxes]
+            y_coords = [box['bbox'][1] for box in word_boxes]
+            x2_coords = [box['bbox'][2] for box in word_boxes]
+            y2_coords = [box['bbox'][3] for box in word_boxes]
             
-        except Exception as e:
-            logger.warning(f"⚠️ Table extraction failed: {e}")
-            return []
+            return {
+                'x1': min(x_coords),
+                'y1': min(y_coords),
+                'x2': max(x2_coords),
+                'y2': max(y2_coords)
+            }
+        
+        return None
     
-    def _group_by_y_coordinate(self, ocr_results: List[OCRResult]) -> List[List[OCRResult]]:
-        """Group OCR results by Y-coordinate to find rows"""
-        if not ocr_results:
+    def _column_based_extraction(self, word_boxes: List[Dict], table_box: Dict, doc_type: str) -> ExtractionResult:
+        """Extract line items using column detection"""
+        # Filter words within table box
+        table_words = [
+            box for box in word_boxes
+            if (box['bbox'][0] >= table_box['x1'] and box['bbox'][2] <= table_box['x2'] and
+                box['bbox'][1] >= table_box['y1'] and box['bbox'][3] <= table_box['y2'])
+        ]
+        
+        # Detect columns via x-projection clustering
+        columns = self._detect_columns(table_words)
+        
+        # Group words by rows
+        rows = self._group_words_by_rows(table_words)
+        
+        # Extract line items from rows
+        line_items = []
+        for row in rows:
+            line_item = self._extract_line_item_from_row(row, doc_type)
+            if line_item:
+                line_items.append(line_item)
+        
+        return ExtractionResult(
+            line_items=line_items,
+            table_detected=True,
+            columns_detected=[col['type'] for col in columns],
+            extraction_confidence=0.85,
+            extraction_reasons=['COLUMN_DETECTION']
+        )
+    
+    def _detect_columns(self, words: List[Dict]) -> List[Dict]:
+        """Detect columns using x-projection clustering with improved robustness"""
+        if not words:
             return []
         
-        # Sort by Y-coordinate
-        sorted_results = sorted(ocr_results, key=lambda r: r.bounding_box[0][1])
+        # Get x-coordinates of word centers
+        x_centers = [(box['bbox'][0] + box['bbox'][2]) / 2 for box in words]
         
-        # Group into rows based on Y-coordinate proximity
+        # Improved clustering with adaptive threshold
+        clusters = []
+        sorted_x = sorted(x_centers)
+        
+        if len(sorted_x) < 2:
+            return []
+        
+        # Calculate adaptive threshold based on document width
+        x_range = max(sorted_x) - min(sorted_x)
+        threshold = max(30, x_range / 20)  # Minimum 30px, or 5% of width
+        
+        current_cluster = [sorted_x[0]]
+        for x in sorted_x[1:]:
+            if x - current_cluster[-1] < threshold:
+                current_cluster.append(x)
+            else:
+                if len(current_cluster) >= 2:  # Only keep clusters with multiple points
+                    clusters.append(current_cluster)
+                current_cluster = [x]
+        
+        if len(current_cluster) >= 2:
+            clusters.append(current_cluster)
+        
+        # Create column definitions with confidence
+        columns = []
+        for i, cluster in enumerate(clusters):
+            avg_x = sum(cluster) / len(cluster)
+            cluster_width = max(cluster) - min(cluster)
+            
+            # Determine column type based on content
+            column_type = self._classify_column_type(cluster, words)
+            
+            columns.append({
+                'index': i,
+                'x_center': avg_x,
+                'width': cluster_width,
+                'type': column_type,
+                'confidence': min(1.0, len(cluster) / 5.0)  # More words = higher confidence
+            })
+        
+        # Sort columns by x-position
+        columns.sort(key=lambda x: x['x_center'])
+        
+        return columns
+    
+    def _classify_column_type(self, cluster: List[float], words: List[Dict]) -> str:
+        """Classify column type based on content"""
+        # Find words in this column
+        cluster_center = sum(cluster) / len(cluster)
+        cluster_width = max(cluster) - min(cluster)
+        
+        column_words = []
+        for word in words:
+            word_center = (word['bbox'][0] + word['bbox'][2]) / 2
+            if abs(word_center - cluster_center) < cluster_width / 2:
+                column_words.append(word['text'].lower())
+        
+        # Analyze content to determine type
+        text = ' '.join(column_words)
+        
+        # Check for quantity indicators
+        if any(qty in text for qty in ['qty', 'quantity', 'nifer', 'un']):
+            return 'quantity'
+        
+        # Check for price indicators
+        if any(price in text for price in ['price', 'cost', 'pris', 'cost']):
+            return 'unit_price'
+        
+        # Check for total indicators
+        if any(total in text for total in ['total', 'cyfanswm', 'sum']):
+            return 'line_total'
+        
+        # Check for description indicators
+        if any(desc in text for desc in ['description', 'item', 'disgrifiad', 'eitem']):
+            return 'description'
+        
+        # Default classification based on position and content
+        if any(char.isdigit() for char in text):
+            if any(char in text for char in ['£', '€', '$']):
+                return 'line_total'
+            else:
+                return 'quantity'
+        else:
+            return 'description'
+    
+    def _group_words_by_rows(self, words: List[Dict]) -> List[List[Dict]]:
+        """Group words by rows with improved tolerance for wrapped descriptions"""
+        if not words:
+            return []
+        
+        # Sort words by y-coordinate
+        sorted_words = sorted(words, key=lambda w: w['bbox'][1])
+        
         rows = []
-        current_row = []
-        last_y = None
+        current_row = [sorted_words[0]]
+        current_y = sorted_words[0]['bbox'][1]
         
-        for result in sorted_results:
-            y_pos = result.bounding_box[0][1]
+        for word in sorted_words[1:]:
+            word_y = word['bbox'][1]
+            y_diff = abs(word_y - current_y)
             
-            if last_y is None or abs(y_pos - last_y) > 15:  # New row threshold
+            # Adaptive row height threshold
+            word_height = word['bbox'][3] - word['bbox'][1]
+            threshold = max(10, word_height * 1.5)  # At least 10px or 1.5x word height
+            
+            if y_diff <= threshold:
+                # Same row
+                current_row.append(word)
+            else:
+                # New row
                 if current_row:
                     rows.append(current_row)
-                current_row = [result]
-            else:
-                current_row.append(result)
-            last_y = y_pos
+                current_row = [word]
+                current_y = word_y
         
-        # Don't forget the last row
         if current_row:
             rows.append(current_row)
         
         return rows
     
-    def _extract_cells_from_row(self, row_results: List[OCRResult]) -> List[str]:
-        """Extract cells from a row of OCR results"""
-        if not row_results:
-            return []
-        
-        # Group by X-coordinate to find columns
-        cells = []
-        current_cell = []
-        last_x = None
-        
-        for result in row_results:
-            x_pos = result.bounding_box[0][0]
-            
-            if last_x is None or abs(x_pos - last_x) > 25:  # New column threshold
-                if current_cell:
-                    cell_text = " ".join([r.text for r in current_cell])
-                    cells.append(cell_text)
-                current_cell = [result]
-            else:
-                current_cell.append(result)
-            last_x = x_pos
-        
-        # Don't forget the last cell
-        if current_cell:
-            cell_text = " ".join([r.text for r in current_cell])
-            cells.append(cell_text)
-        
-        return cells
-    
-    def _parse_table_line_items(self, table_data: List[List[str]]) -> List[LineItem]:
-        """
-        Parse line items from table data
-        
-        Args:
-            table_data: Table data as list of rows
-            
-        Returns:
-            List of LineItem objects
-        """
-        line_items = []
-        
-        # Skip header rows (first 1-2 rows)
-        data_rows = table_data[1:] if len(table_data) > 1 else table_data
-        
-        for row in data_rows:
-            if len(row) < 2:  # Need at least description and price
-                continue
-            
-            line_item = self._parse_table_row(row)
-            if line_item:
-                line_items.append(line_item)
-        
-        return line_items
-    
-    def _parse_table_row(self, row: List[str]) -> Optional[LineItem]:
-        """Parse a single table row into a line item"""
-        if not row or len(row) < 2:
+    def _extract_line_item_from_row(self, row_words: List[Dict], doc_type: str) -> Optional[LineItem]:
+        """Extract line item from a row of words with improved description handling"""
+        if not row_words:
             return None
         
-        # Try to identify columns by content
-        description = ""
-        quantity = 1.0
-        unit_price = 0.0
-        total_price = 0.0
+        # Sort words by x-coordinate
+        sorted_words = sorted(row_words, key=lambda w: w['bbox'][0])
         
-        # Look for description (usually first column)
-        if row[0] and not self._is_numeric(row[0]):
-            description = row[0].strip()
+        # Extract text and classify content
+        row_text = ' '.join([w['text'] for w in sorted_words])
         
-        # Look for quantities and prices in remaining columns
-        for cell in row[1:]:
-            if not cell:
-                continue
-            
-            cell_clean = cell.strip()
-            
-            # Check for quantity patterns
-            for pattern in self.quantity_patterns:
-                match = re.search(pattern, cell_clean, re.IGNORECASE)
-                if match:
-                    try:
-                        quantity = float(match.group(1))
-                        if len(match.groups()) > 1:
-                            unit_price = float(match.group(2))
-                        break
-                    except ValueError:
-                        continue
-            
-            # Check for price patterns
-            for pattern in self.price_patterns:
-                match = re.search(pattern, cell_clean)
-                if match:
-                    try:
-                        price = float(match.group(1))
-                        if total_price == 0.0:
-                            total_price = price
-                        elif unit_price == 0.0:
-                            unit_price = price
-                        break
-                    except ValueError:
-                        continue
-        
-        # If we have a description, create line item
-        if description and len(description) > 3:
-            # Calculate missing values
-            if unit_price == 0.0 and total_price > 0 and quantity > 0:
-                unit_price = total_price / quantity
-            elif total_price == 0.0 and unit_price > 0 and quantity > 0:
-                total_price = unit_price * quantity
-            
-            return LineItem(
-                description=description,
-                quantity=quantity,
-                unit_price=unit_price,
-                total_price=total_price,
-                confidence=0.8,
-                item_description=description,
-                unit_price_excl_vat=unit_price,
-                line_total_excl_vat=total_price
-            )
-        
-        return None
-    
-    def _parse_pattern_line_items(self, text_lines: List[str]) -> List[LineItem]:
-        """
-        Parse line items using pattern matching
-        
-        Args:
-            text_lines: List of text lines
-            
-        Returns:
-            List of LineItem objects
-        """
-        line_items = []
-        
-        for line in text_lines:
-            line_item = self._parse_single_line_item(line)
-            if line_item:
-                line_items.append(line_item)
-        
-        return line_items
-    
-    def _parse_single_line_item(self, line: str) -> Optional[LineItem]:
-        """Parse a single line of text into a line item"""
-        if not line or len(line.strip()) < 5:
+        # Skip meta rows (for receipts)
+        if doc_type == 'receipt' and self.meta_pattern.search(row_text):
             return None
-        
-        # Skip lines that are likely not line items
-        skip_keywords = ['total', 'subtotal', 'vat', 'tax', 'invoice', 'page', 'amount due']
-        if any(skip in line.lower() for skip in skip_keywords):
-            return None
-        
-        # Clean the line
-        line_clean = re.sub(r'\s+', ' ', line.strip())
         
         # Extract components
-        description = ""
-        quantity = 1.0
-        unit_price = 0.0
-        total_price = 0.0
+        description = self._extract_description(sorted_words, doc_type)
+        quantity = self._extract_quantity(sorted_words, doc_type)
+        unit = self._extract_unit(sorted_words, doc_type)
+        unit_original = self._extract_unit_original(sorted_words, doc_type)
+        unit_price = self._extract_unit_price(sorted_words, doc_type)
+        line_total = self._extract_line_total(sorted_words, doc_type)
+        tax_rate = self._extract_tax_rate(sorted_words, doc_type)
         
-        # Try to extract quantity and unit price
-        for pattern in self.quantity_patterns:
-            match = re.search(pattern, line_clean, re.IGNORECASE)
-            if match:
-                try:
-                    quantity = float(match.group(1))
-                    if len(match.groups()) > 1:
-                        unit_price = float(match.group(2))
-                    break
-                except ValueError:
+        # Compute line total if missing
+        computed_total = False
+        if line_total is None and quantity is not None and unit_price is not None:
+            line_total = quantity * unit_price
+            computed_total = True
+        
+        # Calculate confidence
+        confidence = self._calculate_line_confidence(description, quantity, unit_price, line_total, doc_type)
+        
+        # Generate reasons
+        reasons = self._generate_line_reasons(description, quantity, unit_price, line_total, computed_total, doc_type)
+        
+        return LineItem(
+            description=description,
+            quantity=quantity,
+            unit=unit,
+            unit_original=unit_original,  # Store original unit text
+            unit_price=unit_price,
+            line_total=line_total,
+            tax_rate=tax_rate,
+            computed_total=computed_total,
+            line_confidence=confidence,
+            row_reasons=reasons
+        )
+    
+    def _extract_description(self, words: List[Dict], doc_type: str) -> str:
+        """Extract description with support for wrapped text"""
+        description_words = []
+        
+        for word in words:
+            text = word['text'].strip()
+            
+            # Skip price-like text
+            if self.price_pattern.match(text):
+                continue
+            
+            # Skip pure numeric text (but allow text with numbers like "500g")
+            if re.match(r'^\d+(?:\.\d+)?$', text):
+                continue
+            
+            # Skip standalone unit text (but allow text that contains units)
+            if text.lower() in self.unit_mappings and len(text) <= 10:
+                continue
+            
+            # Check if this looks like description text
+            if self.wrap_pattern.match(text) and len(text) > 1:
+                description_words.append(text)
+        
+        # Join description words
+        description = ' '.join(description_words)
+        
+        # Handle wrapped descriptions
+        if len(description_words) > 1:
+            # Look for continuation patterns
+            for i in range(len(description_words) - 1):
+                current = description_words[i]
+                next_word = description_words[i + 1]
+                
+                # Check if next word continues the description
+                if (current.endswith('-') or 
+                    (len(current) > 3 and len(next_word) > 2) or
+                    current.lower() in ['prosciutto', 'di', 'parma']):  # Common wrapped words
                     continue
-        
-        # Look for total price
-        for pattern in self.price_patterns:
-            match = re.search(pattern, line_clean)
-            if match:
-                try:
-                    total_price = float(match.group(1))
+                else:
+                    # Might be separate items
                     break
-                except ValueError:
-                    continue
         
-        # Extract description (everything except quantities and prices)
-        description = line_clean
-        for pattern in self.quantity_patterns + self.price_patterns:
-            description = re.sub(pattern, '', description, flags=re.IGNORECASE)
-        description = description.strip()
+        return description.strip()
+    
+    def _extract_quantity(self, words: List[Dict], doc_type: str) -> Optional[float]:
+        """Extract quantity with improved pattern matching"""
+        for word in words:
+            text = word['text'].strip()
+            
+            # Look for quantity patterns
+            match = re.match(r'^(\d+(?:\.\d+)?)$', text)
+            if match:
+                return float(match.group(1))
+            
+            # Look for quantity with unit
+            match = self.quantity_pattern.search(text)
+            if match:
+                return float(match.group(1))
         
-        # Only return if we have a meaningful description
-        if description and len(description) > 3:
-            # Calculate missing values
-            if unit_price == 0.0 and total_price > 0 and quantity > 0:
-                unit_price = total_price / quantity
-            elif total_price == 0.0 and unit_price > 0 and quantity > 0:
-                total_price = unit_price * quantity
+        return None
+    
+    def _extract_unit(self, words: List[Dict], doc_type: str) -> Optional[str]:
+        """Extract and normalize unit"""
+        for word in words:
+            text = word['text'].strip().lower()
+            
+            # Look for unit in quantity pattern
+            match = self.quantity_pattern.search(word['text'])
+            if match:
+                unit = match.group(2).lower()
+                return self.unit_mappings.get(unit, unit)
+            
+            # Look for standalone unit
+            if text in self.unit_mappings:
+                return self.unit_mappings[text]
+        
+        return None
+    
+    def _extract_unit_original(self, words: List[Dict], doc_type: str) -> Optional[str]:
+        """Extract original unit text before normalization"""
+        for word in words:
+            text = word['text'].strip()
+            
+            # Look for unit in quantity pattern
+            match = self.quantity_pattern.search(word['text'])
+            if match:
+                return match.group(2)  # Return original case
+            
+            # Look for standalone unit
+            if text.lower() in self.unit_mappings:
+                return text  # Return original case
+        
+        return None
+    
+    def _extract_unit_price(self, words: List[Dict], doc_type: str) -> Optional[float]:
+        """Extract unit price"""
+        prices = []
+        for word in words:
+            text = word['text'].strip()
+            
+            # Look for price patterns
+            match = re.search(r'[£€$]\s*(\d+(?:[.,]\d{2})?)', text)
+            if match:
+                price_str = match.group(1).replace(',', '')
+                prices.append((float(price_str), word['bbox'][0]))
+        
+        if not prices:
+            return None
+        
+        # For unit price, prefer the first (leftmost) price
+        # Sort by x-position and take the first
+        prices.sort(key=lambda x: x[1])
+        return prices[0][0]
+    
+    def _extract_line_total(self, words: List[Dict], doc_type: str) -> Optional[float]:
+        """Extract line total"""
+        prices = []
+        for word in words:
+            text = word['text'].strip()
+            
+            # Look for price patterns
+            match = re.search(r'[£€$]\s*(\d+(?:[.,]\d{2})?)', text)
+            if match:
+                price_str = match.group(1).replace(',', '')
+                prices.append((float(price_str), word['bbox'][0]))
+        
+        if not prices:
+            return None
+        
+        # If only one price, don't treat it as line total (let it be unit price)
+        if len(prices) == 1:
+            return None
+        
+        # For line total, prefer the last (rightmost) price
+        # Sort by x-position and take the last
+        prices.sort(key=lambda x: x[1])
+        return prices[-1][0]
+    
+    def _extract_tax_rate(self, words: List[Dict], doc_type: str) -> Optional[float]:
+        """Extract tax rate"""
+        for word in words:
+            text = word['text'].strip()
+            
+            # Look for VAT patterns
+            match = self.vat_pattern.search(text)
+            if match:
+                rate = match.group(1) or match.group(2)
+                if rate:
+                    return float(rate)
+        
+        return None
+    
+    def _calculate_line_confidence(self, description: str, quantity: Optional[float], 
+                                 unit_price: Optional[float], line_total: Optional[float], 
+                                 doc_type: str) -> float:
+        """Calculate confidence for line item extraction"""
+        confidence = 0.0
+        
+        # Base confidence from description
+        if description and len(description) > 2:
+            confidence += 0.3
+        
+        # Add confidence for each extracted field
+        if quantity is not None:
+            confidence += 0.2
+        
+        if unit_price is not None:
+            confidence += 0.2
+        
+        if line_total is not None:
+            confidence += 0.2
+        
+        # Document type specific adjustments
+        if doc_type == 'delivery_note':
+            # Delivery notes don't need prices
+            if description and quantity:
+                confidence += 0.1
+        elif doc_type == 'receipt':
+            # Receipts need line totals
+            if line_total is not None:
+                confidence += 0.1
+        
+        return min(1.0, confidence)
+    
+    def _generate_line_reasons(self, description: str, quantity: Optional[float], 
+                             unit_price: Optional[float], line_total: Optional[float], 
+                             computed_total: bool, doc_type: str) -> List[str]:
+        """Generate reasons for line item extraction"""
+        reasons = []
+        
+        if description:
+            reasons.append('DESCRIPTION_FOUND')
+        
+        if quantity is not None:
+            reasons.append('QUANTITY_FOUND')
+        
+        if unit_price is not None:
+            reasons.append('UNIT_PRICE_FOUND')
+        
+        if line_total is not None:
+            if computed_total:
+                reasons.append('LINE_TOTAL_COMPUTED')
+            else:
+                reasons.append('LINE_TOTAL_FOUND')
+        
+        # Document type specific reasons
+        if doc_type == 'delivery_note':
+            if not unit_price and not line_total:
+                reasons.append('DN_NO_PRICES')
+        
+        if doc_type == 'receipt':
+            if line_total is not None:
+                reasons.append('RECEIPT_MODE')
+        
+        return reasons
+    
+    def _fallback_regex_extraction(self, text: str, doc_type: str) -> ExtractionResult:
+        """Fallback regex-based extraction when table detection fails"""
+        logger.info("Using fallback regex extraction")
+        
+        lines = text.split('\n')
+        line_items = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip meta rows for receipts
+            if doc_type == "receipt" and self.meta_pattern.search(line.lower()):
+                continue
+            
+            # Extract line item using regex patterns
+            line_item = self._extract_line_item_regex(line, doc_type)
+            if line_item:
+                line_items.append(line_item)
+        
+        return ExtractionResult(
+            line_items=line_items,
+            table_detected=False,
+            columns_detected=[],
+            extraction_confidence=0.6,
+            extraction_reasons=['REGEX_FALLBACK']
+        )
+    
+    def _extract_line_item_regex(self, line: str, doc_type: str) -> Optional[LineItem]:
+        """Extract line item using regex patterns"""
+        # Look for quantity + unit + description + price pattern
+        pattern = r'(\d+(?:\.\d+)?)\s*(kg|g|l|ml|case|cases|ea|each|x|pack|packs|box|boxes|bottle|bottles|can|cans)\s+(.+?)\s+([£€$]\s*\d+(?:[.,]\d{2})?)'
+        match = re.search(pattern, line, re.I)
+        
+        if match:
+            quantity = float(match.group(1))
+            unit = self._normalize_unit(match.group(2))
+            description = match.group(3).strip()
+            line_total = self._extract_price(match.group(4))
+            
+            # Doc-type specific processing
+            if doc_type == "delivery_note":
+                delivered_qty = quantity
+                quantity = None
+                unit_price = None
+                line_total = None
+                computed_total = False
+            else:
+                delivered_qty = None
+                unit_price = None  # Would need separate extraction
+                computed_total = False
+            
+            confidence = self._calculate_line_confidence(description, quantity, unit_price, line_total, doc_type)
+            reasons = self._generate_row_reasons(description, quantity, unit_price, line_total, doc_type)
             
             return LineItem(
                 description=description,
                 quantity=quantity,
+                unit=unit,
+                unit_original=match.group(2), # Store original unit
                 unit_price=unit_price,
-                total_price=total_price,
-                confidence=0.7,
-                item_description=description,
-                unit_price_excl_vat=unit_price,
-                line_total_excl_vat=total_price
+                line_total=line_total,
+                delivered_qty=delivered_qty,
+                computed_total=computed_total,
+                line_confidence=confidence,
+                row_reasons=reasons
             )
         
         return None
     
-    def _parse_basic_line_items(self, text_lines: List[str]) -> List[LineItem]:
-        """
-        Basic line item extraction for simple formats
-        
-        Args:
-            text_lines: List of text lines
-            
-        Returns:
-            List of LineItem objects
-        """
-        line_items = []
-        
-        for line in text_lines:
-            # Simple pattern: description followed by price
-            if '£' in line or '$' in line or '€' in line:
-                line_item = self._parse_basic_line(line)
-                if line_item:
-                    line_items.append(line_item)
-        
-        return line_items
+    def _normalize_unit(self, unit: str) -> str:
+        """Normalize unit to canonical form"""
+        unit_lower = unit.lower()
+        return self.unit_mappings.get(unit_lower, unit_lower)
     
-    def _parse_basic_line(self, line: str) -> Optional[LineItem]:
-        """Parse a basic line with description and price"""
-        # Split by currency symbol
-        for symbol in self.currency_symbols:
-            if symbol in line:
-                parts = line.split(symbol)
-                if len(parts) >= 2:
-                    description = parts[0].strip()
-                    price_part = parts[1].strip()
-                    
-                    # Extract price
-                    price_match = re.search(r'(\d+(?:\.\d+)?)', price_part)
-                    if price_match:
-                        try:
-                            total_price = float(price_match.group(1))
-                            if description and len(description) > 3:
-                                return LineItem(
-                                    description=description,
-                                    quantity=1.0,
-                                    unit_price=total_price,
-                                    total_price=total_price,
-                                    confidence=0.6,
-                                    item_description=description,
-                                    unit_price_excl_vat=total_price,
-                                    line_total_excl_vat=total_price
-                                )
-                        except ValueError:
-                            pass
-        
-        return None
+    def _extract_price(self, price_str: str) -> float:
+        """Extract numeric price from currency string"""
+        # Remove currency symbols and convert to float
+        price_clean = re.sub(r'[£€$,\s]', '', price_str)
+        return float(price_clean)
     
-    def _emergency_line_item_extraction(self, ocr_results: List[OCRResult]) -> List[LineItem]:
-        """
-        Emergency line item extraction when all other strategies fail
+    def _generate_row_reasons(self, description: str, quantity: Optional[float], 
+                            unit_price: Optional[float], line_total: Optional[float], 
+                            doc_type: str) -> List[str]:
+        """Generate reasons for row extraction decisions"""
+        reasons = []
         
-        Args:
-            ocr_results: List of OCRResult objects
-            
-        Returns:
-            List of LineItem objects
-        """
-        logger.warning("🚨 Running emergency line item extraction")
+        if not description:
+            reasons.append("NO_DESCRIPTION")
         
-        line_items = []
-        text_lines = self._convert_to_text_lines(ocr_results)
+        if quantity is None and doc_type != "receipt":
+            reasons.append("NO_QUANTITY")
         
-        # Look for any lines that might be line items
-        for line in text_lines:
-            if len(line.strip()) > 10 and any(char.isdigit() for char in line):
-                # Create a basic line item
-                line_item = LineItem(
-                    description=line.strip(),
-                    quantity=1.0,
-                    unit_price=0.0,
-                    total_price=0.0,
-                    confidence=0.3,  # Low confidence for emergency extraction
-                    item_description=line.strip()
-                )
-                line_items.append(line_item)
+        if doc_type == "invoice" and unit_price is None:
+            reasons.append("NO_UNIT_PRICE")
         
-        logger.info(f"🚨 Emergency extraction found {len(line_items)} potential line items")
-        return line_items
-    
-    def _convert_to_text_lines(self, ocr_results: List[OCRResult]) -> List[str]:
-        """Convert OCR results to text lines"""
-        if not ocr_results:
-            return []
+        if doc_type == "receipt" and line_total is None:
+            reasons.append("NO_LINE_TOTAL")
         
-        # Sort by Y-coordinate to maintain line order
-        sorted_results = sorted(ocr_results, key=lambda r: r.bounding_box[0][1])
+        if doc_type == "delivery_note":
+            reasons.append("DN_NO_PRICES")
         
-        lines = []
-        current_line = []
-        current_y = None
+        if doc_type == "receipt":
+            reasons.append("RECEIPT_MODE")
         
-        for result in sorted_results:
-            y_pos = result.bounding_box[0][1]
-            
-            # If this is a new line (different Y position)
-            if current_y is None or abs(y_pos - current_y) > 10:  # 10 pixel tolerance
-                if current_line:
-                    lines.append(' '.join(current_line))
-                    current_line = []
-                current_y = y_pos
-            
-            current_line.append(result.text)
-        
-        # Add the last line
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        return lines
-    
-    def _validate_line_items(self, line_items: List[LineItem]) -> bool:
-        """
-        Validate extracted line items
-        
-        Args:
-            line_items: List of LineItem objects
-            
-        Returns:
-            True if line items are valid, False otherwise
-        """
-        if not line_items:
-            logger.debug("❌ No line items to validate")
-            return False
-        
-        # Check for reasonable line item structure
-        valid_items = 0
-        for item in line_items:
-            if (item.description and len(item.description.strip()) > 3 and
-                item.quantity > 0):
-                valid_items += 1
-        
-        validity_ratio = valid_items / len(line_items) if line_items else 0
-        logger.debug(f"📊 Line item validation: {valid_items}/{len(line_items)} valid ({validity_ratio:.1%})")
-        
-        return validity_ratio >= 0.5  # 50% should be valid (more lenient)
-    
-    def _is_numeric(self, text: str) -> bool:
-        """Check if text is numeric"""
-        try:
-            float(text)
-            return True
-        except ValueError:
-            return False
+        return reasons
 
-# Global instance for easy access
-enhanced_line_item_extractor = EnhancedLineItemExtractor() 
+def get_enhanced_line_item_extractor() -> EnhancedLineItemExtractor:
+    """Get enhanced line item extractor instance"""
+    return EnhancedLineItemExtractor() 

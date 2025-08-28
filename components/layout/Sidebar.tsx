@@ -1,50 +1,138 @@
-import React from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/router';
-import { Search } from 'lucide-react';
+import { useState, useEffect } from 'react'
+import { SidebarItem } from './SidebarItem'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { 
+  FileText, 
+  BarChart3, 
+  Settings, 
+  ChevronLeft, 
+  ChevronRight,
+  Download
+} from 'lucide-react'
 
-const nav = [
-  { href: '/', label: 'Dashboard', emoji: '🏠' },
-  { href: '/invoices', label: 'Invoices', emoji: '📄' },
-  { href: '/document-queue', label: 'Document Queue', emoji: '📋' },
-  { href: '/flagged', label: 'Flagged Issues', emoji: '⚠️' },
-  { href: '/suppliers', label: 'Suppliers', emoji: '🏢' },
-  { href: '/product-trends', label: 'Product Trends', emoji: '📈' },
-  { href: '/settings', label: 'Settings', emoji: '⚙️' },
-  { href: '/diagnostics/ocr', label: 'OCR Diagnostics', emoji: '🩺' },
-];
+interface SidebarProps {
+  currentRole?: 'GM' | 'Finance' | 'ShiftLead'
+  onWidthChange?: (width: number) => void
+  onToggle?: (isExpanded: boolean) => void
+}
 
-const Sidebar: React.FC = () => {
-  const router = useRouter();
-  const isActive = (href: string) => router.pathname.startsWith(href === '/' ? '/' : href);
+export function Sidebar({ 
+  currentRole = 'GM', 
+  onWidthChange, 
+  onToggle 
+}: SidebarProps) {
+  const [mounted, setMounted] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(true)
+
+  useEffect(() => {
+    setMounted(true)
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('owlin:sidebar') : null
+    if (saved === 'collapsed') setIsExpanded(false)
+    console.log("[Sidebar] mounted", typeof window !== 'undefined' ? window.innerWidth : 'SSR')
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+    localStorage.setItem('owlin:sidebar', isExpanded ? 'expanded' : 'collapsed')
+    onWidthChange?.(isExpanded ? 280 : 72)
+    onToggle?.(isExpanded)
+  }, [isExpanded, mounted, onWidthChange, onToggle])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        setIsExpanded((prev: boolean) => !prev)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const loadData = async () => {
+    try {
+      // Load any sidebar-specific data here
+    } catch (error) {
+      console.error('Failed to load sidebar data:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  if (!mounted) {
+    // render minimal shell to avoid SSR/CSR mismatch
+    return <aside className="w-[280px]" aria-hidden />
+  }
 
   return (
-    <aside
-      className="hidden md:flex md:flex-col w-[240px] shrink-0 border-r border-owlin-stroke bg-[color-mix(in_oklab,var(--owlin-card)_92%,transparent)]"
-      data-ui="sidebar"
+    <div 
+      className={`bg-background border-r transition-all duration-300 flex flex-col ${
+        isExpanded ? 'w-[280px]' : 'w-[72px]'
+      }`}
     >
-      <div className="h-14 px-4 flex items-center gap-2 border-b border-owlin-stroke">
-        <span className="w-6 h-6 rounded-full bg-owlin-sapphire inline-block" />
-        <span className="font-semibold">Owlin</span>
-      </div>
-      <nav className="p-2 space-y-1">
-        {nav.map(item => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex items-center gap-2 px-3 py-2 rounded-owlin text-sm transition-colors ${
-              isActive(item.href)
-                ? 'bg-owlin-bg text-owlin-text'
-                : 'text-owlin-muted hover:bg-owlin-bg'
-            }`}
+      {/* Header */}
+      <div className="p-4 border-b">
+        <div className="flex items-center justify-between">
+          {isExpanded && (
+            <h1 className="text-lg font-semibold">Owlin</h1>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="ml-auto"
           >
-            <span className="text-base" aria-hidden>{item.emoji}</span>
-            <span>{item.label}</span>
-          </Link>
-        ))}
-      </nav>
-    </aside>
-  );
-};
+            {isExpanded ? (
+              <ChevronLeft className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </div>
 
-export default Sidebar; 
+      {/* Navigation */}
+      <nav className="flex-1 p-4 space-y-2">
+        <SidebarItem
+          href="/invoices"
+          icon={FileText}
+          label="Invoices"
+          isExpanded={isExpanded}
+          testId="sidebar-invoices"
+        />
+        <SidebarItem
+          href="/reports"
+          icon={BarChart3}
+          label="Reports"
+          isExpanded={isExpanded}
+          testId="sidebar-reports"
+        />
+        <SidebarItem
+          href="/settings"
+          icon={Settings}
+          label="Settings"
+          isExpanded={isExpanded}
+          testId="sidebar-settings"
+        />
+      </nav>
+
+      {/* Footer */}
+      {isExpanded && (
+        <div className="p-4 border-t">
+          <Card>
+            <CardContent className="p-3">
+              <div className="text-xs text-muted-foreground">
+                <div>Role: {currentRole}</div>
+                <div>Version: 1.0.0</div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+} 
