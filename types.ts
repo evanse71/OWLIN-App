@@ -31,6 +31,7 @@ export type Invoice = {
   items?: LineItem[];       // Legacy field
   error_message?: string | null; // Error message for failed/timeout invoices
   page_range?: string | null; // Page range for multi-page documents
+  validation_flags?: string[]; // Validation flags for OCR quality
 };
 
 // Legacy types for backward compatibility

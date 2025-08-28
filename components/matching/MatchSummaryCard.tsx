@@ -1,5 +1,5 @@
 import React from 'react';
-import type { MatchSummary } from '@types/matching';
+import type { MatchSummary } from '@/types/matching';
 
 type Props = { summary: MatchSummary };
 
