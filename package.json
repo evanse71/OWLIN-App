@@ -9,12 +9,14 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "type-check:watch": "tsc --noEmit --watch",
+    "type-check:strict": "tsc --noEmit -p tsconfig.ci.json",
+    "ci": "npm run type-check:strict && npm run build && npm run lint",
     "prepare": "husky install"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
       "eslint --fix",
-      "tsc --noEmit"
+      "tsc --noEmit -p tsconfig.json"
     ],
     "*.{js,jsx}": [
       "eslint --fix"
