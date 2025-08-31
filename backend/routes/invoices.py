@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from typing import List, Dict, Optional
-from db import get_all_invoices, get_all_delivery_notes, get_db_connection
+from db_manager_unified import get_db_manager
 from ocr.parse_invoice import parse_invoice, extract_line_items
 from ocr.field_extractor import extract_invoice_metadata
 from services.invoice_query import invoice_query_service, InvoiceFilter, InvoiceSort
@@ -12,6 +12,9 @@ import json
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+# Get unified database manager
+db_manager = get_db_manager()
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -97,7 +100,7 @@ async def get_venues():
 async def get_invoice_summary():
     """Get summary statistics for invoices."""
     try:
-        invoices = get_all_invoices()
+        invoices = db_manager.get_all_invoices()
         
         total_invoices = len(invoices)
         total_value = sum(invoice.total_amount or 0 for invoice in invoices)
@@ -125,7 +128,7 @@ async def get_invoice_detail(invoice_id: str):
     logger.info(f"Fetching invoice details for ID: {invoice_id}")
     
     try:
-        conn = get_db_connection()
+        conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         
         # Get invoice details
@@ -396,7 +399,7 @@ async def update_line_item(
 ):
     """Update a single line item in an invoice"""
     try:
-        conn = get_db_connection()
+        conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         
         # Check if line item exists
@@ -452,7 +455,7 @@ async def update_flags(
 ):
     """Update flags for an invoice or specific line items"""
     try:
-        conn = get_db_connection()
+        conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         
         # Check if invoice exists
@@ -490,7 +493,7 @@ async def update_flags(
 async def extract_signatures(invoice_id: str):
     """Extract signature regions for an invoice"""
     try:
-        conn = get_db_connection()
+        conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         
         # Check if invoice exists
@@ -545,7 +548,7 @@ async def update_verification_status(
         if status not in ['unreviewed', 'needs_review', 'reviewed']:
             raise HTTPException(status_code=400, detail="Invalid verification status")
         
-        conn = get_db_connection()
+        conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute(

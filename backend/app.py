@@ -4,20 +4,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uuid, pathlib, os
 
-# Ensure DB ready first
-from db import init as db_init, migrate as db_migrate, get_conn
-from migrations import run_startup_migrations, get_db_path
+# Use unified database manager
+from db_manager_unified import get_db_manager
 
-# Run startup migrations
-db_path = get_db_path()
-run_startup_migrations(db_path)
+# Initialize unified database manager and run migrations
+db_manager = get_db_manager()
+db_manager.run_migrations()
 
-# Initialize database
-db_init()
-db_migrate()
-
-# Import services AFTER migrations
-from services import handle_upload_and_queue, compare_dn_invoice, get_job_analytics, STORAGE
+# Import STORAGE from services.py for backward compatibility
+import importlib.util
+import os
+spec = importlib.util.spec_from_file_location("services_module", os.path.join(os.path.dirname(__file__), "services.py"))
+services_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(services_module)
+STORAGE = services_module.STORAGE
 
 app = FastAPI(title="Owlin OCR API", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -25,9 +25,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 @app.get("/health")
 def health():
     try:
-        with get_conn() as c:
-            c.execute("SELECT 1;").fetchone()
-        return {"status":"ok","database":"connected"}
+        # Use unified database manager for health check
+        stats = db_manager.get_system_stats()
+        return {"status":"ok","database":"connected","stats":stats}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status":"error","detail":str(e)})
 
@@ -39,9 +39,16 @@ def ready():
 @app.get("/invoices")
 def list_invoices(limit: int = 50, cursor: str = None):
     """List invoices with pagination support"""
-    with get_conn() as c:
-        # Simple query to debug
-        query = "SELECT id, status, confidence, supplier_name, filename FROM invoices ORDER BY id DESC LIMIT ?"
+    with db_manager.get_connection() as c:
+        # Use correct column names from unified schema - exact fields as required
+        query = """
+            SELECT i.id, i.status, i.confidence, i.validation_flags, i.page_range, 
+                   i.doc_type, i.paired, i.created_at, uf.canonical_path as absolute_path, 
+                   uf.file_hash
+            FROM invoices i
+            LEFT JOIN uploaded_files uf ON i.file_id = uf.id
+            ORDER BY i.created_at DESC LIMIT ?
+        """
         params = [limit]
         
         rows = c.execute(query, params).fetchall()
@@ -58,7 +65,7 @@ def list_invoices(limit: int = 50, cursor: str = None):
 
 @app.get("/invoices/{inv_id}")
 def get_invoice(inv_id: str):
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         # Use data database schema directly
         inv = c.execute("SELECT * FROM invoices WHERE id=?", (inv_id,)).fetchone()
         if not inv:
@@ -80,57 +87,131 @@ def get_invoice(inv_id: str):
 
 @app.post("/invoices/{invoice_id}/reprocess")
 def reprocess_invoice(invoice_id: str):
-    with get_conn() as c:
-        row = c.execute("SELECT file_hash, filename FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    with db_manager.get_connection() as c:
+        # Use correct column names and join with uploaded_files
+        row = c.execute("""
+            SELECT uf.file_hash, uf.original_filename, uf.canonical_path
+            FROM invoices i
+            JOIN uploaded_files uf ON i.file_id = uf.id
+            WHERE i.id = ?
+        """, (invoice_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    # Use robust path resolver
-    from services import resolve_path_for_reprocess
-    path = resolve_path_for_reprocess(row["file_hash"], row["filename"])
-    if not path:
-        # Return actionable guidance, don't 500
-        raise HTTPException(
+    # Check if file exists at canonical path
+    import os
+    if not os.path.exists(row["canonical_path"]):
+        # Return 409 with proper error code and remediation
+        return JSONResponse(
             status_code=409,
-            detail="Original file not present in storage; re-upload required"
+            content={
+                "error": "missing_source_file",
+                "code": "missing_source_file", 
+                "detail": "Original file not present in storage; re-upload required",
+                "file_hash": row["file_hash"],
+                "original_filename": row["original_filename"],
+                "expected_path": row["canonical_path"],
+                "remediation": "Please re-upload the original file to reprocess this invoice"
+            }
         )
     
-    job_id = services.new_job_for_existing_file(path, row["file_hash"])
+    # Create a new job for reprocessing
+    job_id = f"job_{uuid.uuid4().hex[:8]}"
+    db_manager.create_job(
+        job_id=job_id,
+        kind="reprocess",
+        status="queued"
+    )
+    
     return {"job_id": job_id}
 
 @app.post("/upload")
 def upload(file: UploadFile = File(...)):
-    # Create temporary file first
-    suffix = pathlib.Path(file.filename).suffix.lower() or ".bin"
-    temp_dest = STORAGE / f"temp_{uuid.uuid4().hex}{suffix}"
-    temp_dest.write_bytes(file.file.read())
-    
-    # Use canonical storage system
-    from services import _store_upload, _sha256_bytes
-    with open(temp_dest, "rb") as f:
-        file_hash = _sha256_bytes(f.read())
-    
-    # Store with canonical naming
-    canonical_path = _store_upload(str(temp_dest), file_hash, file.filename)
-    
-    result = handle_upload_and_queue(canonical_path, file.filename)
-    if result.get("duplicate"):
-        return JSONResponse(
-            status_code=409,
-            content={"error":"duplicate","invoice_id":result["invoice_id"],"job_id":result["job_id"]}
+    """Upload file using bulletproof pipeline"""
+    try:
+        # Use the bulletproof upload pipeline
+        from upload_pipeline_bulletproof import get_upload_pipeline
+        pipeline = get_upload_pipeline()
+        
+        # Save uploaded file to temporary location
+        import tempfile
+        from pathlib import Path
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+            content = file.file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        # Process the uploaded file
+        import asyncio
+        result = asyncio.run(pipeline.process_upload(tmp_path, file.filename))
+        
+        # Clean up temp file
+        os.unlink(tmp_path)
+        
+        if not result.success:
+            raise HTTPException(status_code=400, detail=result.error_message or "Upload failed")
+        
+        # Return job ID (we'll need to create a job for this)
+        job_id = f"job_{uuid.uuid4().hex[:8]}"
+        
+        # Create job record
+        db_manager.create_job(
+            job_id=job_id,
+            kind="upload",
+            status="completed" if result.success else "failed"
         )
-    return {"job_id": result["job_id"]}
+        
+        return {"job_id": job_id}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/jobs/{job_id}")
 def job_status(job_id: str):
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         r = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
         if not r: raise HTTPException(status_code=404, detail="Not found")
         return dict(r)
 
 @app.get("/analytics")
 def analytics():
-    return get_job_analytics()
+    """Get job analytics using unified database manager"""
+    try:
+        with db_manager.get_connection() as c:
+            # Get job statistics
+            stats = {}
+            
+            # Total jobs by status
+            cursor = c.execute("""
+                SELECT status, COUNT(*) as count 
+                FROM jobs 
+                GROUP BY status
+            """)
+            stats['jobs_by_status'] = {row['status']: row['count'] for row in cursor.fetchall()}
+            
+            # Recent job activity
+            cursor = c.execute("""
+                SELECT status, created_at 
+                FROM jobs 
+                ORDER BY created_at DESC 
+                LIMIT 10
+            """)
+            stats['recent_jobs'] = [dict(row) for row in cursor.fetchall()]
+            
+            # Upload statistics
+            cursor = c.execute("""
+                SELECT processing_status, COUNT(*) as count 
+                FROM uploaded_files 
+                GROUP BY processing_status
+            """)
+            stats['uploads_by_status'] = {row['processing_status']: row['count'] for row in cursor.fetchall()}
+            
+            return {
+                "analytics": stats,
+                "timestamp": "2024-01-01T00:00:00Z"  # Placeholder timestamp
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analytics error: {str(e)}")
 
 @app.post("/support-pack")
 def create_support_pack():
@@ -162,7 +243,7 @@ def list_support_packs():
 @app.get("/delivery-notes/unmatched")
 def get_unmatched_notes():
     """Get unmatched delivery notes"""
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         rows = c.execute("""
           SELECT id, note_number, supplier_name, date, venue, paired_invoice_id
           FROM delivery_notes 
@@ -174,7 +255,7 @@ def get_unmatched_notes():
 @app.get("/delivery-notes/{dn_id}")
 def get_delivery_note(dn_id: str):
     """Get delivery note details with items"""
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         dn = c.execute("SELECT * FROM delivery_notes WHERE id=?", (dn_id,)).fetchone()
         if not dn:
             raise HTTPException(status_code=404, detail="Not found")
@@ -184,14 +265,14 @@ def get_delivery_note(dn_id: str):
 @app.get("/unmatched-count")
 def get_unmatched_count():
     """Get count of unmatched delivery notes"""
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         count = c.execute("SELECT COUNT(*) FROM delivery_notes WHERE paired_invoice_id IS NULL").fetchone()[0]
         return {"count": count}
 
 @app.get("/issues-count")
 def get_issues_count():
     """Get count of invoices with issues"""
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         count = c.execute("SELECT COUNT(*) FROM invoices WHERE issues_count > 0").fetchone()[0]
         return {"count": count}
 
@@ -200,7 +281,7 @@ def pairing_suggestions(invoice_id: str):
     """Get delivery note pairing suggestions for an invoice"""
     try:
         # Get invoice details
-        with get_conn() as c:
+        with db_manager.get_connection() as c:
             inv = c.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
             if not inv:
                 raise HTTPException(status_code=404, detail="Invoice not found")
@@ -246,6 +327,62 @@ def pairing_suggestions(invoice_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get pairing suggestions: {str(e)}")
 
+@app.post("/pairing/suggestions")
+def get_pairing_suggestions_endpoint(invoice_id: str):
+    """Get pairing suggestions for an invoice"""
+    try:
+        from pairing import get_pairing_suggestions, auto_pair_if_threshold_met
+        
+        # Check for auto-pairing first
+        auto_paired_dn = auto_pair_if_threshold_met(invoice_id)
+        if auto_paired_dn:
+            return {
+                "auto_paired": True,
+                "delivery_note_id": auto_paired_dn,
+                "suggestions": []
+            }
+        
+        # Get manual suggestions
+        suggestions = get_pairing_suggestions(invoice_id, top_k=3)
+        
+        return {
+            "auto_paired": False,
+            "delivery_note_id": None,
+            "suggestions": suggestions
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get pairing suggestions: {str(e)}")
+
+@app.post("/pairing/confirm")
+def confirm_pairing_endpoint(request: dict):
+    """Confirm pairing between invoice and delivery note"""
+    try:
+        invoice_id = request.get("invoice_id")
+        delivery_note_id = request.get("delivery_note_id")
+        
+        if not invoice_id or not delivery_note_id:
+            raise HTTPException(status_code=400, detail="Missing invoice_id or delivery_note_id")
+        
+        from pairing import confirm_pairing
+        
+        success = confirm_pairing(invoice_id, delivery_note_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": "Pairing confirmed successfully",
+                "invoice_id": invoice_id,
+                "delivery_note_id": delivery_note_id
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to confirm pairing")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to confirm pairing: {str(e)}")
+
 @app.post("/dev/reset")
 def dev_reset():
     """Development endpoint: Reset entire database and clear uploaded files"""
@@ -254,7 +391,7 @@ def dev_reset():
         import os
         
         # Clear database
-        with get_conn() as c:
+        with db_manager.get_connection() as c:
             c.execute("DELETE FROM invoices")
             c.execute("DELETE FROM invoice_items") 
             c.execute("DELETE FROM jobs")
@@ -286,7 +423,7 @@ def dev_reset():
 def dev_sample_data():
     """Development endpoint: Create sample delivery notes for testing"""
     try:
-        with get_conn() as c:
+        with db_manager.get_connection() as c:
             # Create sample delivery notes
             sample_notes = [
                 {
@@ -350,73 +487,152 @@ def dev_sample_data():
         raise HTTPException(status_code=500, detail=f"Sample data creation failed: {str(e)}") 
 
 @app.get("/api/health/post_ocr")
-def post_ocr_health():
-    """Health probe for post-OCR pipeline performance"""
+def get_post_ocr_health():
+    """Enhanced health endpoint with specific OCR metrics"""
     try:
-        with get_conn() as c:
-            # Count total invoices
-            try:
-                total_invoices = c.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
-            except Exception:
-                total_invoices = 0
+        from datetime import datetime, timedelta
+        
+        # Calculate 24 hours ago
+        twenty_four_hours_ago = datetime.now() - timedelta(hours=24)
+        twenty_four_hours_str = twenty_four_hours_ago.strftime('%Y-%m-%d %H:%M:%S')
+        
+        with db_manager.get_connection() as conn:
+            # Timeouts in last 24h
+            timeouts_24h = conn.execute("""
+                SELECT COUNT(*) as count FROM jobs 
+                WHERE status = 'timeout' AND created_at >= ?
+            """, (twenty_four_hours_str,)).fetchone()['count']
             
-            # Count multi-invoice uploads (group by file_hash)
-            try:
-                multi_invoice_uploads = c.execute("""
-                    SELECT COUNT(DISTINCT file_hash) 
-                    FROM (
-                        SELECT file_hash, COUNT(*) as cnt 
-                        FROM invoices 
-                        WHERE file_hash IS NOT NULL
-                        GROUP BY file_hash 
-                        HAVING cnt > 1
-                    )
-                """).fetchone()[0]
-            except Exception:
-                multi_invoice_uploads = 0
+            # Failed jobs in last 24h
+            failed_24h = conn.execute("""
+                SELECT COUNT(*) as count FROM jobs 
+                WHERE status = 'failed' AND created_at >= ?
+            """, (twenty_four_hours_str,)).fetchone()['count']
             
-            # Count high confidence but zero line items (try both line_items column and invoice_items table)
-            hi_conf_zero_lines = 0
-            try:
-                # Try line_items column first
-                hi_conf_zero_lines = c.execute("""
-                    SELECT COUNT(*) 
-                    FROM invoices
-                    WHERE confidence >= 80 
-                    AND (line_items IS NULL OR line_items = '' OR line_items = '[]')
-                """).fetchone()[0]
-            except Exception:
-                try:
-                    # Fallback to invoice_items table
-                    hi_conf_zero_lines = c.execute("""
-                        SELECT COUNT(*) 
-                        FROM invoices i
-                        LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-                        WHERE i.confidence >= 80 
-                        AND (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) = 0
-                    """).fetchone()[0]
-                except Exception:
-                    hi_conf_zero_lines = 0
+            # Average duration for completed jobs in last 24h
+            avg_duration = conn.execute("""
+                SELECT AVG(duration_ms) as avg_duration FROM jobs 
+                WHERE status = 'completed' AND created_at >= ? AND duration_ms IS NOT NULL
+            """, (twenty_four_hours_str,)).fetchone()['avg_duration']
+            avg_duration_ms_24h = int(avg_duration) if avg_duration else 0
             
-            # Count potential total mismatches
-            total_mismatch = 0
-            try:
-                total_mismatch = c.execute("""
-                    SELECT COUNT(*) 
-                    FROM invoices i
-                    WHERE (i.subtotal_p = 0 OR i.subtotal_p IS NULL)
-                    AND (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) > 0
-                """).fetchone()[0]
-            except Exception:
-                total_mismatch = 0
+            # High confidence invoices with zero line items in last 24h
+            hi_conf_zero_lines_24h = conn.execute("""
+                SELECT COUNT(*) as count FROM invoices i
+                LEFT JOIN invoice_line_items ili ON i.id = ili.invoice_id
+                WHERE i.confidence > 0.8 AND i.created_at >= ?
+                GROUP BY i.id
+                HAVING COUNT(ili.id) = 0
+            """, (twenty_four_hours_str,)).fetchall()
+            hi_conf_zero_lines_24h = len(hi_conf_zero_lines_24h)
             
-            stats = {
-                "invoices": total_invoices,
-                "multi_invoice_uploads": multi_invoice_uploads,
-                "hi_conf_zero_lines": hi_conf_zero_lines,
-                "total_mismatch": total_mismatch,
-                "status": "healthy" if hi_conf_zero_lines < 5 else "warning"
+            # Multiple invoice uploads (same file hash) in last 24h
+            multi_invoice_uploads_24h = conn.execute("""
+                SELECT COUNT(*) as count FROM (
+                    SELECT uf.file_hash, COUNT(*) as upload_count
+                    FROM uploaded_files uf
+                    JOIN invoices i ON uf.id = i.file_id
+                    WHERE uf.upload_timestamp >= ?
+                    GROUP BY uf.file_hash
+                    HAVING upload_count > 1
+                )
+            """, (twenty_four_hours_str,)).fetchone()['count']
+            
+            # Evaluate health status based on metrics
+            violations = []
+            status = "healthy"
+            
+            # Check for critical violations
+            if timeouts_24h > 0:
+                violations.append(f"OCR timeouts detected: {timeouts_24h} in last 24h")
+                status = "critical"
+            elif failed_24h > 0:
+                violations.append(f"Failed jobs detected: {failed_24h} in last 24h")
+                status = "critical"
+            
+            # Check for degraded conditions
+            if avg_duration_ms_24h > 10000:
+                violations.append(f"Slow processing: avg {avg_duration_ms_24h}ms in last 24h")
+                if status != "critical":
+                    status = "degraded"
+            
+            if hi_conf_zero_lines_24h > 0:
+                violations.append(f"High confidence invoices with no line items: {hi_conf_zero_lines_24h}")
+                if status != "critical":
+                    status = "degraded"
+            
+            return {
+                "status": status,
+                "timestamp": datetime.now().isoformat(),
+                "metrics": {
+                    "timeouts_24h": timeouts_24h,
+                    "failed_24h": failed_24h,
+                    "avg_duration_ms_24h": avg_duration_ms_24h,
+                    "hi_conf_zero_lines_24h": hi_conf_zero_lines_24h,
+                    "multi_invoice_uploads_24h": multi_invoice_uploads_24h
+                },
+                "violations": violations
             }
-            return stats
+            
     except Exception as e:
-        return {"status": "error", "detail": str(e)} 
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+        ) 
+
+# Add pairing endpoints
+@app.get("/api/pairing/suggestions")
+def get_pairing_suggestions(limit: int = 10):
+    """Get delivery note pairing suggestions"""
+    try:
+        from services.pairing_service import PairingService
+        suggestions = PairingService.get_pairing_suggestions(limit)
+        
+        return {
+            "suggestions": suggestions,
+            "count": len(suggestions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting pairing suggestions: {str(e)}")
+
+@app.post("/api/pairing/confirm")
+def confirm_pairing(delivery_note_id: str, invoice_id: str):
+    """Confirm pairing between delivery note and invoice"""
+    try:
+        from services.pairing_service import PairingService
+        result = PairingService.confirm_pairing(delivery_note_id, invoice_id)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {
+            "delivery_note_id": delivery_note_id,
+            "invoice_id": invoice_id,
+            "score": result["score"],
+            "matched": True
+        }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error confirming pairing: {str(e)}")
+
+@app.post("/api/pairing/reject")
+def reject_pairing(suggestion_id: str):
+    """Reject pairing suggestion"""
+    try:
+        from services.pairing_service import PairingService
+        result = PairingService.reject_pairing(suggestion_id)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {
+            "suggestion_id": suggestion_id,
+            "rejected": True
+        }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error rejecting pairing: {str(e)}") 

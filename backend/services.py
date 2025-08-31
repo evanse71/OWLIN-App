@@ -1,7 +1,7 @@
 # backend/services.py
 import json, uuid, threading, pathlib, os, re, hashlib, time, traceback, logging
 from typing import Dict, Union, List, Optional
-from db import get_conn
+from db_manager_unified import get_db_manager
 from datetime import datetime
 from difflib import SequenceMatcher
 
@@ -22,7 +22,11 @@ os.makedirs(DIAG_DIR, exist_ok=True)
 
 # Storage configuration
 STORAGE_ROOT = os.environ.get("OWLIN_STORAGE", "storage/uploads")
+STORAGE = pathlib.Path(STORAGE_ROOT)  # Export for backward compatibility
 os.makedirs(STORAGE_ROOT, exist_ok=True)
+
+# Get unified database manager
+db_manager = get_db_manager()
 
 def _append_diag(obj):
     """Append a diagnostic record to the daily JSONL file"""
@@ -73,7 +77,7 @@ def _store_upload(temp_path: str, file_hash: str, original_name: str) -> str:
 def _record_uploaded_file(file_hash: str, abs_path: str):
     """Record uploaded file in uploaded_files table"""
     try:
-        with get_conn() as c:
+        with db_manager.get_connection() as c:
             c.execute("""
                INSERT OR REPLACE INTO uploaded_files(file_hash, absolute_path, size_bytes, created_at)
                VALUES (?, ?, ?, COALESCE( (SELECT created_at FROM uploaded_files WHERE file_hash=?), CURRENT_TIMESTAMP ))
@@ -84,7 +88,7 @@ def _record_uploaded_file(file_hash: str, abs_path: str):
 def resolve_path_for_reprocess(file_hash: str, fallback_name: str = None) -> str:
     """Robust path resolver for reprocessing - works even if files moved or renamed"""
     # 1) Look up canonical path from uploaded_files table
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         row = c.execute("SELECT absolute_path FROM uploaded_files WHERE file_hash=?", (file_hash,)).fetchone()
     if row and row["absolute_path"] and os.path.exists(row["absolute_path"]):
         return row["absolute_path"]
@@ -160,7 +164,7 @@ def normalize_supplier_name(name: str) -> str:
 def _log_audit(actor: str, action: str, entity: str, before: Optional[Dict] = None, after: Optional[Dict] = None):
     """Log audit events to database"""
     try:
-        with get_conn() as c:
+        with db_manager.get_connection() as c:
             c.execute("""
                 INSERT INTO audit_log(actor, action, entity, before_json, after_json, at)
                 VALUES(?, ?, ?, ?, ?, datetime('now'))
@@ -251,12 +255,12 @@ def _update_job(job_id: str, *, status=None, progress=None, result_json=None, er
     if duration_ms is not None: sets.append("duration_ms=?"); vals.append(duration_ms)
     sets.append("updated_at=datetime('now')")
     vals.append(job_id)
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         c.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=?", vals)
 
 def new_job_for_existing_file(path: str, file_hash: str) -> str:
     """Create a new job for reprocessing an existing file"""
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         job_id = _new_job(c, status="queued", progress=0, meta_json=json.dumps({"source": "reprocess", "file_hash": file_hash}))
         c.commit()
     
@@ -271,7 +275,7 @@ def handle_upload_and_queue(path: str, original_name: Optional[str] = None) -> D
         hb = f.read()
     file_hash = _sha256_bytes(hb)
 
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         row = c.execute("SELECT id FROM invoices WHERE file_hash=?", (file_hash,)).fetchone()
         if row:
             inv_id = row["id"] if isinstance(row, dict) else row[0]
@@ -357,7 +361,7 @@ def _persist_invoice(invoice: Dict, items: list, *, file_hash: str, filename: st
         after={"invoice_id": inv_id, "supplier": invoice.get("supplier_name"), "items_count": len(items)}
     )
     
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         c.execute("""
           INSERT INTO invoices(id, status, confidence, paired, processing_progress,
                                supplier_name, invoice_date, total_amount,
@@ -571,7 +575,7 @@ def _process_single_job(job_id: str, path: str, file_hash: str) -> str:
             inv_id = _persist_invoice(invoice, _normalize_items(items_raw), file_hash=file_hash, filename=filename)
             invoice_ids.append(inv_id)
             # Explicitly update status to parsed for each invoice created
-            with get_conn() as c:
+            with db_manager.get_connection() as c:
                 c.execute("UPDATE invoices SET status='parsed', parsed_at=datetime('now') WHERE id=?", (inv_id,))
             log.info(f"Created invoice {inv_id} for chunk {i+1}")
         
@@ -603,7 +607,7 @@ def _process_single_job(job_id: str, path: str, file_hash: str) -> str:
         
         filename = f"{file_hash[:8]}_{os.path.basename(path)}"
         inv_id = _persist_invoice(invoice, _normalize_items(items_raw), file_hash=file_hash, filename=filename)
-        with get_conn() as c:
+        with db_manager.get_connection() as c:
             c.execute("UPDATE invoices SET status='parsed', parsed_at=datetime('now') WHERE id=?", (inv_id,))
         _update_job(job_id, progress=80)
         return inv_id
@@ -620,7 +624,7 @@ def start_ocr_job_with_dedupe(file_path: str, original_name: Optional[str] = Non
 
 # Minimal analytics helpers (kept for app endpoints)
 def get_job_analytics() -> Dict:
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         job_stats = c.execute("""
           SELECT COUNT(*) as total_jobs,
                  SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) as completed,
@@ -638,7 +642,7 @@ def get_job_analytics() -> Dict:
     }
 
 def compare_dn_invoice(dn_id: str, inv_id: str):
-    with get_conn() as c:
+    with db_manager.get_connection() as c:
         dn_items = c.execute("SELECT description, qty, unit_price, vat_rate FROM dn_items WHERE dn_id=?", (dn_id,)).fetchall()
         inv_items = c.execute("SELECT description, qty, unit_price, vat_rate FROM invoice_items WHERE invoice_id=?", (inv_id,)).fetchall()
     diffs = []

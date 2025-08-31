@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, HTTPException
-from db import get_db_connection
+from db_manager_unified import get_db_manager
 
 router = APIRouter()
 
@@ -17,16 +17,13 @@ async def clear_all_documents():
         raise HTTPException(status_code=403, detail="This endpoint is only available in development mode. Set ENABLE_DEV_ROUTES=true to enable.")
     
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # ✅ Clear all document tables
-        cursor.execute("DELETE FROM invoices")
-        cursor.execute("DELETE FROM delivery_notes")
-        cursor.execute("DELETE FROM uploaded_files")
-        
-        conn.commit()
-        conn.close()
+        db_manager = get_db_manager()
+        with db_manager.get_connection() as conn:
+            # ✅ Clear all document tables
+            conn.execute("DELETE FROM invoices")
+            conn.execute("DELETE FROM delivery_notes")
+            conn.execute("DELETE FROM uploaded_files")
+            conn.commit()
         
         return {
             "message": "Cleared all document records",
