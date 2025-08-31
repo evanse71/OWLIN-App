@@ -5,4 +5,6 @@
 if git diff --cached --name-only | grep -E '^(components|pages)/.*\.(tsx|ts|jsx|js)$' | xargs git show : | grep -E '#[0-9A-Fa-f]{3,6}'; then
   echo "Use Owlin tokens (var(--owlin-*)); no hex in components/pages."
   exit 1
-fi npx lint-staged
+fi
+
+npx lint-staged

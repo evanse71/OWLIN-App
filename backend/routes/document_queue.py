@@ -8,11 +8,14 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from db import get_all_invoices, get_all_delivery_notes
+from db_manager_unified import get_db_manager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Get unified database manager
+db_manager = get_db_manager()
 
 router = APIRouter()
 
@@ -20,8 +23,10 @@ router = APIRouter()
 async def get_documents_for_review():
     """Get all documents that need review - now returns real invoice data"""
     try:
-        # Get real invoices from database
-        invoices_data = get_all_invoices()
+        # Get real invoices from database using unified manager
+        with db_manager.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM invoices ORDER BY created_at DESC")
+            invoices_data = [dict(row) for row in cursor.fetchall()]
         
         documents = []
         
@@ -44,21 +49,21 @@ async def get_documents_for_review():
             
             documents.append({
                 "id": invoice["id"],
-                "filename": invoice["parent_pdf_filename"] or "Unknown",
+                "filename": invoice.get("parent_pdf_filename") or "Unknown",
                 "file_type": "invoice",
-                "file_path": f"data/uploads/{invoice['parent_pdf_filename']}" if invoice["parent_pdf_filename"] else "",
-                "file_size": len(invoice["ocr_text"]) if invoice["ocr_text"] else 0,
-                "upload_timestamp": invoice["upload_timestamp"],
+                "file_path": f"data/uploads/{invoice.get('parent_pdf_filename')}" if invoice.get("parent_pdf_filename") else "",
+                "file_size": len(invoice.get("ocr_text", "")) if invoice.get("ocr_text") else 0,
+                "upload_timestamp": invoice.get("created_at"),
                 "processing_status": status,
                 "confidence": confidence,
-                "extracted_text": invoice["ocr_text"],
+                "extracted_text": invoice.get("ocr_text"),
                 "error_message": None,
-                "supplier_guess": invoice["supplier_name"],
+                "supplier_guess": invoice.get("supplier_name"),
                 "document_type_guess": "invoice",
                 "status_badge": status_badge,
-                "invoice_number": invoice["invoice_number"],
-                "invoice_date": invoice["invoice_date"],
-                "total_amount": float(invoice["total_amount"] or 0)
+                "invoice_number": invoice.get("invoice_number"),
+                "invoice_date": invoice.get("invoice_date"),
+                "total_amount": float(invoice.get("total_amount_pennies", 0)) / 100
             })
         
         return {"documents": documents}
@@ -71,23 +76,25 @@ async def get_documents_for_review():
 async def get_invoice_documents():
     """Get all invoice documents for the frontend"""
     try:
-        # Get real invoices from database
-        invoices_data = get_all_invoices()
+        # Get real invoices from database using unified manager
+        with db_manager.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM invoices ORDER BY created_at DESC")
+            invoices_data = [dict(row) for row in cursor.fetchall()]
         
         # Transform to match frontend expectations
         invoices = []
         for invoice in invoices_data:
             transformed_invoice = {
                 "id": invoice["id"],
-                "invoice_number": invoice["invoice_number"],
-                "invoice_date": invoice["invoice_date"],
-                "supplier_name": invoice["supplier_name"],
-                "total_amount": float(invoice["total_amount"]) if invoice["total_amount"] else 0.0,
+                "invoice_number": invoice.get("invoice_number"),
+                "invoice_date": invoice.get("invoice_date"),
+                "supplier_name": invoice.get("supplier_name"),
+                "total_amount": float(invoice.get("total_amount_pennies", 0)) / 100,
                 "status": invoice["status"],
-                "confidence": float(invoice["confidence"]) if invoice["confidence"] else 0.0,
-                "upload_timestamp": invoice["upload_timestamp"],
-                "parent_pdf_filename": invoice["parent_pdf_filename"],
-                "ocr_text": invoice["ocr_text"]
+                "confidence": float(invoice.get("confidence", 0.0)),
+                "upload_timestamp": invoice.get("created_at"),
+                "parent_pdf_filename": invoice.get("parent_pdf_filename"),
+                "ocr_text": invoice.get("ocr_text")
             }
             invoices.append(transformed_invoice)
         
@@ -102,7 +109,7 @@ async def get_delivery_note_documents():
     """Get all delivery note documents for the frontend"""
     try:
         # Get real delivery notes from database
-        delivery_notes_data = get_all_delivery_notes()
+        delivery_notes_data = db_manager.get_all_delivery_notes()
         
         # Transform to match frontend expectations
         delivery_notes = []
