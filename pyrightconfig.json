@@ -1,0 +1,6 @@
+{
+  "include": ["backend", "tests"],
+  "exclude": ["node_modules", ".venv", ".next", "dist", "build"],
+  "reportMissingImports": "warning",
+  "extraPaths": ["backend"]
+} 

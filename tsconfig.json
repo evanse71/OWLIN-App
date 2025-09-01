@@ -1,39 +1,38 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "lib": [
-      "ES2020",
-      "DOM",
-      "DOM.Iterable"
+      "dom",
+      "dom.iterable",
+      "es2022"
     ],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
     "jsx": "preserve",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
     "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
       ],
-      "@components/*": [
-        "./components/*"
+      "@/components/*": [
+        "components/*",
+        "frontend/components/*"
       ],
-      "@pages/*": [
-        "./pages/*"
-      ],
-      "@types/*": [
-        "./types/*"
+      "@/types/*": [
+        "types/*",
+        "frontend/types/*"
       ]
     },
     "types": [
       "node"
     ],
-    "strict": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-    "allowJs": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
     "incremental": true,
     "plugins": [
       {
@@ -42,19 +41,19 @@
     ]
   },
   "include": [
-    "./**/*.ts",
-    "./**/*.tsx",
     "next-env.d.ts",
+    "frontend/**/*",
+    "components/**/*",
+    "pages/**/*",
+    "lib/**/*",
     ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "build",
-    "src/**",
-    "**/*.test.*",
-    "**/*.spec.*",
-    "tests/**",
-    "__tests__/**"
+    "backend",
+    "scripts",
+    "tests",
+    "frontend/tests",
+    "src"
   ]
 }

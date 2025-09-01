@@ -3,8 +3,21 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
+from enum import Enum
 
 from contracts import SupplierScorecard, SupplierMetric, SupplierInsight
+
+class Trend(str, Enum):
+    UP = "up"
+    DOWN = "down"
+    STABLE = "stable"
+
+def trend_from_delta(delta: float, up_threshold: float = 0.05, down_threshold: float = -0.05) -> Trend:
+    if delta > up_threshold:
+        return Trend.UP
+    if delta < down_threshold:
+        return Trend.DOWN
+    return Trend.STABLE
 
 DB_PATH = os.path.join("data", "owlin.db")
 
@@ -257,17 +270,17 @@ def _score_doc_conf(c: Optional[float]) -> float:
 	return _linear_map(c, 0.60, 0.90, 40.0, 100.0)
 
 
-def _trend(curr: Optional[float], prev: Optional[float]) -> str:
+def _trend(curr: Optional[float], prev: Optional[float]) -> Trend:
 	if curr is None or prev is None:
-		return "stable"
+		return Trend.STABLE
 	if prev == 0:
-		return "stable"
+		return Trend.STABLE
 	delta = (curr - prev)/abs(prev)
 	if delta > 0.05:
-		return "up"
+		return Trend.UP
 	if delta < -0.05:
-		return "down"
-	return "stable"
+		return Trend.DOWN
+	return Trend.STABLE
 
 
 def _detail_spend(share_pct: Optional[float]) -> str:
@@ -355,13 +368,14 @@ def compute_scorecard(supplier_id: str) -> Dict[str, Any]:
 	for k,v in scores.items():
 		overall += max(0.0, min(100.0, v)) * WEIGHTS[k]
 	
-	categories = {
-		"spend_share": SupplierMetric(name="Spend Share", score=spend_score, trend=_trend(spend_share_pct, spend_prev), detail=_detail_spend(spend_share_pct)),
-		"reliability": SupplierMetric(name="Delivery Reliability", score=rel_score, trend=_trend(rel_pct, rel_prev), detail=_detail_reliability(rel_pct)),
-		"pricing_stability": SupplierMetric(name="Pricing Stability", score=cv_score, trend=_trend(cv, cv_prev), detail=_detail_pricing(cv)),
-		"error_rate": SupplierMetric(name="Error Rate", score=err_score, trend=_trend(err, err_prev), detail=_detail_error(err)),
-		"credit_responsiveness": SupplierMetric(name="Credit Responsiveness", score=cred_score, trend=_trend(med_days, cred_prev), detail=_detail_credit(med_days)),
-		"doc_confidence": SupplierMetric(name="Document Confidence", score=conf_score, trend=_trend(conf, conf_prev), detail=_detail_conf(conf)),
+	# Build metrics
+	metrics = {
+		"spend_share": SupplierMetric(name="Spend Share", score=spend_score, trend=_trend(spend_share_pct, spend_prev).value, detail=_detail_spend(spend_share_pct)),
+		"reliability": SupplierMetric(name="Delivery Reliability", score=rel_score, trend=_trend(rel_pct, rel_prev).value, detail=_detail_reliability(rel_pct)),
+		"pricing_stability": SupplierMetric(name="Pricing Stability", score=cv_score, trend=_trend(cv, cv_prev).value, detail=_detail_pricing(cv)),
+		"error_rate": SupplierMetric(name="Error Rate", score=err_score, trend=_trend(err, err_prev).value, detail=_detail_error(err)),
+		"credit_responsiveness": SupplierMetric(name="Credit Responsiveness", score=cred_score, trend=_trend(med_days, cred_prev).value, detail=_detail_credit(med_days)),
+		"doc_confidence": SupplierMetric(name="Document Confidence", score=conf_score, trend=_trend(conf, conf_prev).value, detail=_detail_conf(conf)),
 	}
 	
 	insights = list_insights(supplier_id, limit=50)
@@ -369,7 +383,7 @@ def compute_scorecard(supplier_id: str) -> Dict[str, Any]:
 	return SupplierScorecard(
 		supplier_id=str(supplier_id),
 		overall_score=round(overall),
-		categories=categories,
+		categories=metrics,
 		insights=insights,
 	).dict()
 
@@ -449,6 +463,109 @@ def _emit_insight(cursor: sqlite3.Cursor, supplier_id: str, severity: str, messa
 		(ins_id, supplier_id, severity, message),
 	)
 
+
+def get_minimal_supplier_metrics(supplier_id: str, days: int = 30) -> Dict[str, any]:
+	"""Get minimal supplier metrics for MVP"""
+	conn = get_conn()
+	cursor = conn.cursor()
+	cutoff_date = f"-{days} day"
+	
+	# Mismatch rate (PRICE_INCOHERENT + PACK_MISMATCH per lines)
+	mismatch_rate = _calculate_mismatch_rate(cursor, supplier_id, cutoff_date)
+	
+	# Discount hit-rate (lines where solver accepted)
+	discount_hit_rate = _calculate_discount_hit_rate(cursor, supplier_id, cutoff_date)
+	
+	# Top-3 flagged SKUs
+	top_flagged_skus = _get_top_flagged_skus(cursor, supplier_id, cutoff_date)
+	
+	conn.close()
+	
+	return {
+		'supplier_id': supplier_id,
+		'period_days': days,
+		'mismatch_rate_pct': mismatch_rate,
+		'discount_hit_rate_pct': discount_hit_rate,
+		'top_flagged_skus': top_flagged_skus,
+		'calculated_at': datetime.now().isoformat()
+	}
+
+def _calculate_mismatch_rate(cursor: sqlite3.Cursor, supplier_id: str, cutoff_expr: str) -> float:
+	"""Calculate percentage of lines with math mismatches"""
+	# Total lines for supplier in period
+	cursor.execute("""
+		SELECT COUNT(*) FROM invoice_items ii
+		JOIN invoices i ON ii.invoice_id = i.id
+		WHERE i.supplier_name = ? AND i.invoice_date >= DATE('now', ?)
+	""", (supplier_id, cutoff_expr))
+	total_lines = cursor.fetchone()[0] or 0
+	
+	if total_lines == 0:
+		return 0.0
+	
+	# Lines with math issues
+	cursor.execute("""
+		SELECT COUNT(*) FROM invoice_items ii
+		JOIN invoices i ON ii.invoice_id = i.id
+		WHERE i.supplier_name = ? AND i.invoice_date >= DATE('now', ?)
+		AND (ii.line_verdict IN ('PRICE_INCOHERENT', 'PACK_MISMATCH', 'VAT_MISMATCH'))
+	""", (supplier_id, cutoff_expr))
+	mismatch_lines = cursor.fetchone()[0] or 0
+	
+	return (mismatch_lines / total_lines) * 100.0
+
+def _calculate_discount_hit_rate(cursor: sqlite3.Cursor, supplier_id: str, cutoff_expr: str) -> float:
+	"""Calculate percentage of lines where discount solver found a solution"""
+	# Total lines
+	cursor.execute("""
+		SELECT COUNT(*) FROM invoice_items ii
+		JOIN invoices i ON ii.invoice_id = i.id
+		WHERE i.supplier_name = ? AND i.invoice_date >= DATE('now', ?)
+	""", (supplier_id, cutoff_expr))
+	total_lines = cursor.fetchone()[0] or 0
+	
+	if total_lines == 0:
+		return 0.0
+	
+	# Lines with discount solutions (residual ≤ 1p)
+	cursor.execute("""
+		SELECT COUNT(*) FROM invoice_items ii
+		JOIN invoices i ON ii.invoice_id = i.id
+		WHERE i.supplier_name = ? AND i.invoice_date >= DATE('now', ?)
+		AND ii.discount_residual_pennies IS NOT NULL 
+		AND ii.discount_residual_pennies <= 1
+	""", (supplier_id, cutoff_expr))
+	discount_lines = cursor.fetchone()[0] or 0
+	
+	return (discount_lines / total_lines) * 100.0
+
+def _get_top_flagged_skus(cursor: sqlite3.Cursor, supplier_id: str, cutoff_expr: str) -> List[Dict[str, any]]:
+	"""Get top 3 SKUs with most flags in period"""
+	cursor.execute("""
+		SELECT 
+			ii.sku,
+			ii.description,
+			COUNT(*) as flag_count,
+			GROUP_CONCAT(DISTINCT ii.line_verdict) as verdicts
+		FROM invoice_items ii
+		JOIN invoices i ON ii.invoice_id = i.id
+		WHERE i.supplier_name = ? AND i.invoice_date >= DATE('now', ?)
+		AND ii.line_verdict NOT IN ('OK_ON_CONTRACT')
+		GROUP BY ii.sku, ii.description
+		ORDER BY flag_count DESC
+		LIMIT 3
+	""", (supplier_id, cutoff_expr))
+	
+	results = []
+	for row in cursor.fetchall():
+		results.append({
+			'sku': row[0],
+			'description': row[1],
+			'flag_count': row[2],
+			'verdicts': row[3].split(',') if row[3] else []
+		})
+	
+	return results
 
 def generate_insights_rules(supplier_id: str) -> None:
 	conn = get_conn()

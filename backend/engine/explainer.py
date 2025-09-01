@@ -1,267 +1,283 @@
 """
-Explainer - LLM Leashed with Deterministic Fallback
-Generate explanations for anomalies with strict output schema.
+Explainer System
+
+Generates human-readable explanations for line item verdicts with caching.
 """
 
 import json
+import logging
 import hashlib
-from typing import Dict, List, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
-from config_units import ENGINE_VERSION
+from dataclasses import dataclass
+from pydantic import BaseModel, Field
+from db_manager_unified import get_db_manager
 
+logger = logging.getLogger(__name__)
 
-class ExplainerResponse:
-    """Strict Pydantic-like schema for explainer output."""
+class ExplanationOutput(BaseModel):
+    """Strict JSON output schema for explanations"""
+    headline: str = Field(..., max_length=100)
+    explanation: str = Field(..., max_length=500)
+    suggested_actions: List[Dict[str, str]] = Field(..., max_items=3)
+    engine_verdict: str
+    engine_facts_hash: str
+    model_id: str = "deterministic"
+    prompt_hash: str = ""
+    response_hash: str = ""
+
+@dataclass
+class ExplainerCache:
+    """Cache entry for explanations"""
+    line_fingerprint: str
+    explanation_json: str
+    created_at: datetime
+    ttl_days: int = 30
+
+class ExplainerEngine:
+    """Deterministic explanation engine with caching"""
     
-    def __init__(self, headline: str, explanation: str, 
-                 suggested_actions: List[Dict[str, str]],
-                 engine_verdict: str, engine_facts_hash: str,
-                 model_id: str = "deterministic", prompt_hash: str = "",
-                 response_hash: str = ""):
-        self.headline = headline
-        self.explanation = explanation
-        self.suggested_actions = suggested_actions
-        self.engine_verdict = engine_verdict
-        self.engine_facts_hash = engine_facts_hash
-        self.model_id = model_id
-        self.prompt_hash = prompt_hash
-        self.response_hash = response_hash
+    def __init__(self):
+        self.db_manager = get_db_manager()
+        self.cache_ttl_days = 30
+        self._init_cache_table()
     
-    def to_dict(self) -> Dict:
-        """Convert to dictionary."""
-        return {
-            "headline": self.headline,
-            "explanation": self.explanation,
-            "suggested_actions": self.suggested_actions,
-            "engine_verdict": self.engine_verdict,
-            "engine_facts_hash": self.engine_facts_hash,
-            "model_id": self.model_id,
-            "prompt_hash": self.prompt_hash,
-            "response_hash": self.response_hash
-        }
+    def _init_cache_table(self):
+        """Initialize explanation cache table"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if table exists
+                cursor.execute("PRAGMA table_info(explanation_cache)")
+                if not cursor.fetchall():
+                    cursor.executescript("""
+                        CREATE TABLE explanation_cache (
+                            line_fingerprint TEXT PRIMARY KEY,
+                            explanation_json TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            ttl_days INTEGER DEFAULT 30
+                        );
+                        CREATE INDEX idx_explanation_cache_created ON explanation_cache(created_at);
+                    """)
+                    conn.commit()
+                    logger.info("Created explanation_cache table")
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to init cache table: {e}")
     
-    def validate(self) -> bool:
-        """Validate the response meets schema requirements."""
-        if not self.headline or len(self.headline) > 100:
-            return False
+    def explain_line_item(self, line_fingerprint: str, verdict: str, 
+                         context: Dict[str, Any], use_llm: bool = False) -> Optional[ExplanationOutput]:
+        """
+        Generate explanation for line item.
         
-        if not self.explanation or len(self.explanation) > 500:
-            return False
-        
-        if not self.suggested_actions or len(self.suggested_actions) > 3:
-            return False
-        
-        for action in self.suggested_actions:
-            if not isinstance(action, dict) or 'label' not in action or 'reason' not in action:
-                return False
-        
-        if not self.engine_verdict:
-            return False
-        
-        return True
+        Args:
+            line_fingerprint: Line fingerprint for caching
+            verdict: Assigned verdict
+            context: Additional context data
+            use_llm: Whether to use LLM (currently always uses deterministic)
+            
+        Returns:
+            ExplanationOutput or None if failed
+        """
+        try:
+            # Check cache first
+            cached = self._get_cached_explanation(line_fingerprint)
+            if cached:
+                return cached
+            
+            # Generate explanation
+            explanation = self._generate_explanation(verdict, context)
+            if not explanation:
+                return None
+            
+            # Cache the explanation
+            self._cache_explanation(line_fingerprint, explanation)
+            
+            return explanation
+            
+        except Exception as e:
+            logger.error(f"❌ Explanation generation failed: {e}")
+            return None
+    
+    def _get_cached_explanation(self, line_fingerprint: str) -> Optional[ExplanationOutput]:
+        """Get cached explanation if valid"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT explanation_json, created_at, ttl_days
+                    FROM explanation_cache 
+                    WHERE line_fingerprint = ?
+                """, (line_fingerprint,))
+                
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                
+                explanation_json, created_at_str, ttl_days = row
+                created_at = datetime.fromisoformat(created_at_str)
+                
+                # Check if expired
+                if datetime.now() - created_at > timedelta(days=ttl_days):
+                    # Remove expired entry
+                    cursor.execute("DELETE FROM explanation_cache WHERE line_fingerprint = ?", 
+                                 (line_fingerprint,))
+                    conn.commit()
+                    return None
+                
+                # Parse and return cached explanation
+                explanation_data = json.loads(explanation_json)
+                return ExplanationOutput(**explanation_data)
+                
+        except Exception as e:
+            logger.error(f"❌ Cache retrieval failed: {e}")
+            return None
+    
+    def _cache_explanation(self, line_fingerprint: str, explanation: ExplanationOutput):
+        """Cache explanation"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT OR REPLACE INTO explanation_cache 
+                    (line_fingerprint, explanation_json, created_at, ttl_days)
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    line_fingerprint,
+                    explanation.json(),
+                    datetime.now().isoformat(),
+                    self.cache_ttl_days
+                ))
+                
+                conn.commit()
+                logger.debug(f"Cached explanation for {line_fingerprint[:8]}...")
+                
+        except Exception as e:
+            logger.error(f"❌ Cache storage failed: {e}")
+    
+    def _generate_explanation(self, verdict: str, context: Dict[str, Any]) -> Optional[ExplanationOutput]:
+        """Generate deterministic explanation"""
+        try:
+            # Create engine facts hash
+            facts_hash = self._compute_facts_hash(verdict, context)
+            
+            # Generate explanation based on verdict
+            if verdict == "price_incoherent":
+                headline = "Price calculation mismatch"
+                explanation = "The calculated line total doesn't match the unit price × quantity."
+                actions = [
+                    {"label": "Review unit price", "reason": "Check for OCR errors in price extraction"},
+                    {"label": "Verify quantity", "reason": "Confirm quantity parsing is correct"}
+                ]
+            
+            elif verdict == "vat_mismatch":
+                headline = "VAT calculation error"
+                explanation = "The VAT amount doesn't match the expected calculation from the subtotal."
+                actions = [
+                    {"label": "Check VAT rate", "reason": "Verify VAT rate is correctly applied"},
+                    {"label": "Review subtotal", "reason": "Confirm subtotal calculation is accurate"}
+                ]
+            
+            elif verdict == "pack_mismatch":
+                headline = "Pack quantity mismatch"
+                explanation = "The pack descriptor doesn't match the actual quantity."
+                actions = [
+                    {"label": "Review pack info", "reason": "Check pack size and units per pack"},
+                    {"label": "Verify quantity", "reason": "Confirm total quantity calculation"}
+                ]
+            
+            elif verdict == "ocr_low_conf":
+                headline = "Low OCR confidence"
+                explanation = "The OCR confidence for this line is below the acceptable threshold."
+                actions = [
+                    {"label": "Review image quality", "reason": "Check for blur, rotation, or poor contrast"},
+                    {"label": "Manual verification", "reason": "Verify extracted text manually"}
+                ]
+            
+            elif verdict == "off_contract_discount":
+                headline = "Off-contract discount detected"
+                explanation = "This line shows a discount that's not covered by existing contract terms."
+                actions = [
+                    {"label": "Review discount", "reason": "Verify discount amount and reason"},
+                    {"label": "Update contract", "reason": "Consider adding to supplier contract terms"}
+                ]
+            
+            elif verdict == "ok_on_contract":
+                headline = "Line item OK"
+                explanation = "This line item matches expected contract terms and pricing."
+                actions = [
+                    {"label": "No action needed", "reason": "Line item is within expected parameters"}
+                ]
+            
+            else:
+                headline = "Unknown verdict"
+                explanation = "The system assigned an unrecognized verdict to this line item."
+                actions = [
+                    {"label": "Manual review", "reason": "Review line item manually for unusual characteristics"}
+                ]
+            
+            return ExplanationOutput(
+                headline=headline,
+                explanation=explanation,
+                suggested_actions=actions,
+                engine_verdict=verdict,
+                engine_facts_hash=facts_hash,
+                model_id="deterministic",
+                prompt_hash="",
+                response_hash=""
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Explanation generation failed: {e}")
+            return None
+    
+    def _compute_facts_hash(self, verdict: str, context: Dict[str, Any]) -> str:
+        """Compute hash of engine facts for consistency"""
+        try:
+            facts = {
+                'verdict': verdict,
+                'context_keys': sorted(context.keys()),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            facts_json = json.dumps(facts, sort_keys=True)
+            return hashlib.sha256(facts_json.encode('utf-8')).hexdigest()
+            
+        except Exception as e:
+            logger.error(f"❌ Facts hash computation failed: {e}")
+            return ""
+    
+    def clear_expired_cache(self) -> int:
+        """Clear expired cache entries and return count"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Delete expired entries
+                cursor.execute("""
+                    DELETE FROM explanation_cache 
+                    WHERE datetime(created_at) < datetime('now', '-30 days')
+                """)
+                
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                logger.info(f"Cleared {deleted_count} expired cache entries")
+                return deleted_count
+                
+        except Exception as e:
+            logger.error(f"❌ Cache cleanup failed: {e}")
+            return 0
 
+# Global explainer instance
+_explainer_engine: Optional[ExplainerEngine] = None
 
-def create_engine_facts_hash(verdict: str, hypothesis: Optional[str],
-                           implied_value: Optional[float], residual: Optional[float],
-                           sku_id: str, supplier_id: str) -> str:
-    """Create deterministic hash of engine facts."""
-    # Convert hypothesis to string if it's a DiscountHypothesis object
-    if hasattr(hypothesis, 'hypothesis_type'):
-        hypothesis_str = hypothesis.hypothesis_type
-    else:
-        hypothesis_str = hypothesis
-    
-    facts = {
-        "verdict": verdict,
-        "hypothesis": hypothesis_str,
-        "implied_value": implied_value,
-        "residual": residual,
-        "sku_id": sku_id,
-        "supplier_id": supplier_id,
-        "engine_version": ENGINE_VERSION
-    }
-    
-    facts_str = json.dumps(facts, sort_keys=True)
-    return hashlib.sha256(facts_str.encode()).hexdigest()
-
-
-def get_deterministic_explanation(verdict: str, hypothesis: Optional[str],
-                                implied_value: Optional[float], residual: Optional[float],
-                                sku_id: str, supplier_id: str) -> ExplainerResponse:
-    """Generate deterministic explanation template."""
-    
-    # Create engine facts hash
-    engine_facts_hash = create_engine_facts_hash(
-        verdict, hypothesis, implied_value, residual, sku_id, supplier_id
-    )
-    
-    # Generate headline and explanation based on verdict
-    if verdict == "math_mismatch":
-        headline = "Mathematical inconsistency detected"
-        explanation = f"Line total does not match unit price × quantity calculation. Difference: £{residual:.2f}."
-        actions = [
-            {"label": "Review OCR accuracy", "reason": "Check if numbers were misread"},
-            {"label": "Verify line totals", "reason": "Confirm manual calculations"}
-        ]
-    
-    elif verdict == "reference_conflict":
-        headline = "Conflicting price references"
-        explanation = f"Different price sources disagree for {sku_id}. Manual review required."
-        actions = [
-            {"label": "Check contract terms", "reason": "Verify current pricing agreement"},
-            {"label": "Contact supplier", "reason": "Clarify pricing discrepancy"}
-        ]
-    
-    elif verdict == "uom_mismatch_suspected":
-        headline = "Unit of measure confusion suspected"
-        explanation = f"Price difference may be due to pack size confusion for {sku_id}."
-        actions = [
-            {"label": "Verify pack sizes", "reason": "Check if case vs unit pricing"},
-            {"label": "Update UOM mapping", "reason": "Correct unit definitions"}
-        ]
-    
-    elif verdict == "off_contract_discount":
-        discount_pct = abs(implied_value * 100) if implied_value else 0
-        headline = f"Off-contract discount detected ({discount_pct:.1f}%)"
-        explanation = f"Price is {discount_pct:.1f}% different from contract terms for {sku_id}."
-        actions = [
-            {"label": "Verify discount approval", "reason": "Check if discount is authorised"},
-            {"label": "Update contract", "reason": "Record new pricing terms"}
-        ]
-    
-    elif verdict == "unusual_vs_history":
-        headline = "Unusual pricing vs history"
-        explanation = f"Price for {sku_id} differs significantly from historical patterns."
-        actions = [
-            {"label": "Review price change", "reason": "Check if change is expected"},
-            {"label": "Update price history", "reason": "Record new baseline"}
-        ]
-    
-    elif verdict == "ocr_suspected_error":
-        headline = "OCR error suspected"
-        explanation = f"Numbers may have been misread during OCR processing for {sku_id}."
-        actions = [
-            {"label": "Review original document", "reason": "Check image quality and clarity"},
-            {"label": "Re-process with OCR", "reason": "Try alternative OCR settings"}
-        ]
-    
-    elif verdict == "ok_on_contract":
-        headline = "Price within contract terms"
-        explanation = f"Price for {sku_id} matches expected contract pricing."
-        actions = [
-            {"label": "No action required", "reason": "Price is acceptable"}
-        ]
-    
-    elif verdict == "needs_user_rule":
-        headline = "Requires manual review"
-        explanation = f"Complex pricing scenario for {sku_id} needs human judgement."
-        actions = [
-            {"label": "Review pricing logic", "reason": "Apply business rules manually"},
-            {"label": "Create pricing rule", "reason": "Add rule for future automation"}
-        ]
-    
-    else:  # pricing_anomaly_unmodelled
-        headline = "Pricing anomaly not explained"
-        explanation = f"Price difference for {sku_id} cannot be explained by current models."
-        actions = [
-            {"label": "Investigate manually", "reason": "Review supplier communication"},
-            {"label": "Add new model", "reason": "Consider new discount type"}
-        ]
-    
-    return ExplainerResponse(
-        headline=headline,
-        explanation=explanation,
-        suggested_actions=actions,
-        engine_verdict=verdict,
-        engine_facts_hash=engine_facts_hash,
-        model_id="deterministic"
-    )
-
-
-def call_llm_explainer(engine_facts: Dict, cache_key: str) -> Optional[ExplainerResponse]:
-    """
-    Call LLM explainer with strict guardrails.
-    
-    Returns:
-        ExplainerResponse if successful, None if failed
-    """
-    # TODO: Implement LLM call with strict output validation
-    # This would call the LLM service with a carefully crafted prompt
-    # and validate the response against the schema
-    
-    # For now, return None to use deterministic fallback
-    return None
-
-
-def get_explanation(verdict: str, hypothesis: Optional[str],
-                   implied_value: Optional[float], residual: Optional[float],
-                   sku_id: str, supplier_id: str, line_fingerprint: str,
-                   max_llm_calls: int = 10, cache_duration_days: int = 30) -> ExplainerResponse:
-    """
-    Get explanation for anomaly with LLM leashed.
-    
-    Args:
-        verdict: Engine verdict
-        hypothesis: Discount hypothesis type
-        implied_value: Implied discount value
-        residual: Residual error
-        sku_id: SKU identifier
-        supplier_id: Supplier identifier
-        line_fingerprint: Line fingerprint for caching
-        max_llm_calls: Maximum LLM calls per invoice
-        cache_duration_days: Cache duration in days
-        
-    Returns:
-        ExplainerResponse
-    """
-    # Only call LLM for anomalies
-    if verdict in ["ok_on_contract"]:
-        return get_deterministic_explanation(
-            verdict, hypothesis, implied_value, residual, sku_id, supplier_id
-        )
-    
-    # TODO: Check cache for existing explanation
-    # This would query a cache table for existing explanations
-    
-    # TODO: Check LLM call limits
-    # This would track LLM calls per invoice and respect limits
-    
-    # Try LLM first
-    engine_facts = {
-        "verdict": verdict,
-        "hypothesis": hypothesis,
-        "implied_value": implied_value,
-        "residual": residual,
-        "sku_id": sku_id,
-        "supplier_id": supplier_id
-    }
-    
-    llm_response = call_llm_explainer(engine_facts, line_fingerprint)
-    
-    if llm_response and llm_response.validate():
-        # Validate that LLM response matches engine verdict
-        if llm_response.engine_verdict == verdict:
-            return llm_response
-        else:
-            # LLM contradicted engine - discard and use deterministic
-            pass
-    
-    # Fall back to deterministic explanation
-    return get_deterministic_explanation(
-        verdict, hypothesis, implied_value, residual, sku_id, supplier_id
-    )
-
-
-def cache_explanation(explanation: ExplainerResponse, line_fingerprint: str,
-                     db_connection) -> None:
-    """Cache explanation for reuse."""
-    # TODO: Implement explanation caching
-    # This would store explanations in a cache table with expiry
-    pass
-
-
-def get_cached_explanation(line_fingerprint: str, db_connection) -> Optional[ExplainerResponse]:
-    """Get cached explanation if available and not expired."""
-    # TODO: Implement cache retrieval
-    # This would query cache table and check expiry
-    return None 
+def get_explainer_engine() -> ExplainerEngine:
+    """Get global explainer engine instance"""
+    global _explainer_engine
+    if _explainer_engine is None:
+        _explainer_engine = ExplainerEngine()
+    return _explainer_engine 

@@ -1,0 +1,32 @@
+{
+  "lines": 50,
+  "timestamp": 1756675066.126573,
+  "stages": {
+    "normalization": {
+      "time_seconds": 0.0008208751678466797,
+      "lines_per_second": 60910.601219866396
+    },
+    "discount_solver": {
+      "time_seconds": 5.507469177246094e-05,
+      "lines_per_second": 907858.0086580086
+    },
+    "verdicts": {
+      "time_seconds": 0.0001518726348876953,
+      "lines_per_second": 329223.2339089482
+    },
+    "line_fingerprints": {
+      "time_seconds": 0.0053021907806396484,
+      "lines_per_second": 9430.064301452403
+    }
+  },
+  "total": {
+    "time_seconds": 0.006330013275146484,
+    "lines_per_second": 7898.87758945386
+  },
+  "performance": {
+    "meets_target": true,
+    "target_seconds": 2.0,
+    "actual_seconds": 0.006330013275146484,
+    "performance_ratio": 0.003165006637573242
+  }
+}

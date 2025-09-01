@@ -1,231 +1,235 @@
 """
-Discount Hypothesis Solver - Choose the Model That Actually Fits
-Evaluate four hypotheses per line and pick the best fit.
+Discount Solver Engine
+
+Evaluates different discount hypotheses and selects the best fit.
 """
 
 import math
-from typing import Dict, List, Optional, Tuple
-from config_units import CATEGORY_TOL, NEW_SKU_TOL_BONUS
+import logging
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass
+from backend.config_units import ML_PER_L
 
+logger = logging.getLogger(__name__)
 
+@dataclass
 class DiscountHypothesis:
-    """Represents a discount hypothesis with fit metrics."""
-    
-    def __init__(self, hypothesis_type: str, implied_discount: float, 
-                 expected_value: float, actual_value: float, complexity_penalty: float = 0.0):
-        self.hypothesis_type = hypothesis_type
-        self.implied_discount = implied_discount
-        self.expected_value = expected_value
-        self.actual_value = actual_value
-        self.complexity_penalty = complexity_penalty
-        self.residual = abs(expected_value - actual_value)
-        self.total_cost = self.residual + complexity_penalty
-    
-    def __str__(self):
-        return f"{self.hypothesis_type}: discount={self.implied_discount:.2%}, residual={self.residual:.2f}, cost={self.total_cost:.2f}"
+    kind: str  # 'percent', 'per_case', 'per_litre'
+    value: float
+    residual_pennies: int
+    confidence: float
 
+@dataclass
+class DiscountResult:
+    kind: str
+    value: float
+    residual_pennies: int
+    confidence: float
+    hypothesis: DiscountHypothesis
 
-def solve_percent_discount(expected_price: float, actual_price: float, 
-                          quantity: float) -> Optional[DiscountHypothesis]:
-    """Solve for percentage discount hypothesis."""
-    if expected_price <= 0 or actual_price < 0:
-        return None
+class DiscountSolver:
+    """Solves for the most likely discount type and value"""
     
-    # Calculate implied discount percentage
-    if expected_price == actual_price:
-        implied_discount = 0.0
-    else:
-        implied_discount = (expected_price - actual_price) / expected_price
+    def __init__(self):
+        # Tolerance for accepting a hypothesis (in pennies)
+        self.RESIDUAL_TOL = 50  # 50p tolerance
+        # Minimum confidence threshold
+        self.MIN_CONFIDENCE = 0.8
     
-    # Clamp to reasonable range (-100% to +100%)
-    implied_discount = max(-1.0, min(1.0, implied_discount))
-    
-    expected_value = expected_price * quantity
-    actual_value = actual_price * quantity
-    
-    return DiscountHypothesis(
-        hypothesis_type="percent",
-        implied_discount=implied_discount,
-        expected_value=expected_value,
-        actual_value=actual_value,
-        complexity_penalty=0.0  # Simple hypothesis
-    )
-
-
-def solve_fixed_per_case_discount(expected_price: float, actual_price: float,
-                                 quantity: float, packs: Optional[float] = None) -> Optional[DiscountHypothesis]:
-    """Solve for fixed allowance per case hypothesis."""
-    if expected_price <= 0 or actual_price < 0:
-        return None
-    
-    # Use packs if available, otherwise assume 1
-    effective_packs = packs if packs is not None else 1.0
-    if effective_packs <= 0:
-        return None
-    
-    # Calculate implied discount per case
-    total_discount = (expected_price - actual_price) * quantity
-    implied_discount_per_case = total_discount / effective_packs
-    
-    expected_value = expected_price * quantity
-    actual_value = actual_price * quantity
-    
-    return DiscountHypothesis(
-        hypothesis_type="per_case",
-        implied_discount=implied_discount_per_case,
-        expected_value=expected_value,
-        actual_value=actual_value,
-        complexity_penalty=0.1  # Slightly more complex
-    )
-
-
-def solve_fixed_per_litre_discount(expected_price: float, actual_price: float,
-                                  quantity: float, quantity_l: Optional[float] = None) -> Optional[DiscountHypothesis]:
-    """Solve for fixed allowance per litre hypothesis."""
-    if expected_price <= 0 or actual_price < 0:
-        return None
-    
-    # Use quantity_l if available, otherwise skip
-    if quantity_l is None or quantity_l <= 0:
-        return None
-    
-    # Calculate implied discount per litre
-    total_discount = (expected_price - actual_price) * quantity
-    implied_discount_per_litre = total_discount / quantity_l
-    
-    expected_value = expected_price * quantity
-    actual_value = actual_price * quantity
-    
-    return DiscountHypothesis(
-        hypothesis_type="per_litre",
-        implied_discount=implied_discount_per_litre,
-        expected_value=expected_value,
-        actual_value=actual_value,
-        complexity_penalty=0.2  # More complex
-    )
-
-
-def solve_promo_bundle_discount(expected_price: float, actual_price: float,
-                               quantity: float, line_items: List[Dict]) -> Optional[DiscountHypothesis]:
-    """Solve for promo/bundle hypothesis (only if multiple lines show FOC/free)."""
-    if expected_price <= 0 or actual_price < 0:
-        return None
-    
-    # Check if this looks like a bundle (multiple lines with FOC/free)
-    foc_lines = [item for item in line_items if item.get('line_total', 0) == 0]
-    if len(foc_lines) < 2:
-        return None
-    
-    # Calculate implied bundle discount
-    total_expected = sum(item.get('expected_price', 0) * item.get('quantity', 0) for item in line_items)
-    total_actual = sum(item.get('line_total', 0) for item in line_items)
-    
-    if total_expected <= 0:
-        return None
-    
-    implied_discount = (total_expected - total_actual) / total_expected
-    
-    expected_value = expected_price * quantity
-    actual_value = actual_price * quantity
-    
-    return DiscountHypothesis(
-        hypothesis_type="bundle",
-        implied_discount=implied_discount,
-        expected_value=expected_value,
-        actual_value=actual_value,
-        complexity_penalty=0.5  # Most complex
-    )
-
-
-def evaluate_discount_hypotheses(expected_price: float, actual_price: float,
-                                quantity: float, category: str = "default",
-                                is_new_sku: bool = False, packs: Optional[float] = None,
-                                quantity_l: Optional[float] = None,
-                                line_items: List[Dict] = None) -> Tuple[str, Optional[DiscountHypothesis]]:
-    """
-    Evaluate all discount hypotheses and pick the best fit.
-    
-    Returns:
-        (verdict, best_hypothesis)
-    """
-    if line_items is None:
-        line_items = []
-    
-    # Calculate tolerance for this category
-    base_tolerance = CATEGORY_TOL.get(category, CATEGORY_TOL["default"])
-    if is_new_sku:
-        tolerance = base_tolerance + NEW_SKU_TOL_BONUS
-    else:
-        tolerance = base_tolerance
-    
-    # Generate all hypotheses
-    hypotheses = []
-    
-    # H1: Percent discount
-    h1 = solve_percent_discount(expected_price, actual_price, quantity)
-    if h1:
-        hypotheses.append(h1)
-    
-    # H2: Fixed per case
-    h2 = solve_fixed_per_case_discount(expected_price, actual_price, quantity, packs)
-    if h2:
-        hypotheses.append(h2)
-    
-    # H3: Fixed per litre
-    h3 = solve_fixed_per_litre_discount(expected_price, actual_price, quantity, quantity_l)
-    if h3:
-        hypotheses.append(h3)
-    
-    # H4: Promo/bundle (only if multiple FOC lines)
-    h4 = solve_promo_bundle_discount(expected_price, actual_price, quantity, line_items)
-    if h4:
-        hypotheses.append(h4)
-    
-    if not hypotheses:
-        return "pricing_anomaly_unmodelled", None
-    
-    # Pick the hypothesis with minimum total cost
-    best_hypothesis = min(hypotheses, key=lambda h: h.total_cost)
-    
-    # Check if the best hypothesis fits within tolerance
-    # For large discounts (>30%), accept them as valid
-    if best_hypothesis.hypothesis_type == "percent" and abs(best_hypothesis.implied_discount) > 0.30:
-        return "off_contract_discount", best_hypothesis.hypothesis_type
-    elif best_hypothesis.residual <= tolerance:
-        return "ok_on_contract", best_hypothesis.hypothesis_type
-    else:
-        return "pricing_anomaly_unmodelled", best_hypothesis.hypothesis_type
-
-
-def calculate_line_residual(expected_price: float, actual_price: float, 
-                           quantity: float) -> float:
-    """Calculate residual for a line item."""
-    expected_value = expected_price * quantity
-    actual_value = actual_price * quantity
-    return abs(expected_value - actual_value)
-
-
-def detect_uom_mismatch(expected_price: float, actual_price: float,
-                       quantity: float, packs: Optional[float] = None,
-                       units_per_pack: Optional[float] = None) -> bool:
-    """
-    Detect potential UOM mismatch by checking if pack sizes explain price difference.
-    """
-    if packs is None or units_per_pack is None:
-        return False
-    
-    # If packs and units_per_pack are available, check for UOM confusion
-    if packs > 0 and units_per_pack > 0:
-        # Check if the price difference could be explained by pack size confusion
-        # e.g., case price vs unit price
-        pack_ratio = packs / units_per_pack
-        if pack_ratio != 1.0:
-            # Calculate what the price would be if UOM was confused
-            confused_price = actual_price * pack_ratio
-            price_diff_ratio = abs(confused_price - expected_price) / expected_price
+    def solve_discount(self, qty: float, unit_price: float, nett_value: float,
+                      canonical_quantities: Optional[Dict[str, Any]] = None) -> Optional[DiscountResult]:
+        """
+        Solve for the most likely discount type and value.
+        
+        Args:
+            qty: Raw quantity
+            unit_price: Unit price in pounds
+            nett_value: Net value in pounds
+            canonical_quantities: Parsed quantities from units.py
             
-            # If the confused price is much closer to expected, flag as UOM mismatch
-            if price_diff_ratio < 0.1:  # Within 10%
-                return True
+        Returns:
+            DiscountResult or None if no good fit found
+        """
+        try:
+            # Calculate expected value without discount
+            expected_value = qty * unit_price
+            
+            # If values are very close, no discount
+            if abs(expected_value - nett_value) < 0.01:
+                return None
+            
+            # Generate hypotheses
+            hypotheses = self._generate_hypotheses(qty, unit_price, nett_value, canonical_quantities)
+            
+            if not hypotheses:
+                return None
+            
+            # Select best hypothesis
+            best_hypothesis = self._select_best_hypothesis(hypotheses)
+            
+            if best_hypothesis.confidence < self.MIN_CONFIDENCE:
+                return None
+            
+            return DiscountResult(
+                kind=best_hypothesis.kind,
+                value=best_hypothesis.value,
+                residual_pennies=best_hypothesis.residual_pennies,
+                confidence=best_hypothesis.confidence,
+                hypothesis=best_hypothesis
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Discount solver failed: {e}")
+            return None
     
-    return False 
+    def _generate_hypotheses(self, qty: float, unit_price: float, nett_value: float,
+                           canonical_quantities: Optional[Dict[str, Any]]) -> List[DiscountHypothesis]:
+        """Generate discount hypotheses"""
+        hypotheses = []
+        
+        # Hypothesis 1: Percent discount
+        percent_hypothesis = self._solve_percent_discount(qty, unit_price, nett_value)
+        if percent_hypothesis:
+            hypotheses.append(percent_hypothesis)
+        
+        # Hypothesis 2: Per-case discount
+        per_case_hypothesis = self._solve_per_case_discount(qty, unit_price, nett_value, canonical_quantities)
+        if per_case_hypothesis:
+            hypotheses.append(per_case_hypothesis)
+        
+        # Hypothesis 3: Per-litre discount
+        per_litre_hypothesis = self._solve_per_litre_discount(qty, unit_price, nett_value, canonical_quantities)
+        if per_litre_hypothesis:
+            hypotheses.append(per_litre_hypothesis)
+        
+        return hypotheses
+    
+    def _solve_percent_discount(self, qty: float, unit_price: float, nett_value: float) -> Optional[DiscountHypothesis]:
+        """Solve for percent discount"""
+        try:
+            expected_value = qty * unit_price
+            
+            if expected_value <= 0 or nett_value <= 0:
+                return None
+            
+            # Calculate percent discount
+            discount_percent = ((expected_value - nett_value) / expected_value) * 100
+            
+            # Validate reasonable range (0-80%)
+            if discount_percent < 0 or discount_percent > 80:
+                return None
+            
+            # Calculate residual
+            implied_value = expected_value * (1 - discount_percent / 100)
+            residual_pennies = abs(implied_value - nett_value) * 100
+            
+            # Calculate confidence (inverse of residual)
+            confidence = max(0, 1 - (residual_pennies / 100))
+            
+            return DiscountHypothesis(
+                kind="percent",
+                value=discount_percent,
+                residual_pennies=int(residual_pennies),
+                confidence=confidence
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Percent discount solve failed: {e}")
+            return None
+    
+    def _solve_per_case_discount(self, qty: float, unit_price: float, nett_value: float,
+                                canonical_quantities: Optional[Dict[str, Any]]) -> Optional[DiscountHypothesis]:
+        """Solve for per-case discount"""
+        try:
+            expected_value = qty * unit_price
+            
+            # Get pack information
+            packs = canonical_quantities.get('packs', 1.0) if canonical_quantities else 1.0
+            
+            if packs <= 0:
+                return None
+            
+            # Calculate per-case discount
+            total_discount = expected_value - nett_value
+            per_case_discount = total_discount / packs
+            
+            # Validate reasonable range (£0-£50 per case)
+            if per_case_discount < 0 or per_case_discount > 50:
+                return None
+            
+            # Calculate residual
+            implied_value = expected_value - (packs * per_case_discount)
+            residual_pennies = abs(implied_value - nett_value) * 100
+            
+            # Calculate confidence
+            confidence = max(0, 1 - (residual_pennies / 100))
+            
+            return DiscountHypothesis(
+                kind="per_case",
+                value=per_case_discount,
+                residual_pennies=int(residual_pennies),
+                confidence=confidence
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Per-case discount solve failed: {e}")
+            return None
+    
+    def _solve_per_litre_discount(self, qty: float, unit_price: float, nett_value: float,
+                                 canonical_quantities: Optional[Dict[str, Any]]) -> Optional[DiscountHypothesis]:
+        """Solve for per-litre discount"""
+        try:
+            expected_value = qty * unit_price
+            
+            # Get quantity in litres
+            quantity_l = canonical_quantities.get('quantity_l', 0) if canonical_quantities else 0
+            
+            if quantity_l <= 0:
+                return None
+            
+            # Calculate per-litre discount
+            total_discount = expected_value - nett_value
+            per_litre_discount = total_discount / quantity_l
+            
+            # Validate reasonable range (£0-£10 per litre)
+            if per_litre_discount < 0 or per_litre_discount > 10:
+                return None
+            
+            # Calculate residual
+            implied_value = expected_value - (quantity_l * per_litre_discount)
+            residual_pennies = abs(implied_value - nett_value) * 100
+            
+            # Calculate confidence
+            confidence = max(0, 1 - (residual_pennies / 100))
+            
+            return DiscountHypothesis(
+                kind="per_litre",
+                value=per_litre_discount,
+                residual_pennies=int(residual_pennies),
+                confidence=confidence
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Per-litre discount solve failed: {e}")
+            return None
+    
+    def _select_best_hypothesis(self, hypotheses: List[DiscountHypothesis]) -> DiscountHypothesis:
+        """Select the best hypothesis based on residual and confidence"""
+        if not hypotheses:
+            raise ValueError("No hypotheses provided")
+        
+        # Sort by residual (ascending) and confidence (descending)
+        sorted_hypotheses = sorted(hypotheses, 
+                                 key=lambda h: (h.residual_pennies, -h.confidence))
+        
+        return sorted_hypotheses[0]
+
+# Global solver instance
+_discount_solver: Optional[DiscountSolver] = None
+
+def get_discount_solver() -> DiscountSolver:
+    """Get global discount solver instance"""
+    global _discount_solver
+    if _discount_solver is None:
+        _discount_solver = DiscountSolver()
+    return _discount_solver 

@@ -1,217 +1,355 @@
 #!/usr/bin/env python3
 """
-Support Pack Export Service
-
-Exports diagnostic information including database, audit logs, config, and recent OCR results
+Support Pack Service - Generate debug packages for invoices
 """
-
 import json
 import zipfile
 import sqlite3
-import logging
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+import tempfile
+import shutil
 
-logger = logging.getLogger(__name__)
+from backend.db_manager_unified import get_db_manager
 
-class SupportPackExporter:
-    """Support pack exporter for diagnostic information"""
+class SupportPackService:
+    """Generates comprehensive debug packages for invoices"""
     
-    def __init__(self, base_path: Optional[Path] = None):
-        if base_path is None:
-            base_path = Path(__file__).parent.parent
-        self.base_path = base_path
-        self.db_path = base_path / "owlin.db"
-        self.audit_log_path = base_path / "audit.log"
-        self.config_path = base_path / "ocr" / "ocr_config.json"
-        self.ocr_metrics_path = base_path / "data" / "ocr_metrics.log"
+    def __init__(self):
+        self.db = get_db_manager()
+        self.output_dir = Path("backups/support_packs")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
     
-    def export_support_pack(self, output_path: Optional[Path] = None) -> Path:
+    def generate_support_pack(self, invoice_id: str) -> str:
         """
-        Export a complete support pack
-        
-        Args:
-            output_path: Output path for the zip file
-            
-        Returns:
-            Path to the exported support pack
+        Generate support pack for invoice
+        Returns path to generated zip file
         """
-        if output_path is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = self.base_path / "support_packs" / f"support_pack_{timestamp}.zip"
+        conn = self.db.get_connection()
         
-        # Ensure output directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"📦 Creating support pack: {output_path}")
-        
-        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # 1. Database (read-only copy)
-            if self.db_path.exists():
-                self._add_database_snapshot(zipf)
-            else:
-                logger.warning("⚠️ Database not found")
+        # Create temporary directory for pack contents
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pack_dir = Path(temp_dir) / f"support_pack_{invoice_id}"
+            pack_dir.mkdir(exist_ok=True)
             
-            # 2. Audit log
-            if self.audit_log_path.exists():
-                zipf.write(self.audit_log_path, "audit.log")
-                logger.info("✅ Added audit.log")
-            else:
-                logger.warning("⚠️ Audit log not found")
+            # Collect all data
+            self._collect_invoice_metadata(conn, invoice_id, pack_dir)
+            self._collect_ocr_results(conn, invoice_id, pack_dir)
+            self._collect_header_fingerprints(conn, invoice_id, pack_dir)
+            self._collect_canonical_outputs(conn, invoice_id, pack_dir)
+            self._collect_solver_decisions(conn, invoice_id, pack_dir)
+            self._collect_verdicts(conn, invoice_id, pack_dir)
+            self._collect_pairing_reasons(conn, invoice_id, pack_dir)
+            self._collect_asset_files(conn, invoice_id, pack_dir)
             
-            # 3. OCR config
-            if self.config_path.exists():
-                zipf.write(self.config_path, "ocr_config.json")
-                logger.info("✅ Added ocr_config.json")
-            else:
-                logger.warning("⚠️ OCR config not found")
+            # Create zip file
+            zip_path = self.output_dir / f"{invoice_id}.zip"
+            self._create_zip_archive(pack_dir, zip_path)
             
-            # 4. Recent OCR results (last 50)
-            self._add_recent_ocr_results(zipf)
-            
-            # 5. System info
-            self._add_system_info(zipf)
-            
-            # 6. OCR metrics
-            if self.ocr_metrics_path.exists():
-                zipf.write(self.ocr_metrics_path, "ocr_metrics.log")
-                logger.info("✅ Added ocr_metrics.log")
-        
-        logger.info(f"✅ Support pack created: {output_path}")
-        return output_path
+            return str(zip_path)
     
-    def _add_database_snapshot(self, zipf: zipfile.ZipFile):
-        """Add a read-only snapshot of the database"""
-        try:
-            # Create a temporary copy for export
-            temp_db_path = self.base_path / "temp_export.db"
-            
-            # Copy database
-            import shutil
-            shutil.copy2(self.db_path, temp_db_path)
-            
-            # Add to zip
-            zipf.write(temp_db_path, "owlin.db")
-            
-            # Clean up
-            temp_db_path.unlink()
-            
-            logger.info("✅ Added database snapshot")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to add database snapshot: {e}")
-    
-    def _add_recent_ocr_results(self, zipf: zipfile.ZipFile):
-        """Add recent OCR results from audit log"""
-        try:
-            if not self.db_path.exists():
-                return
-            
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
-            # Get last 50 OCR processing events
-            cursor.execute("""
-                SELECT metadata_json, created_at
-                FROM audit_log 
-                WHERE action = 'OCR_PROCESSING' 
-                ORDER BY created_at DESC 
-                LIMIT 50
-            """)
-            
-            results = []
-            for row in cursor.fetchall():
-                metadata_json, created_at = row
-                if metadata_json:
-                    try:
-                        metadata = json.loads(metadata_json)
-                        results.append({
-                            "created_at": created_at,
-                            "metadata": metadata
-                        })
-                    except json.JSONDecodeError:
-                        continue
-            
-            conn.close()
-            
-            # Write to JSON file in zip
-            ocr_results_data = {
-                "exported_at": datetime.now().isoformat(),
-                "total_results": len(results),
-                "results": results
+    def _collect_invoice_metadata(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect basic invoice metadata"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, supplier_name, invoice_no, date_iso, currency, 
+                   status, total_inc, ocr_avg_conf, ocr_min_conf, created_at
+            FROM invoices WHERE id = ?
+        """, (invoice_id,))
+        
+        invoice_data = cur.fetchone()
+        if invoice_data:
+            metadata = {
+                'invoice_id': invoice_data[0],
+                'supplier_name': invoice_data[1],
+                'invoice_no': invoice_data[2],
+                'date_iso': invoice_data[3],
+                'currency': invoice_data[4],
+                'status': invoice_data[5],
+                'total_inc': invoice_data[6],
+                'ocr_avg_conf': invoice_data[7],
+                'ocr_min_conf': invoice_data[8],
+                'created_at': invoice_data[9],
+                'pack_generated_at': datetime.now().isoformat()
             }
             
-            zipf.writestr("recent_ocr_results.json", json.dumps(ocr_results_data, indent=2))
-            logger.info(f"✅ Added {len(results)} recent OCR results")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to add recent OCR results: {e}")
+            with open(pack_dir / "invoice_metadata.json", 'w') as f:
+                json.dump(metadata, f, indent=2)
     
-    def _add_system_info(self, zipf: zipfile.ZipFile):
-        """Add system information"""
-        try:
-            import platform
-            import sys
+    def _collect_ocr_results(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect OCR text and confidence data per page"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT page_number, ocr_text, ocr_avg_conf_page, ocr_min_conf_line
+            FROM invoice_pages 
+            WHERE invoice_id = ?
+            ORDER BY page_number
+        """, (invoice_id,))
+        
+        ocr_dir = pack_dir / "ocr_results"
+        ocr_dir.mkdir(exist_ok=True)
+        
+        for row in cur.fetchall():
+            page_no, ocr_text, avg_conf, min_conf = row
             
-            system_info = {
-                "exported_at": datetime.now().isoformat(),
-                "platform": {
-                    "system": platform.system(),
-                    "release": platform.release(),
-                    "version": platform.version(),
-                    "machine": platform.machine(),
-                    "processor": platform.processor()
-                },
-                "python": {
-                    "version": sys.version,
-                    "executable": sys.executable
-                },
-                "paths": {
-                    "base_path": str(self.base_path),
-                    "db_path": str(self.db_path),
-                    "config_path": str(self.config_path)
+            page_data = {
+                'page_number': page_no,
+                'ocr_text': ocr_text or '',
+                'ocr_avg_conf_page': avg_conf,
+                'ocr_min_conf_line': min_conf,
+                'extracted_at': datetime.now().isoformat()
+            }
+            
+            with open(ocr_dir / f"page_{page_no}_ocr.json", 'w') as f:
+                json.dump(page_data, f, indent=2)
+    
+    def _collect_header_fingerprints(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect header fingerprint data"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ia.header_id, ia.path, ia.checksum_sha256
+            FROM document_pages dp
+            JOIN ingest_assets ia ON dp.asset_id = ia.id
+            WHERE dp.document_id = ?
+            ORDER BY dp.page_order
+        """, (invoice_id,))
+        
+        fingerprints = []
+        for row in cur.fetchall():
+            fingerprints.append({
+                'header_id': row[0],
+                'asset_path': row[1],
+                'checksum': row[2]
+            })
+        
+        if fingerprints:
+            with open(pack_dir / "header_fingerprints.json", 'w') as f:
+                json.dump(fingerprints, f, indent=2)
+    
+    def _collect_canonical_outputs(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect canonical quantity parsing results"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, sku, description, quantity, canonical_quantities, line_flags
+            FROM invoice_items 
+            WHERE invoice_id = ?
+            ORDER BY id
+        """, (invoice_id,))
+        
+        canonical_data = []
+        for row in cur.fetchall():
+            line_data = {
+                'line_id': row[0],
+                'sku': row[1],
+                'description': row[2],
+                'raw_quantity': row[3],
+                'canonical_quantities': json.loads(row[4]) if row[4] else None,
+                'line_flags': json.loads(row[5]) if row[5] else []
+            }
+            canonical_data.append(line_data)
+        
+        if canonical_data:
+            with open(pack_dir / "canonical_parsing.json", 'w') as f:
+                json.dump(canonical_data, f, indent=2)
+    
+    def _collect_solver_decisions(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect discount solver decisions and residuals"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, sku, unit_price, line_total, 
+                   discount_kind, discount_value, discount_residual_pennies
+            FROM invoice_items 
+            WHERE invoice_id = ? AND discount_kind IS NOT NULL
+            ORDER BY id
+        """, (invoice_id,))
+        
+        solver_data = []
+        for row in cur.fetchall():
+            solver_data.append({
+                'line_id': row[0],
+                'sku': row[1],
+                'unit_price': row[2],
+                'line_total': row[3],
+                'discount_hypothesis': {
+                    'kind': row[4],
+                    'value': row[5],
+                    'residual_pennies': row[6]
                 }
-            }
-            
-            zipf.writestr("system_info.json", json.dumps(system_info, indent=2))
-            logger.info("✅ Added system info")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to add system info: {e}")
+            })
+        
+        if solver_data:
+            with open(pack_dir / "discount_solver.json", 'w') as f:
+                json.dump(solver_data, f, indent=2)
     
-    def get_support_pack_info(self) -> Dict[str, Any]:
-        """Get information about what would be included in a support pack"""
-        info = {
-            "database": self.db_path.exists(),
-            "audit_log": self.audit_log_path.exists(),
-            "config": self.config_path.exists(),
-            "ocr_metrics": self.ocr_metrics_path.exists(),
-            "base_path": str(self.base_path)
-        }
+    def _collect_verdicts(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect line verdicts"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, sku, line_verdict, line_flags
+            FROM invoice_items 
+            WHERE invoice_id = ?
+            ORDER BY id
+        """, (invoice_id,))
         
-        # Count recent OCR results
-        if self.db_path.exists():
-            try:
-                conn = sqlite3.connect(str(self.db_path))
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT COUNT(*) FROM audit_log 
-                    WHERE action = 'OCR_PROCESSING'
-                """)
-                info["recent_ocr_count"] = cursor.fetchone()[0]
-                conn.close()
-            except Exception:
-                info["recent_ocr_count"] = 0
+        verdicts_data = []
+        for row in cur.fetchall():
+            verdicts_data.append({
+                'line_id': row[0],
+                'sku': row[1],
+                'verdict': row[2],
+                'flags': json.loads(row[3]) if row[3] else []
+            })
         
-        return info
+        if verdicts_data:
+            with open(pack_dir / "verdicts.json", 'w') as f:
+                json.dump(verdicts_data, f, indent=2)
+    
+    def _collect_pairing_reasons(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect pairing match reasons"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ml.dn_id, ml.score, mli.invoice_item_id, 
+                   mli.dn_item_id, mli.reason, mli.qty_match_pct
+            FROM match_links ml
+            LEFT JOIN match_link_items mli ON ml.id = mli.link_id
+            WHERE ml.invoice_id = ?
+            ORDER BY ml.score DESC, mli.invoice_item_id
+        """, (invoice_id,))
+        
+        pairing_data = []
+        for row in cur.fetchall():
+            pairing_data.append({
+                'dn_id': row[0],
+                'doc_score': row[1],
+                'invoice_item_id': row[2],
+                'dn_item_id': row[3],
+                'reason': row[4],
+                'qty_match_pct': row[5]
+            })
+        
+        if pairing_data:
+            with open(pack_dir / "pairing_reasons.json", 'w') as f:
+                json.dump(pairing_data, f, indent=2)
+    
+    def _collect_asset_files(self, conn: sqlite3.Connection, invoice_id: str, pack_dir: Path):
+        """Collect original asset files"""
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ia.path, ia.mime, dp.page_order
+            FROM document_pages dp
+            JOIN ingest_assets ia ON dp.asset_id = ia.id
+            WHERE dp.document_id = ?
+            ORDER BY dp.page_order
+        """, (invoice_id,))
+        
+        assets_dir = pack_dir / "original_assets"
+        assets_dir.mkdir(exist_ok=True)
+        
+        for row in cur.fetchall():
+            asset_path, mime, page_order = row
+            
+            if Path(asset_path).exists():
+                # Copy asset with descriptive name
+                ext = Path(asset_path).suffix
+                dest_name = f"page_{page_order:02d}{ext}"
+                shutil.copy2(asset_path, assets_dir / dest_name)
+    
+    def _create_zip_archive(self, source_dir: Path, zip_path: Path) -> None:
+        """Create zip archive from directory"""
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in source_dir.rglob('*'):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(source_dir)
+                    zipf.write(file_path, arcname)
 
-# Global exporter instance
-_support_pack_exporter: Optional[SupportPackExporter] = None
+class QuarantineService:
+    """Manages quarantined files and promotion"""
+    
+    def __init__(self):
+        self.db = get_db_manager()
+    
+    def quarantine_asset(self, asset_id: str, reason: str, details: Optional[Dict] = None):
+        """Quarantine an asset with reason"""
+        conn = self.db.get_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            UPDATE ingest_assets 
+            SET quarantine_reason = ?, quarantine_details = ?, quarantine_at = ?
+            WHERE id = ?
+        """, (reason, json.dumps(details) if details else None, 
+              datetime.now().isoformat(), asset_id))
+        
+        conn.commit()
+    
+    def list_quarantined_assets(self) -> List[Dict[str, Any]]:
+        """List all quarantined assets"""
+        conn = self.db.get_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, path, mime, quarantine_reason, quarantine_details, quarantine_at
+            FROM ingest_assets 
+            WHERE quarantine_reason IS NOT NULL
+            ORDER BY quarantine_at DESC
+        """)
+        
+        quarantined = []
+        for row in cur.fetchall():
+            quarantined.append({
+                'asset_id': row[0],
+                'filename': Path(row[1]).name,
+                'mime': row[2],
+                'reason': row[3],
+                'details': json.loads(row[4]) if row[4] else None,
+                'quarantined_at': row[5]
+            })
+        
+        return quarantined
+    
+    def promote_asset(self, asset_id: str) -> bool:
+        """Promote asset from quarantine back to processing"""
+        conn = self.db.get_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            UPDATE ingest_assets 
+            SET quarantine_reason = NULL, quarantine_details = NULL, quarantine_at = NULL
+            WHERE id = ?
+        """, (asset_id,))
+        
+        conn.commit()
+        return cur.rowcount > 0
 
-def get_support_pack_exporter() -> SupportPackExporter:
-    """Get global support pack exporter instance"""
-    global _support_pack_exporter
-    if _support_pack_exporter is None:
-        _support_pack_exporter = SupportPackExporter()
-    return _support_pack_exporter
+# Global instances
+_support_pack_service: Optional[SupportPackService] = None
+_quarantine_service: Optional[QuarantineService] = None
+
+def get_support_pack_service() -> SupportPackService:
+    """Get global support pack service instance"""
+    global _support_pack_service
+    if _support_pack_service is None:
+        _support_pack_service = SupportPackService()
+    return _support_pack_service
+
+def get_quarantine_service() -> QuarantineService:
+    """Get global quarantine service instance"""
+    global _quarantine_service
+    if _quarantine_service is None:
+        _quarantine_service = QuarantineService()
+    return _quarantine_service
+
+# Add missing cleanup function for tests
+def cleanup_old_support_packs(dir_path: str, keep: int = 10) -> None:
+    """Clean up old support pack files, keeping only the most recent ones"""
+    p = Path(dir_path)
+    if not p.exists(): 
+        return
+    
+    zips = sorted(p.glob("*.zip"), key=lambda x: x.stat().st_mtime, reverse=True)
+    for z in zips[keep:]:
+        try: 
+            z.unlink()
+        except Exception: 
+            pass

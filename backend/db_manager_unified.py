@@ -11,21 +11,41 @@ import logging
 import hashlib
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
+from os import PathLike
 from datetime import datetime
 import uuid
 
+StrPath = Union[str, PathLike[str], Path]
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = "data/owlin.db"
+# 1) Resolve repo root deterministically: .../backend/ -> parents[1] = repo root
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_DB = _REPO_ROOT / "data" / "owlin.db"
+
+# 2) Environment override (explicit, testable)
+_DB_PATH = Path(os.environ.get("OWLIN_DB_PATH", _DEFAULT_DB))
+
+def _connect() -> sqlite3.Connection:
+    """Create database connection with proper configuration"""
+    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    # Guardrails for SQLite reliability
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    return conn
 
 class DatabaseManager:
     """Unified database manager with bulletproof operations"""
     
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: Optional[StrPath] = None):
         if db_path is None:
-            db_path = os.environ.get('OWLIN_DB', DEFAULT_DB_PATH)
-        self.db_path = db_path
+            self.db_path = _DB_PATH
+        else:
+            self.db_path = Path(db_path)
+        self._conn: Optional[sqlite3.Connection] = None
         self._ensure_db_directory()
         self._init_database()
     
@@ -37,7 +57,7 @@ class DatabaseManager:
     def _init_database(self):
         """Initialize database with unified schema"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self.get_connection() as conn:
                 conn.execute("PRAGMA foreign_keys = ON")
                 conn.execute("PRAGMA journal_mode = WAL")
                 conn.execute("PRAGMA synchronous = NORMAL")
@@ -68,14 +88,16 @@ class DatabaseManager:
                 migrations_dir = Path(__file__).parent / "db_migrations"
                 migration_files = []
                 
-                for sql_file in migrations_dir.glob("*.sql"):
-                    # Extract version from filename (e.g., "001_clean_start.sql" -> 1)
-                    try:
-                        version = int(sql_file.stem.split('_')[0])
-                        migration_files.append((version, sql_file))
-                    except (ValueError, IndexError):
-                        logger.warning(f"⚠️ Skipping migration file with invalid name: {sql_file}")
-                        continue
+                # Look for both .sql and .py migration files
+                for migration_file in migrations_dir.glob("*"):
+                    if migration_file.suffix in ['.sql', '.py']:
+                        # Extract version from filename (e.g., "001_clean_start.sql" -> 1)
+                        try:
+                            version = int(migration_file.stem.split('_')[0])
+                            migration_files.append((version, migration_file))
+                        except (ValueError, IndexError):
+                            logger.warning(f"⚠️ Skipping migration file with invalid name: {migration_file}")
+                            continue
                 
                 # Sort by version
                 migration_files.sort(key=lambda x: x[0])
@@ -85,29 +107,37 @@ class DatabaseManager:
                 applied_versions = {row[0] for row in cursor.fetchall()}
                 
                 # Apply pending migrations
-                for version, sql_file in migration_files:
+                for version, migration_file in migration_files:
                     if version not in applied_versions:
-                        logger.info(f"🔄 Applying migration {version}: {sql_file.name}")
+                        logger.info(f"🔄 Applying migration {version}: {migration_file.name}")
                         
                         try:
-                            with open(sql_file, 'r') as f:
-                                migration_sql = f.read()
-                            
-                            # Execute migration with error handling
-                            try:
-                                conn.executescript(migration_sql)
-                            except sqlite3.OperationalError as e:
-                                # If table already exists, that's OK for our clean start migration
-                                if "already exists" in str(e) and version == 1:
-                                    logger.info(f"⏭️ Tables already exist, skipping creation")
-                                else:
-                                    raise
+                            if migration_file.suffix == '.py':
+                                # Execute Python migration
+                                self._execute_python_migration(conn, migration_file)
+                            else:
+                                # Execute SQL migration
+                                with open(migration_file, 'r') as f:
+                                    migration_sql = f.read()
+                                
+                                # Execute migration with error handling
+                                try:
+                                    conn.executescript(migration_sql)
+                                except sqlite3.OperationalError as e:
+                                    # If table already exists, that's OK for our clean start migration
+                                    if "already exists" in str(e) and version == 1:
+                                        logger.info(f"⏭️ Tables already exist, skipping creation")
+                                    # If column already exists, that's OK for ADD COLUMN operations
+                                    elif "duplicate column name" in str(e) or "already exists" in str(e):
+                                        logger.info(f"⏭️ Column already exists, skipping: {e}")
+                                    else:
+                                        raise
                             
                             # Record migration
                             conn.execute("""
                                 INSERT INTO migrations (version, name, applied_at)
                                 VALUES (?, ?, datetime('now'))
-                            """, (version, sql_file.stem))
+                            """, (version, migration_file.stem))
                             
                             conn.commit()
                             logger.info(f"✅ Migration {version} applied successfully")
@@ -140,10 +170,13 @@ class DatabaseManager:
     
     def get_connection(self) -> sqlite3.Connection:
         """Get database connection with proper configuration"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.row_factory = sqlite3.Row
-        return conn
+        if self._conn is None:
+            self._conn = _connect()
+        return self._conn
+    
+    def get_conn(self) -> sqlite3.Connection:
+        """Alias for get_connection() for compatibility"""
+        return self.get_connection()
     
     # ===== FILE OPERATIONS =====
     
@@ -545,6 +578,26 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ Failed to get system stats: {e}")
             return {}
+    
+    def _execute_python_migration(self, conn: sqlite3.Connection, migration_file: Path):
+        """Execute Python migration file by importing and calling apply()"""
+        import importlib.util
+        import sys
+        
+        # Load the migration module
+        spec = importlib.util.spec_from_file_location("migration", migration_file)
+        if spec is None or spec.loader is None:
+            raise Exception(f"Could not load migration file: {migration_file}")
+        
+        migration_module = importlib.util.module_from_spec(spec)
+        sys.modules["migration"] = migration_module
+        spec.loader.exec_module(migration_module)
+        
+        # Call the apply function
+        if hasattr(migration_module, 'apply'):
+            migration_module.apply(conn)
+        else:
+            raise Exception(f"Migration {migration_file} missing apply() function")
 
 # Global database manager instance
 _db_manager: Optional[DatabaseManager] = None
@@ -552,14 +605,14 @@ _db_manager: Optional[DatabaseManager] = None
 def get_db_manager() -> DatabaseManager:
     """Get global database manager instance"""
     global _db_manager
-    current_db_path = os.environ.get('OWLIN_DB', DEFAULT_DB_PATH)
+    current_db_path = os.environ.get('OWLIN_DB', _DEFAULT_DB)
     
     if _db_manager is None or _db_manager.db_path != current_db_path:
         _db_manager = DatabaseManager(current_db_path)
     
     return _db_manager
 
-def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
+def init_db(db_path: str = str(_DEFAULT_DB)) -> None:
     """Initialize database (backward compatibility)"""
     global _db_manager
     _db_manager = DatabaseManager(db_path) 
