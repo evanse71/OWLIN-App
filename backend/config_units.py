@@ -1,14 +1,13 @@
 """
-UK Engine Configuration - Deterministic Constants
-All tolerances, weights, and mathematical constants for the pricing engine.
+Unit configuration constants for normalization
 """
 
-# Price tolerances (British spelling; money stored as pennies for compatibility)
+# Price tolerances
 PRICE_TOL_PCT = 0.01          # 1% tolerance on (price*qty) vs line_total
 PRICE_TOL_PENNIES = 1         # ±1p tolerance on totals
 QTY_TOL = 1e-6
 
-# Base unit conversions
+# Base conversions
 ML_PER_L = 1000
 G_PER_KG = 1000
 
@@ -25,8 +24,10 @@ WEIGHT_SYNONYMS = {
     "kg": G_PER_KG, "kilogram": G_PER_KG
 }
 
-# Pack terminology
+# Pack words
 PACK_WORDS = {"pack", "case", "crate", "tray", "dozen", "12pk", "24pk"}
+
+# Dozen aliases
 DOZEN_ALIASES = {"dozen": 12}
 
 # UK beverage packaging (approximate where noted)
@@ -44,6 +45,7 @@ CATEGORY_TOL = {
     "softs_nrb": 0.025,
     "default": 0.025
 }
+
 NEW_SKU_TOL_BONUS = 0.015      # widen tolerance for new/low-history SKUs
 
 # Price ladder weights & staleness penalties (per day)
@@ -54,23 +56,18 @@ LADDER_CONF = {
     "invoice_unit_column": {"w": 0.40, "penalty_per_day": 0.0},
     "peer_sibling_sites": {"w": 0.55, "penalty_per_day": 0.003}
 }
+
 REF_CONFLICT_THRESHOLD = 0.10  # 10% disagreement
 
-# Engine version for fingerprinting
-ENGINE_VERSION = "1.0.0"
+# OCR confidence thresholds
+OCR_BLOCK = 50.0      # Block parsing below this confidence
+OCR_WARN = 70.0       # Flag lines between BLOCK and WARN
 
-# Verdict priorities (strict order)
-VERDICT_PRIORITIES = [
-    "math_mismatch",
-    "reference_conflict", 
-    "uom_mismatch_suspected",
-    "off_contract_discount",
-    "unusual_vs_history",
-    "ocr_suspected_error",
-    "ok_on_contract",
-    "needs_user_rule",
-    "pricing_anomaly_unmodelled"
-]
+# FOC (Free of Charge) detection terms
+FOC_TERMS = ["foc", "free", "sample", "complimentary", "gratis"]
 
-# FOC/Free terminology
-FOC_TERMS = {"foc", "free", "complimentary", "gratis", "no charge", "n/c"} 
+# Assembly and processing constants
+ASSEMBLY_TIME_WINDOW_S = 60  # Max seconds between assets for same document
+MAX_FILE_MB = 40
+MAX_PAGES = 200
+MAX_PIXELS = 40_000_000 

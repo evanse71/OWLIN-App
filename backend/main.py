@@ -8,9 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from backend.routes import invoices, flagged_issues, suppliers, analytics, ocr, products
-from backend.routes import document_queue, upload_review, confirm_splits, upload_fixed
-from backend.routes import dev, agent, test_ocr, upload_enhanced, matching, upload_validation
+from routes import invoices, flagged_issues, suppliers, analytics, ocr, products
+from routes import document_queue, upload_review, confirm_splits, upload_fixed
+from routes import dev, agent, test_ocr, upload_enhanced, matching, upload_validation
 import logging
 
 # Configure basic logging
@@ -58,6 +58,22 @@ try:
     print("✅ Health check routes loaded")
 except ImportError as e:
     print(f"⚠️ Health check routes not available: {e}")
+
+# ✅ Include invoices API routes
+try:
+    from routes import invoices_api
+    app.include_router(invoices_api.invoices_api_bp, prefix="/api")
+    print("✅ Invoices API routes loaded")
+except ImportError as e:
+    print(f"⚠️ Invoices API routes not available: {e}")
+
+# ✅ Include pairing API routes
+try:
+    from routes import pairing_api
+    app.include_router(pairing_api.pairing_api_bp, prefix="/api")
+    print("✅ Pairing API routes loaded")
+except ImportError as e:
+    print(f"⚠️ Pairing API routes not available: {e}")
 
 # ✅ OCR Harness routes
 try:

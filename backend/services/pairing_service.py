@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from db_manager_unified import get_db_manager
+from backend.normalization.units import canonical_quantities
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,21 @@ class PairingService:
         'amount_proximity': 0.2
     }
     
+    # Line-level scoring weights
+    LINE_SCORING_WEIGHTS = {
+        'quantity_match': 0.4,
+        'description_similarity': 0.3,
+        'price_proximity': 0.2,
+        'sku_match': 0.1
+    }
+    
     # Auto-confirm threshold
     AUTO_CONFIRM_THRESHOLD = 85.0
     SUGGESTION_THRESHOLD = 55.0
+    
+    # Line matching thresholds
+    QUANTITY_TOLERANCE = 0.05  # 5% tolerance for quantity matching
+    PRICE_TOLERANCE = 0.10     # 10% tolerance for price matching
     
     @staticmethod
     def normalize_supplier_name(name: str) -> str:
@@ -339,3 +352,223 @@ class PairingService:
         
         logger.info(f"Auto-paired {len(auto_paired)} documents")
         return auto_paired 
+
+    def pair_line_items(self, invoice_lines: List[Dict[str, Any]], 
+                       delivery_lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Pair line items between invoice and delivery note using canonical quantities.
+        
+        Args:
+            invoice_lines: List of invoice line items
+            delivery_lines: List of delivery note line items
+            
+        Returns:
+            List of pairing results with scores and reasons
+        """
+        try:
+            pairings = []
+            
+            for inv_line in invoice_lines:
+                best_match = None
+                best_score = 0.0
+                best_reasons = []
+                
+                for dn_line in delivery_lines:
+                    score, reasons = self._calculate_line_match_score(inv_line, dn_line)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_match = dn_line
+                        best_reasons = reasons
+                
+                if best_match and best_score > 0.3:  # Minimum threshold
+                    pairings.append({
+                        'invoice_line': inv_line,
+                        'delivery_line': best_match,
+                        'score': best_score,
+                        'reasons': best_reasons
+                    })
+            
+            return pairings
+            
+        except Exception as e:
+            logger.error(f"❌ Line pairing failed: {e}")
+            return []
+    
+    def _calculate_line_match_score(self, inv_line: Dict[str, Any], 
+                                  dn_line: Dict[str, Any]) -> Tuple[float, List[str]]:
+        """Calculate match score between two line items"""
+        try:
+            reasons = []
+            total_score = 0.0
+            
+            # Quantity matching using canonical quantities
+            qty_score, qty_reasons = self._match_quantities(inv_line, dn_line)
+            total_score += qty_score * self.LINE_SCORING_WEIGHTS['quantity_match']
+            reasons.extend(qty_reasons)
+            
+            # Description similarity
+            desc_score, desc_reasons = self._match_descriptions(inv_line, dn_line)
+            total_score += desc_score * self.LINE_SCORING_WEIGHTS['description_similarity']
+            reasons.extend(desc_reasons)
+            
+            # Price proximity
+            price_score, price_reasons = self._match_prices(inv_line, dn_line)
+            total_score += price_score * self.LINE_SCORING_WEIGHTS['price_proximity']
+            reasons.extend(price_reasons)
+            
+            # SKU matching
+            sku_score, sku_reasons = self._match_skus(inv_line, dn_line)
+            total_score += sku_score * self.LINE_SCORING_WEIGHTS['sku_match']
+            reasons.extend(sku_reasons)
+            
+            return total_score, reasons
+            
+        except Exception as e:
+            logger.error(f"❌ Line match score calculation failed: {e}")
+            return 0.0, []
+    
+    def _match_quantities(self, inv_line: Dict[str, Any], 
+                         dn_line: Dict[str, Any]) -> Tuple[float, List[str]]:
+        """Match quantities using canonical units"""
+        try:
+            reasons = []
+            
+            # Get canonical quantities
+            inv_qty = inv_line.get('quantity', 0)
+            inv_desc = inv_line.get('description', '')
+            inv_canonical = canonical_quantities(inv_qty, inv_desc)
+            
+            dn_qty = dn_line.get('quantity', 0)
+            dn_desc = dn_line.get('description', '')
+            dn_canonical = canonical_quantities(dn_qty, dn_desc)
+            
+            # Prefer quantity_ml for beverages, quantity_g for weights, else quantity_each
+            inv_primary = (inv_canonical.get('quantity_ml') or 
+                          inv_canonical.get('quantity_g') or 
+                          inv_canonical.get('quantity_each', 0))
+            dn_primary = (dn_canonical.get('quantity_ml') or 
+                         dn_canonical.get('quantity_g') or 
+                         dn_canonical.get('quantity_each', 0))
+            
+            if inv_primary == 0 or dn_primary == 0:
+                return 0.0, ["No comparable quantities"]
+            
+            # Calculate difference
+            diff_pct = abs(inv_primary - dn_primary) / max(inv_primary, dn_primary)
+            
+            if diff_pct <= self.QUANTITY_TOLERANCE:
+                score = 1.0 - (diff_pct / self.QUANTITY_TOLERANCE)
+                reasons.append(f"Quantity match: {diff_pct:.1%} difference")
+                return score, reasons
+            else:
+                reasons.append(f"Quantity mismatch: {diff_pct:.1%} difference")
+                return 0.0, reasons
+                
+        except Exception as e:
+            logger.error(f"❌ Quantity matching failed: {e}")
+            return 0.0, ["Quantity matching error"]
+    
+    def _match_descriptions(self, inv_line: Dict[str, Any], 
+                           dn_line: Dict[str, Any]) -> Tuple[float, List[str]]:
+        """Match line descriptions"""
+        try:
+            inv_desc = inv_line.get('description', '').lower()
+            dn_desc = dn_line.get('description', '').lower()
+            
+            if not inv_desc or not dn_desc:
+                return 0.0, ["Missing descriptions"]
+            
+            # Use sequence matcher for similarity
+            similarity = SequenceMatcher(None, inv_desc, dn_desc).ratio()
+            
+            if similarity > 0.7:
+                reasons = [f"Description similarity: {similarity:.1%}"]
+                return similarity, reasons
+            else:
+                return 0.0, [f"Description mismatch: {similarity:.1%} similarity"]
+                
+        except Exception as e:
+            logger.error(f"❌ Description matching failed: {e}")
+            return 0.0, ["Description matching error"]
+    
+    def _match_prices(self, inv_line: Dict[str, Any], 
+                     dn_line: Dict[str, Any]) -> Tuple[float, List[str]]:
+        """Match unit prices"""
+        try:
+            inv_price = inv_line.get('unit_price', 0)
+            dn_price = dn_line.get('unit_price', 0)
+            
+            if inv_price == 0 or dn_price == 0:
+                return 0.0, ["Missing prices"]
+            
+            # Calculate price difference
+            diff_pct = abs(inv_price - dn_price) / max(inv_price, dn_price)
+            
+            if diff_pct <= self.PRICE_TOLERANCE:
+                score = 1.0 - (diff_pct / self.PRICE_TOLERANCE)
+                reasons = [f"Price match: {diff_pct:.1%} difference"]
+                return score, reasons
+            else:
+                return 0.0, [f"Price mismatch: {diff_pct:.1%} difference"]
+                
+        except Exception as e:
+            logger.error(f"❌ Price matching failed: {e}")
+            return 0.0, ["Price matching error"]
+    
+    def _match_skus(self, inv_line: Dict[str, Any], 
+                   dn_line: Dict[str, Any]) -> Tuple[float, List[str]]:
+        """Match SKUs"""
+        try:
+            inv_sku = inv_line.get('sku', '').upper()
+            dn_sku = dn_line.get('sku', '').upper()
+            
+            if not inv_sku or not dn_sku:
+                return 0.0, ["Missing SKUs"]
+            
+            if inv_sku == dn_sku:
+                return 1.0, ["SKU exact match"]
+            else:
+                # Fuzzy SKU matching
+                similarity = SequenceMatcher(None, inv_sku, dn_sku).ratio()
+                if similarity > 0.8:
+                    return similarity, [f"SKU similarity: {similarity:.1%}"]
+                else:
+                    return 0.0, ["SKU mismatch"]
+                    
+        except Exception as e:
+            logger.error(f"❌ SKU matching failed: {e}")
+            return 0.0, ["SKU matching error"]
+    
+    def persist_line_pairing(self, match_id: int, pairings: List[Dict[str, Any]]) -> bool:
+        """Persist line pairing results to database"""
+        try:
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                for pairing in pairings:
+                    inv_line = pairing['invoice_line']
+                    dn_line = pairing['delivery_line']
+                    score = pairing['score']
+                    reasons = pairing['reasons']
+                    
+                    cursor.execute("""
+                        INSERT INTO match_link_items 
+                        (match_id, invoice_line_id, delivery_line_id, reason, weight, score_contribution)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        match_id,
+                        inv_line.get('id'),
+                        dn_line.get('id'),
+                        json.dumps(reasons),
+                        score,
+                        score
+                    ))
+                
+                conn.commit()
+                logger.info(f"✅ Persisted {len(pairings)} line pairings for match {match_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to persist line pairing: {e}")
+            return False 

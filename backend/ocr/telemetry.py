@@ -5,23 +5,39 @@ Local Telemetry System
 Logs OCR processing metrics for operational visibility
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
+from os import PathLike
+
+# --- TYPE SAFETY GUARD: paths are Path-like, not plain strings ---
+StrPath = Union[str, PathLike[str], Path]
+
+def _ensure_path(p: Optional[StrPath]) -> Optional[Path]:
+    if p is None:
+        return None
+    return Path(p)
+# -----------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
 
 class TelemetryLogger:
     """Local telemetry logger for OCR metrics"""
     
-    def __init__(self, log_path: Optional[str] = None):
+    def __init__(self, log_path: Optional[StrPath] = None):
         if log_path is None:
             log_path = Path(__file__).parent.parent.parent / "data" / "ocr_metrics.log"
         
-        self.log_path = Path(log_path)
+        p = _ensure_path(log_path)
+        if p is None:
+            raise ValueError("log_path cannot be None")
+        
+        self.log_path = p
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Maximum log file size (20MB)
@@ -211,7 +227,7 @@ class TelemetryLogger:
             }
         }
     
-    def export_metrics(self, output_path: Optional[str] = None) -> str:
+    def export_metrics(self, output_path: Optional[StrPath] = None) -> str:
         """
         Export telemetry metrics to a file
         
@@ -226,8 +242,11 @@ class TelemetryLogger:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_path = Path(__file__).parent.parent.parent / "data" / f"ocr_metrics_export_{timestamp}.json"
             
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            p = _ensure_path(output_path)
+            if p is None:
+                raise ValueError("output_path cannot be None")
+            
+            p.parent.mkdir(parents=True, exist_ok=True)
             
             # Get summary
             summary = self.get_metrics_summary()
@@ -245,11 +264,11 @@ class TelemetryLogger:
                 summary['raw_entries'] = raw_entries
             
             # Write to file
-            with open(output_path, 'w') as f:
+            with open(p, 'w') as f:
                 json.dump(summary, f, indent=2)
             
-            logger.info(f"📄 Exported telemetry metrics to: {output_path}")
-            return str(output_path)
+            logger.info(f"📄 Exported telemetry metrics to: {p}")
+            return str(p)
             
         except Exception as e:
             logger.error(f"❌ Failed to export metrics: {e}")

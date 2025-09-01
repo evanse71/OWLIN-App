@@ -5,16 +5,17 @@ Validate price coherence, pack descriptors, VAT calculations, and totals.
 
 import math
 from typing import Dict, List, Optional, Tuple
-from decimal import Decimal, ROUND_HALF_UP
-from config_units import PRICE_TOL_PCT, PRICE_TOL_PENNIES, QTY_TOL, FOC_TERMS
+from decimal import Decimal, ROUND_HALF_UP, ROUND_HALF_EVEN
+from config_core import PRICE_TOL_PCT, PRICE_TOL_PENNIES, QTY_TOL, FOC_TERMS
 
 
 def banker_round(value: float, places: int = 2) -> float:
     """
     Banker's rounding to specified decimal places.
+    Rounds to even when exactly halfway between two values.
     """
     decimal_value = Decimal(str(value))
-    rounded = decimal_value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    rounded = decimal_value.quantize(Decimal('0.01'), rounding=ROUND_HALF_EVEN)
     return float(rounded)
 
 
@@ -39,8 +40,9 @@ def check_price_coherence(unit_price: float, quantity: float, line_total: float,
     pct_diff = abs_diff / actual_total if actual_total != 0 else float('inf')
     
     # Check if this looks like a large discount (more than 30% difference)
-    if pct_diff > 0.30 and actual_total < expected_total:
-        # This is likely a discount, not a math error
+    # Only allow this for very large discounts that are clearly intentional
+    if pct_diff > 0.30 and actual_total < expected_total and abs_diff > 10.0:
+        # This is likely a large intentional discount, not a math error
         return True, None
     
     # Check tolerances: must exceed both 1p AND 1%

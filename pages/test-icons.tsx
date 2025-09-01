@@ -1,12 +1,15 @@
-import React from 'react';
-import Icons from '@/components/icons';
+import { Icons } from "@/components/icons";
+import React from "react";
+
+type IconType = React.ComponentType<React.SVGProps<SVGSVGElement>>;
+const entries = Object.entries(Icons as Record<string, IconType>);
 
 export default function TestIcons() {
   return (
-    <div className="grid grid-cols-6 gap-3">
-      {Object.entries(Icons).map(([name, Icon]) => (
-        <div key={String(name)} className="flex items-center gap-2 text-sm">
-          <Icon className="h-4 w-4" aria-hidden="true" />
+    <div className="grid gap-4">
+      {entries.map(([name, Icon]) => (
+        <div key={String(name)} className="flex items-center gap-2">
+          <Icon aria-hidden />
           <span>{String(name)}</span>
         </div>
       ))}

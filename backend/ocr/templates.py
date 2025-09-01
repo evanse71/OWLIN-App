@@ -11,10 +11,16 @@ import hashlib
 import sqlite3
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from datetime import datetime
 from pathlib import Path
+from os import PathLike
 import difflib
+
+StrPath = Union[str, PathLike[str], Path]
+
+def _p(p: Optional[StrPath]) -> Optional[Path]:
+    return None if p is None else Path(p)
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +38,13 @@ class SupplierTemplate:
 class TemplateManager:
     """Manages supplier templates for improved OCR accuracy"""
     
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[StrPath] = None):
         if db_path is None:
             db_path = Path(__file__).parent.parent / "owlin.db"
-        self.db_path = Path(db_path)
+        p = _p(db_path)
+        if p is None:
+            raise ValueError("db_path cannot be None")
+        self.db_path = p
     
     def save_template(self, supplier_key: str, header_zones: Dict[str, List[float]], 
                      currency_hint: Optional[str] = None, vat_hint: Optional[str] = None) -> bool:

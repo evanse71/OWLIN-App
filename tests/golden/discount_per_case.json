@@ -1,0 +1,61 @@
+{
+  "scenario": "per_case_discount",
+  "description": "Case discount: £5 per case on 24x330ml",
+  "expected_discount": {
+    "kind": "per_case",
+    "value": 5.0,
+    "tolerance": 0.1
+  },
+  "invoice": {
+    "supplier_id": "TEST_SUPPLIER",
+    "invoice_date": "2024-01-15",
+    "lines": [
+      {
+        "id": 1,
+        "sku_id": "HEINEKEN_001",
+        "description": "Heineken Lager 24x330ml cans",
+        "quantity": 24.0,
+        "unit_price": 1.0,
+        "line_total": 19.0,
+        "uom_key": "volume_ml",
+        "date": "2024-01-15",
+        "supplier_id": "TEST_SUPPLIER",
+        "ruleset_id": 1
+      }
+    ]
+  },
+  "expected_verdict": "off_contract_discount",
+  "expected_flags": ["OFF_CONTRACT_DISCOUNT"],
+  "test_cases": [
+    {
+      "name": "exact_case_discount",
+      "input": {
+        "qty": 24.0,
+        "unit_price": 1.0,
+        "nett_value": 19.0,
+        "description": "Heineken Lager 24x330ml cans"
+      },
+      "expected": {
+        "discount_kind": "per_case",
+        "discount_value": 5.0,
+        "residual_pennies": 0,
+        "verdict": "off_contract_discount"
+      }
+    },
+    {
+      "name": "multiple_cases",
+      "input": {
+        "qty": 48.0,
+        "unit_price": 1.0,
+        "nett_value": 38.0,
+        "description": "Heineken Lager 48x330ml cans"
+      },
+      "expected": {
+        "discount_kind": "per_case",
+        "discount_value": 5.0,
+        "residual_pennies": 0,
+        "verdict": "off_contract_discount"
+      }
+    }
+  ]
+} 

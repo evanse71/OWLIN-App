@@ -29,8 +29,295 @@ import pypdfium2 as pdfium
 
 # Local imports
 from backend.ocr.enhanced_ocr_engine import enhanced_ocr_engine
-from backend.ocr.enhanced_line_item_extractor import enhanced_line_item_extractor, LineItem
+from backend.ocr.enhanced_line_item_extractor import get_enhanced_line_item_extractor, LineItem
 from backend.ocr.ocr_engine import OCRResult
+
+"""
+Multi-Invoice Splitter
+
+Splits multi-page PDFs into individual invoices using header fingerprinting.
+"""
+
+import logging
+import hashlib
+from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+import fitz  # PyMuPDF
+from PIL import Image
+import numpy as np
+from io import BytesIO
+
+logger = logging.getLogger(__name__)
+
+class HeaderFingerprint:
+    """Header fingerprinting for document identification"""
+    
+    def __init__(self):
+        self.logo_threshold = 0.8
+        self.address_threshold = 0.7
+    
+    def extract_header_region(self, page_image: Image.Image) -> Image.Image:
+        """Extract header region from page image"""
+        try:
+            # Extract top 20% of page as header region
+            width, height = page_image.size
+            header_height = int(height * 0.2)
+            
+            header_region = page_image.crop((0, 0, width, header_height))
+            return header_region
+            
+        except Exception as e:
+            logger.error(f"❌ Header region extraction failed: {e}")
+            return page_image
+    
+    def compute_fingerprint(self, header_image: Image.Image) -> str:
+        """Compute fingerprint for header region"""
+        try:
+            # Convert to grayscale and resize for consistency
+            gray_image = header_image.convert('L')
+            resized = gray_image.resize((100, 50))  # Standard size
+            
+            # Convert to numpy array
+            array = np.array(resized)
+            
+            # Compute hash of pixel values
+            pixel_hash = hashlib.sha256(array.tobytes()).hexdigest()
+            
+            return pixel_hash
+            
+        except Exception as e:
+            logger.error(f"❌ Fingerprint computation failed: {e}")
+            return ""
+    
+    def compare_fingerprints(self, fp1: str, fp2: str) -> float:
+        """Compare two fingerprints and return similarity score"""
+        try:
+            if not fp1 or not fp2:
+                return 0.0
+            
+            # Simple Hamming distance for hex strings
+            if len(fp1) != len(fp2):
+                return 0.0
+            
+            differences = sum(1 for a, b in zip(fp1, fp2) if a != b)
+            similarity = 1.0 - (differences / len(fp1))
+            
+            return similarity
+            
+        except Exception as e:
+            logger.error(f"❌ Fingerprint comparison failed: {e}")
+            return 0.0
+
+class MultiInvoiceSplitter:
+    """Splits multi-page PDFs into individual invoices"""
+    
+    def __init__(self):
+        self.header_fingerprint = HeaderFingerprint()
+        self.similarity_threshold = 0.85
+    
+    def split_pdf(self, pdf_path: Path) -> List[Dict[str, Any]]:
+        """
+        Split PDF into individual invoices.
+        
+        Args:
+            pdf_path: Path to PDF file
+            
+        Returns:
+            List of invoice segments with page ranges
+        """
+        try:
+            # Open PDF
+            doc = fitz.open(str(pdf_path))
+            if not doc:
+                logger.error(f"❌ Failed to open PDF: {pdf_path}")
+                return []
+            
+            # Extract page images and fingerprints
+            page_fingerprints = []
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                
+                # Render page to image
+                pix = page.get_pixmap()
+                img_data = pix.tobytes("png")
+                page_image = Image.open(BytesIO(img_data))
+                
+                # Extract header and compute fingerprint
+                header_region = self.header_fingerprint.extract_header_region(page_image)
+                fingerprint = self.header_fingerprint.compute_fingerprint(header_region)
+                
+                page_fingerprints.append({
+                    'page_num': page_num,
+                    'fingerprint': fingerprint,
+                    'image': page_image
+                })
+            
+            # Group pages by similar headers
+            segments = self._group_pages_by_header(page_fingerprints)
+            
+            # Convert to invoice segments
+            invoice_segments = []
+            for i, segment in enumerate(segments):
+                invoice_segments.append({
+                    'segment_id': i + 1,
+                    'start_page': segment[0]['page_num'],
+                    'end_page': segment[-1]['page_num'],
+                    'page_count': len(segment),
+                    'fingerprint': segment[0]['fingerprint']
+                })
+            
+            doc.close()
+            logger.info(f"✅ Split PDF into {len(invoice_segments)} segments")
+            return invoice_segments
+            
+        except Exception as e:
+            logger.error(f"❌ PDF splitting failed: {e}")
+            return []
+    
+    def _group_pages_by_header(self, page_fingerprints: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+        """Group pages by header similarity"""
+        try:
+            if not page_fingerprints:
+                return []
+            
+            segments = []
+            current_segment = [page_fingerprints[0]]
+            
+            for i in range(1, len(page_fingerprints)):
+                current_page = page_fingerprints[i]
+                last_page = current_segment[-1]
+                
+                # Compare fingerprints
+                similarity = self.header_fingerprint.compare_fingerprints(
+                    current_page['fingerprint'], 
+                    last_page['fingerprint']
+                )
+                
+                if similarity >= self.similarity_threshold:
+                    # Same invoice, add to current segment
+                    current_segment.append(current_page)
+                else:
+                    # Different invoice, start new segment
+                    segments.append(current_segment)
+                    current_segment = [current_page]
+            
+            # Add final segment
+            if current_segment:
+                segments.append(current_segment)
+            
+            return segments
+            
+        except Exception as e:
+            logger.error(f"❌ Page grouping failed: {e}")
+            return []
+    
+    def extract_segment_pdf(self, pdf_path: Path, segment: Dict[str, Any], 
+                          output_dir: Path) -> Optional[Path]:
+        """
+        Extract segment as separate PDF.
+        
+        Args:
+            pdf_path: Original PDF path
+            segment: Segment information
+            output_dir: Output directory
+            
+        Returns:
+            Path to extracted PDF or None if failed
+        """
+        try:
+            # Open original PDF
+            doc = fitz.open(str(pdf_path))
+            if not doc:
+                return None
+            
+            # Create new PDF for segment
+            segment_doc = fitz.open()
+            
+            # Copy pages from segment range
+            for page_num in range(segment['start_page'], segment['end_page'] + 1):
+                if page_num < len(doc):
+                    segment_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            
+            # Save segment PDF
+            output_path = output_dir / f"segment_{segment['segment_id']}.pdf"
+            segment_doc.save(str(output_path))
+            segment_doc.close()
+            doc.close()
+            
+            logger.info(f"✅ Extracted segment {segment['segment_id']} to {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"❌ Segment extraction failed: {e}")
+            return None
+    
+    def detect_blank_pages(self, page_fingerprints: List[Dict[str, Any]]) -> List[int]:
+        """Detect blank or nearly blank pages"""
+        try:
+            blank_pages = []
+            
+            for page_data in page_fingerprints:
+                page_image = page_data['image']
+                
+                # Convert to grayscale
+                gray = page_image.convert('L')
+                array = np.array(gray)
+                
+                # Calculate variance (low variance = blank page)
+                variance = np.var(array)
+                
+                if variance < 100:  # Threshold for blank pages
+                    blank_pages.append(page_data['page_num'])
+            
+            return blank_pages
+            
+        except Exception as e:
+            logger.error(f"❌ Blank page detection failed: {e}")
+            return []
+    
+    def handle_rotated_pages(self, page_fingerprints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Handle rotated pages by attempting rotation correction"""
+        try:
+            corrected_pages = []
+            
+            for page_data in page_fingerprints:
+                page_image = page_data['image']
+                
+                # Try different rotations
+                best_rotation = 0
+                best_fingerprint = page_data['fingerprint']
+                
+                for rotation in [90, 180, 270]:
+                    rotated = page_image.rotate(rotation, expand=True)
+                    header_region = self.header_fingerprint.extract_header_region(rotated)
+                    fingerprint = self.header_fingerprint.compute_fingerprint(header_region)
+                    
+                    # Keep original if no improvement
+                    if fingerprint == best_fingerprint:
+                        continue
+                    
+                    # Update if we find a better fingerprint
+                    page_data['image'] = rotated
+                    page_data['fingerprint'] = fingerprint
+                    best_rotation = rotation
+                
+                corrected_pages.append(page_data)
+            
+            return corrected_pages
+            
+        except Exception as e:
+            logger.error(f"❌ Rotation correction failed: {e}")
+            return page_fingerprints
+
+# Global splitter instance
+_multi_invoice_splitter: Optional[MultiInvoiceSplitter] = None
+
+def get_multi_invoice_splitter() -> MultiInvoiceSplitter:
+    """Get global multi-invoice splitter instance"""
+    global _multi_invoice_splitter
+    if _multi_invoice_splitter is None:
+        _multi_invoice_splitter = MultiInvoiceSplitter()
+    return _multi_invoice_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +352,7 @@ class MultiPageProcessor:
     
     def __init__(self):
         self.ocr_engine = enhanced_ocr_engine
-        self.line_extractor = enhanced_line_item_extractor
+        self.line_extractor = get_enhanced_line_item_extractor()
     
     def process_multi_page_document(self, file_path: str) -> DocumentResult:
         """

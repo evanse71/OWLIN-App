@@ -76,7 +76,7 @@ async def upload_document(
     file: UploadFile = File(...),
     user_id: Optional[str] = None,
     session_id: Optional[str] = None,
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks | None = None
 ):
     """
     Upload and process document with comprehensive error handling
@@ -197,7 +197,7 @@ async def get_upload_progress(job_id: str):
             job_id=job_id,
             status=job['status'],
             progress=job['progress'],
-            message=self._get_progress_message(job),
+            message=_get_progress_message(job),
             estimated_time_remaining=estimated_time_remaining
         )
         
@@ -207,7 +207,7 @@ async def get_upload_progress(job_id: str):
         logger.error(f"❌ Failed to get progress: {e}")
         raise HTTPException(status_code=500, detail="Failed to get progress")
 
-def _get_progress_message(self, job: Dict[str, Any]) -> str:
+def _get_progress_message(job: Dict[str, Any]) -> str:
     """Get human-readable progress message"""
     status = job['status']
     progress = job['progress']
