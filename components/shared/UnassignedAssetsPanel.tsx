@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { FileText, Image, File, Plus, Trash2 } from 'lucide-react'
+import { FileText, Image as ImageIcon, File, Plus, Trash2 } from 'lucide-react'
 
 interface UnassignedAsset {
   id: string
@@ -63,7 +63,7 @@ export default function UnassignedAssetsPanel({
   
   const getFileIcon = (mime: string) => {
     if (mime.startsWith('image/')) {
-      return <Image className="h-4 w-4" />
+      return <ImageIcon className="h-4 w-4" />
     }
     if (mime === 'application/pdf') {
       return <FileText className="h-4 w-4" />
