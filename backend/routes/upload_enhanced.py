@@ -434,7 +434,7 @@ async def get_upload_status(document_id: str) -> ProcessingStatus:
     # In a real implementation, this would query a database or cache
     # For now, return a mock status
     return ProcessingStatus(
-        status="completed",
+        status="parsed",
         progress_percentage=100.0,
         current_step="Completed",
         estimated_time_remaining=0.0,

@@ -1107,10 +1107,10 @@ async def upload_invoice(file: UploadFile = File(...)):
             document_status = 'manual_review'
             logger.warning(f"⚠️ Low OCR quality - confidence: {overall_confidence:.1f}%, words: {total_words} - marking for manual review")
         elif overall_confidence < 50:
-            document_status = 'processed'  # Processed but low confidence
+            document_status = 'parsed'  # Processed but low confidence
             logger.info(f"ℹ️ Moderate OCR quality - confidence: {overall_confidence:.1f}%")
         else:
-            document_status = 'processed'  # Good quality
+            document_status = 'parsed'  # Good quality
             logger.info(f"✅ Good OCR quality - confidence: {overall_confidence:.1f}%")
         # Stage: classify
         @stage_probe("classify")
