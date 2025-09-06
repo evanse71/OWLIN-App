@@ -137,9 +137,9 @@ class BulletproofUploadPipeline:
             if existing_file:
                 logger.info(f"⚠️ File already exists: {existing_file}")
                 self.db_manager.log_processing_event(
-                    file_id="temp",
-                    stage='enqueue',
-                    status='completed'
+                                    file_id="temp",
+                stage='enqueue',
+                status='parsed'
                 )
                 return ProcessingResult(
                     success=True,
@@ -171,7 +171,7 @@ class BulletproofUploadPipeline:
             self.db_manager.log_processing_event(
                 file_id=file_id,
                 stage='enqueue',
-                status='completed'
+                status='parsed'
             )
             
             # Step 6: Create processing job
@@ -199,7 +199,7 @@ class BulletproofUploadPipeline:
             
             # Step 8: Update job status
             processing_time_ms = int((time.time() - start_time) * 1000)
-            final_status = 'completed' if processing_result.success else 'failed'
+            final_status = 'parsed' if processing_result.success else 'failed'
             if processing_result.error_message and 'timeout' in processing_result.error_message.lower():
                 final_status = 'timeout'
             

@@ -68,7 +68,7 @@ def auto_pairing(invoice_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @pairing_api_bp.post('/invoices/{invoice_id}/pairing/manual')
-def manual_pairing(invoice_id: str, request: Request):
+async def manual_pairing(invoice_id: str, request: Request):
     """Manual pairing of invoice with delivery note"""
     try:
         data = await request.json()

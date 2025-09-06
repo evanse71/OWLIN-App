@@ -65,7 +65,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 file_path TEXT,
                 file_hash TEXT,
                 ocr_confidence REAL,
-                processing_status TEXT DEFAULT 'processed',
+                processing_status TEXT DEFAULT 'pending',
                 uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -117,7 +117,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 file_path TEXT,
                 file_hash TEXT,
                 ocr_confidence REAL,
-                processing_status TEXT DEFAULT 'processed',
+                processing_status TEXT DEFAULT 'pending',
                 uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -865,7 +865,7 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
         """, (
             supplier_name, invoice_number, invoice_date, 
             total_amount, confidence, ocr_text, line_items_json, 
-            field_confidence_json, raw_extraction_json, warnings_json, 'processed',
+            field_confidence_json, raw_extraction_json, warnings_json, 'parsed',
             json.dumps(addresses or {}), json.dumps(signature_regions or [])
         ))
         
@@ -924,7 +924,7 @@ def save_uploaded_file_to_db(file_id: str, original_filename: str, file_path: st
                 file_type TEXT,
                 confidence REAL,
                 upload_timestamp TEXT,
-                status TEXT DEFAULT 'processed'
+                status TEXT DEFAULT 'pending'
             )
         """)
         

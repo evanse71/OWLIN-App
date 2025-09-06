@@ -6,15 +6,13 @@ All operations are atomic, have proper error handling, and maintain data integri
 """
 
 import sqlite3
-import json
 import logging
 import hashlib
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Union
 from os import PathLike
 from datetime import datetime
-import uuid
 
 StrPath = Union[str, PathLike[str], Path]
 
@@ -86,7 +84,7 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 # Get list of migration files
                 migrations_dir = Path(__file__).parent / "db_migrations"
-                migration_files = []
+                migration_files: List[tuple[int, Path]] = []
                 
                 # Look for both .sql and .py migration files
                 for migration_file in migrations_dir.glob("*"):
@@ -250,18 +248,18 @@ class DatabaseManager:
     
     # ===== INVOICE OPERATIONS =====
     
-    def save_invoice(self, 
+    def save_invoice(self,
                     invoice_id: str,
                     file_id: str,
-                    invoice_number: Optional[str],
-                    invoice_date: Optional[str],
-                    supplier_name: Optional[str],
-                    total_amount_pennies: int,
+                    invoice_number: Optional[str] = None,
+                    invoice_date: Optional[str] = None,
+                    supplier_name: Optional[str] = None,
+                    total_amount_pennies: int = 0,
                     subtotal_pennies: Optional[int] = None,
                     vat_total_pennies: Optional[int] = None,
                     confidence: float = 0.0,
                     status: str = 'pending',
-                    **kwargs) -> bool:
+                    **kwargs: Any) -> bool:
         """Save invoice with complete validation"""
         try:
             with self.get_connection() as conn:
@@ -552,7 +550,7 @@ class DatabaseManager:
         """Get system statistics"""
         try:
             with self.get_connection() as conn:
-                stats = {}
+                stats: Dict[str, Any] = {}
                 
                 # Count records
                 for table in ['uploaded_files', 'invoices', 'delivery_notes', 'jobs']:

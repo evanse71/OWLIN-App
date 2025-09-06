@@ -28,7 +28,7 @@ def create_tables():
             file_path TEXT NOT NULL,
             file_size INTEGER,
             upload_timestamp TEXT NOT NULL,
-            processing_status TEXT DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed', 'reviewed', 'escalated'
+            processing_status TEXT DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed', 'reviewed', 'reviewed'
             extracted_text TEXT,
             confidence REAL,
             processed_images INTEGER,

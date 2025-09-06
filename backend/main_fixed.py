@@ -1462,7 +1462,7 @@ async def upload_file_bulletproof(file: UploadFile = File(...)):
                 # Add missing fields UI expects
                 'doc_type': 'invoice',
                 'page_range': invoice.source_pages or '',
-                'status': 'processed',
+                'status': 'completed',
                 'addresses': {'supplier_address': '', 'delivery_address': ''},
                 'signature_regions': [],
                 'line_items': [],

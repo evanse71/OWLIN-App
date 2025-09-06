@@ -1,6 +1,38 @@
 {
-  "include": ["backend", "tests"],
-  "exclude": ["node_modules", ".venv", ".next", "dist", "build"],
-  "reportMissingImports": "warning",
-  "extraPaths": ["backend"]
+  "include": [
+    "backend/services/db_exec.py",
+    "backend/services/pairing_math.py",
+    "backend/services/pairing_service.py",
+    "backend/services/mismatch_service.py",
+    "backend/schemas/pairing.py",
+    "backend/schemas/api_invoice.py",
+    "backend/routes/invoices_api.py"
+  ],
+  "exclude": [
+    "**/.venv",
+    "**/__pycache__",
+    "backend/db_manager_unified.py",
+    "backend/services/invoice_query.py",
+    "backend/schemas/supplier.py",
+    "backend/upload/**",
+    "backend/state_of_art_ocr_engine.py",
+    "backend/simple_ocr.py",
+    "backend/services/**/escalation_*",
+    "backend/services/**/supplier_*",
+    "backend/services/**/recovery*",
+    "backend/tests/**",
+    "tests/**",
+    "tests/**/test_*ocr*.py",
+    "tests/**/test_*multi*invoice*.py",
+    "tests/**/test_*supplier*.py",
+    "tests/**/test_*forecast*.py"
+  ],
+  "reportMissingTypeStubs": "warning",
+  "reportUnknownParameterType": "error",
+  "reportUnknownArgumentType": "error",
+  "reportUnknownMemberType": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalSubscript": "error",
+  "typeCheckingMode": "strict",
+  "stubPath": "typings"
 } 

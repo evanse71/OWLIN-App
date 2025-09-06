@@ -2,7 +2,6 @@
 OCR pipeline: orchestrates preprocess → OCR → confidence → persist
 """
 import subprocess
-import json
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
@@ -53,7 +52,7 @@ def ocr_pages(invoice_id: str) -> None:
        - 50–69 → tag lines later as OCR_LOW_CONF
     """
     # Get invoice pages
-    pages = get_invoice_pages(invoice_id)
+    pages: List[Dict[str, Any]] = get_invoice_pages(invoice_id)
     
     if not pages:
         # Try to get from document_pages if invoice_pages is empty
@@ -62,10 +61,10 @@ def ocr_pages(invoice_id: str) -> None:
     if not pages:
         return
     
-    page_confidences = []
+    page_confidences: List[Dict[str, Any]] = []
     
     for page in pages:
-        page_id = page['id']
+        page_id: str = page['id']
         
         # Get image path (this would come from your asset management)
         image_path = get_image_path_for_page(page_id)
@@ -74,8 +73,8 @@ def ocr_pages(invoice_id: str) -> None:
             continue
         
         # Preprocess image
-        img = Image.open(image_path)
-        processed_img = preprocess_image(img)
+        img: Image.Image = Image.open(image_path)
+        processed_img: Image.Image = preprocess_image(img)
         
         # Save processed image temporarily
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
