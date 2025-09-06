@@ -17,6 +17,7 @@ DB_PATH = "data/owlin.db"
 def create_tables():
     """Create the necessary tables for the complete invoice management system."""
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys=ON")
     cursor = conn.cursor()
     
     # Create uploaded_files table (tracks all uploaded files)
@@ -152,6 +153,7 @@ def create_tables():
 def generate_sample_data():
     """Generate realistic sample data for the complete invoice management system."""
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys=ON")
     cursor = conn.cursor()
     
     # Sample products with realistic price ranges and trends
@@ -262,6 +264,7 @@ def generate_sample_data():
 def verify_data():
     """Verify the generated data looks realistic."""
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys=ON")
     
     # Check total records
     invoices_count = pd.read_sql("SELECT COUNT(*) as count FROM price_forecasting_invoices", conn).iloc[0]['count']

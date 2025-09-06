@@ -48,6 +48,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         # Create invoices table
@@ -171,6 +172,7 @@ def save_invoice(extracted_data: Dict[str, Any], db_path: str = DEFAULT_DB_PATH)
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         # Convert line_items to JSON string if present
@@ -260,6 +262,7 @@ def save_delivery_note(extracted_data: Dict[str, Any], db_path: str = DEFAULT_DB
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -325,6 +328,7 @@ def save_file_hash(file_hash: str, file_path: str, file_size: int, mime_type: st
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -372,6 +376,7 @@ def check_duplicate_invoice(invoice_number: str, db_path: str = DEFAULT_DB_PATH)
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -406,6 +411,7 @@ def check_duplicate_file_hash(file_hash: str, db_path: str = DEFAULT_DB_PATH) ->
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -438,6 +444,7 @@ def get_all_invoices(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -484,6 +491,7 @@ def get_all_delivery_notes(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -528,6 +536,7 @@ def get_invoice_by_number(invoice_number: str, db_path: str = DEFAULT_DB_PATH) -
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -575,6 +584,7 @@ def delete_invoice(invoice_id: int, db_path: str = DEFAULT_DB_PATH) -> bool:
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -613,6 +623,7 @@ def get_database_stats(db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         # Count invoices
@@ -761,6 +772,7 @@ def save_line_items(invoice_id: str, line_items: List[Dict[str, Any]], db_path: 
     """
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         for item in line_items:
@@ -794,6 +806,7 @@ def log_processing_result(file_path: str, status: str, ocr_confidence: float = 0
     """Log processing results for debugging and monitoring"""
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute(
@@ -836,6 +849,7 @@ def save_invoice_to_db(invoice_id: str, supplier_name: str, invoice_number: str,
     """Save invoice data to database with enhanced fields including LLM data"""
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         # Convert line items to JSON string
@@ -913,6 +927,7 @@ def save_uploaded_file_to_db(file_id: str, original_filename: str, file_path: st
     """Save uploaded file record to database"""
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         # Ensure uploaded_files table exists
@@ -950,6 +965,7 @@ def get_all_uploaded_files(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any
     """Get all uploaded files from database"""
     try:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
         cursor = conn.cursor()
         
         cursor.execute("""
