@@ -36,9 +36,14 @@ jobs:
           npm run -s lint
           npm run -s build
 
+      - name: Install sqlite3 CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3
+
       - name: API smoke (pairing)
         run: |
           pip install "uvicorn[standard]" fastapi
-          nohup uvicorn backend.test_server:app --host 127.0.0.1 --port 8000 &
+          nohup python -u backend/test_server.py &
           sleep 2
           ./scripts/pairing_smoke.sh
