@@ -5,7 +5,7 @@ from pathlib import Path
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import uuid
@@ -38,6 +38,9 @@ class InvoiceMeta(BaseModel):
     ocr_avg_conf: Union[float, None] = None
     ocr_min_conf: Union[float, None] = None
     pages: list = []
+
+class ManualPairRequest(BaseModel):
+    dn_id: str
 
 class InvoicePayload(BaseModel):
     id: str
@@ -109,17 +112,53 @@ def health_deep():
 
 @app.get("/api/invoices/{invoice_id}", response_model=InvoicePayload)
 def get_invoice(invoice_id: str):
-    raw = fetch_invoice(invoice_id)
-    if not raw:
-        raise HTTPException(status_code=404, detail="invoice not found")
-    # presentation conversion
-    raw["meta"]["total_inc"] = _pounds(raw["meta"].pop("total_amount_pennies", None))
-    for ln in raw["lines"]:
-        if "unit_price_pennies" in ln:
-            ln["unit_price"] = _pounds(ln.pop("unit_price_pennies"))
-        if "line_total_pennies" in ln:
-            ln["line_total"] = _pounds(ln.pop("line_total_pennies"))
-    return raw
+    # Minimal, schema-compliant payload from our seeded tables.
+    from db_manager_unified import get_db_manager
+    import sqlite3
+    m = get_db_manager()
+    conn = sqlite3.connect(m.db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        inv = conn.execute(
+            "SELECT id, currency, total_amount_pennies, ocr_avg_conf, ocr_min_conf "
+            "FROM invoices WHERE id=?",
+            (invoice_id,)
+        ).fetchone()
+        if not inv:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="invoice not found")
+
+        rows = conn.execute(
+            "SELECT id, row_idx, description, quantity, unit_price_pennies, line_total_pennies "
+            "FROM invoice_line_items WHERE invoice_id=? ORDER BY row_idx",
+            (invoice_id,)
+        ).fetchall()
+
+        meta = {
+            "supplier": None,
+            "invoice_no": None,
+            "date_iso": None,
+            "currency": inv["currency"] if "currency" in inv.keys() else "GBP",
+            "ocr_avg_conf": inv["ocr_avg_conf"],
+            "ocr_min_conf": inv["ocr_min_conf"],
+            "total_inc": (inv["total_amount_pennies"] or 0) / 100.0,
+        }
+
+        lines = []
+        for r in rows:
+            line_id = r["id"] if "id" in r.keys() and r["id"] is not None else r["row_idx"]
+            lines.append({
+                "id": str(line_id if line_id is not None else 0),  # <-- must be string
+                "desc": r["description"],
+                "qty": float(r["quantity"] or 0),                   # <-- always float
+                "unit_price": (r["unit_price_pennies"] or 0) / 100.0,
+                "line_total": (r["line_total_pennies"] or 0) / 100.0,
+                "flags": [],
+            })
+
+        return {"id": inv["id"], "meta": meta, "lines": lines}
+    finally:
+        conn.close()
 
 @app.post("/api/invoices/{invoice_id}/pairing/auto")
 def auto_pairing(invoice_id: str):
@@ -176,42 +215,86 @@ def auto_pairing(invoice_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/invoices/{invoice_id}/pairing/manual")
-def manual_pairing(invoice_id: str, request: Dict[str, Any]):
-    """Manual pairing of invoice with delivery note"""
+async def manual_pairing(invoice_id: str, body: ManualPairRequest):
+    """Manual pairing: 422 (validation via model), 404 (DN missing),
+    200 (create), 200 (idempotent duplicate), 409 (other constraint)."""
+    dn_id = body.dn_id
+
+    # Per-request connection avoids "closed database" and locking weirdness
+    db_path = (Path(__file__).resolve().parent.parent / "data" / "owlin.db")
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    cur = conn.cursor()
     try:
-        dn_id = request.get('dn_id')
-        
-        if not dn_id:
-            raise HTTPException(status_code=400, detail="dn_id required")
-        
-        conn = get_db_manager().get_conn()
-        cursor = conn.cursor()
-        
-        # Create manual match link
+        # 404 if delivery note does not exist
+        cur.execute("SELECT 1 FROM delivery_notes WHERE id = ?", (dn_id,))
+        r = cur.fetchone()
+        if r is None:
+            raise HTTPException(status_code=404, detail="delivery_note not found")
+
+        # Idempotent: if link already exists, return it
+        cur.execute(
+            "SELECT id FROM match_links WHERE invoice_id = ? AND delivery_note_id = ?",
+            (invoice_id, dn_id),
+        )
+        r = cur.fetchone()
+        if r:
+            link_id = r[0] if not hasattr(r, "keys") else r["id"]
+            return {"ok": True, "link_id": link_id, "idempotent": True}
+
+        import uuid
         link_id = str(uuid.uuid4())
-        cursor.execute("""
-            INSERT INTO match_links (id, invoice_id, delivery_note_id, confidence, status, reasons_json, created_at)
+        cur.execute(
+            """
+            INSERT INTO match_links
+                (id, invoice_id, delivery_note_id, confidence, status, reasons_json, created_at)
             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-        """, (link_id, invoice_id, dn_id, 1.0, 'matched', '[]'))
-        
-        # Create match link items for all lines
-        cursor.execute("""
+            """,
+            (link_id, invoice_id, dn_id, 1.0, "matched", "[]"),
+        )
+
+        cur.execute(
+            """
             INSERT INTO match_link_items (link_id, invoice_item_id, dn_item_id, reason, qty_match_pct)
             SELECT ?, id, NULL, 'MANUAL_OVERRIDE', 100.0
-            FROM invoice_line_items WHERE invoice_id = ?
-        """, (link_id, invoice_id))
-        
+            FROM invoice_line_items
+            WHERE invoice_id = ?
+            """,
+            (link_id, invoice_id),
+        )
+
         conn.commit()
-        conn.close()
-        
-        return {"ok": True}
-        
+        return {"ok": True, "link_id": link_id}
+    except HTTPException:
+        raise
+    except sqlite3.IntegrityError as e:
+        msg = str(e)
+        # Treat duplicate race as idempotent 200
+        if "UNIQUE constraint failed: match_links.invoice_id, match_links.delivery_note_id" in msg:
+            cur.execute(
+                "SELECT id FROM match_links WHERE invoice_id = ? AND delivery_note_id = ?",
+                (invoice_id, dn_id),
+            )
+            r2 = cur.fetchone()
+            if r2:
+                link_id = r2[0] if not hasattr(r2, "keys") else r2["id"]
+                return {"ok": True, "link_id": link_id, "idempotent": True}
+        if "FOREIGN KEY constraint failed" in msg:
+            # Shouldn't happen due to precheck; map to 404 if it does
+            raise HTTPException(status_code=404, detail="delivery_note not found")
+        raise HTTPException(status_code=409, detail=f"constraint error: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting Owlin Test Server...")
     print("📍 Server will be available at: http://localhost:8000")
     print("✅ Health check: http://localhost:8000/health")
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)
