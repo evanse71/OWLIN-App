@@ -105,3 +105,30 @@ uploads/
 venv/
 yarn-debug.log*
 yarn-error.log*
+
+# Database files and backups
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.bak
+*.bak.*
+backend/.server.*.log
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+
+# Development artifacts
+*.backup
+*.backup.*
