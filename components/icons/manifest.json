@@ -1,0 +1,10 @@
+{
+  "svg": [
+    "pair-suggest",
+    "pair-confirm", 
+    "pair-reject",
+    "health-ok",
+    "health-degraded",
+    "health-critical"
+  ]
+} 

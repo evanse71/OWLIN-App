@@ -1,0 +1,17 @@
+# Global owners
+* @evanse71
+
+# Backend API and core logic
+/backend/ @evanse71
+/scripts/ @evanse71
+
+# Frontend components and UI
+/components/ @evanse71
+/pages/ @evanse71
+/styles/ @evanse71
+
+# Configuration and CI
+/.github/ @evanse71
+/.vscode/ @evanse71
+package.json @evanse71
+tsconfig.json @evanse71

@@ -1,0 +1,7 @@
+{
+  "signature_detection": true,
+  "field_confidence": true,
+  "per_line_confidence": true,
+  "enable_receipt_mode": true,
+  "enable_utility_mode": true
+} 

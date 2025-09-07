@@ -1,0 +1,52 @@
+{
+  "page_classifier": {
+    "min_confidence": 0.65,
+    "ml_model_path": "data/models/page_clf.joblib",
+    "heuristic_fallback": true
+  },
+  "page_fingerprints": {
+    "hash_size": 8,
+    "phash_size": 8,
+    "simhash_window_size": 4
+  },
+  "cross_file_stitcher": {
+    "stitch_score_min": 0.72,
+    "header_simhash_min": 0.86,
+    "footer_simhash_min": 0.84,
+    "max_stitch_group_size": 10,
+    "min_stitch_candidates": 2
+  },
+  "deduper": {
+    "phash_dup_hamming_max": 8,
+    "dedupe_confidence_threshold": 0.85,
+    "min_duplicate_group_size": 2
+  },
+  "multi_document_segmenter": {
+    "segment_confidence_threshold": 0.7,
+    "min_segment_pages": 1,
+    "max_segment_pages": 10,
+    "segment_split_bonus_totals_end": 0.6,
+    "segment_supplier_switch_penalty": 1.2,
+    "min_segment_confidence": 0.65
+  },
+  "canonical_builder": {
+    "canonical_builder_min_confidence": 0.60,
+    "min_field_confidence": 0.5,
+    "max_warnings": 5
+  },
+  "ocr": {
+    "min_confidence": 0.3,
+    "max_processing_time": 30.0,
+    "batch_size": 5
+  },
+  "validation": {
+    "min_invoice_fields": ["supplier_name", "total_amount"],
+    "max_field_missing_penalty": 0.3,
+    "min_total_amount": 0.01
+  },
+  "performance": {
+    "max_concurrent_files": 5,
+    "max_pages_per_file": 50,
+    "timeout_seconds": 300
+  }
+} 

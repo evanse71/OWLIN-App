@@ -1,0 +1,2 @@
+{"type": "job", "id": "job_845ccd28", "status": "timeout", "duration_ms": 76114, "created_at": "2025-08-27T17:18:39.166254", "result": null, "error": "Job exceeded time limit"}
+{"type": "job", "id": "job_3b961a17", "status": "done", "duration_ms": 6372, "created_at": "2025-08-27T17:19:46.937386", "result": {"invoice_id": "inv_b1283e2d"}, "timing": {"ocr_ms": null}}

@@ -1,0 +1,25 @@
+
+    INVOICE
+    
+    Invoice Number: INV-2024-001
+    Date: 2024-01-15
+    
+    Supplier: ABC Company LTD
+    123 Business Street
+    City, State 12345
+    
+    Bill To:
+    Customer Name
+    456 Customer Ave
+    City, State 67890
+    
+    Item Description     Qty    Unit Price    Amount
+    Product A           2      $50.00        $100.00
+    Product B           1      $75.00        $75.00
+    
+    Subtotal: $175.00
+    Tax: $17.50
+    Total: $192.50
+    
+    Thank you for your business!
+    

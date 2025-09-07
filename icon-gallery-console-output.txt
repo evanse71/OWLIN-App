@@ -1,0 +1,15 @@
+=== OWLIN ICON GALLERY - RENDERED ICONS ===
+Core: InvoiceIcon, UploadIcon, DownloadIcon, SupplierIcon, DeliveryNoteIcon, CreditNoteIcon, DashboardIcon, ReportIcon
+Feedback: CheckCircleIcon, WarningTriangleIcon, InfoIcon, ErrorOctagonIcon, ProgressCircleIcon
+Utility: SearchIcon, FilterIcon, SortIcon, CalendarIcon, ClockIcon, LinkIcon, UnlinkIcon, EditIcon, LockIcon, UnlockIcon, RefreshIcon, SyncIcon, ExportIcon, ImportIcon
+=== END ICON GALLERY ===
+
+Total Icons: 28
+- Core: 8 icons
+- Feedback: 5 icons  
+- Utility: 15 icons
+
+All icons rendered at sizes: 16px, 20px, 24px
+Default stroke: #1C2A39 (Owlin Navy)
+Default strokeWidth: 1.5
+Accessibility: role="img", aria-label set 

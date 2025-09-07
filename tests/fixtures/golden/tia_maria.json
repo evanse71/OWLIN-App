@@ -1,0 +1,10 @@
+{
+  "unit_price_pennies": 6055,
+  "line_total_pennies": 3222,
+  "quantity_each": 1,
+  "expected_discount": {
+    "kind": "percent",
+    "value": 46.8,
+    "residual_pennies": 0
+  }
+} 

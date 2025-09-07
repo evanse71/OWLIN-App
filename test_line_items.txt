@@ -1,0 +1,15 @@
+WILD HORSE BREWING CO LTD
+Unit 4-5, Cae Bach
+Builder Street, Llandudno
+
+Invoice #: 73318
+Date: 04/07/2025
+
+QTY ITEM UNIT PRICE TOTAL
+2 Beer Keg £50.00 £100.00
+1 Wine Bottle £25.00 £25.00
+3 Beer Cans £2.50 £7.50
+
+Subtotal: £132.50
+VAT (20%): £26.50
+Total (inc. VAT): £159.00 

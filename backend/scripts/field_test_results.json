@@ -1,0 +1,342 @@
+{
+  "total_tests": 8,
+  "passed": 8,
+  "failed": 0,
+  "errors": 0,
+  "pass_rate": 100.0,
+  "results": [
+    {
+      "test_name": "Clean Invoice (GBP)",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "invoice",
+        "policy": "ACCEPT",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      },
+      "actual": {
+        "doc_type": "invoice",
+        "policy": "ACCEPT",
+        "confidence": 0.8225806451612903,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": true,
+          "issues": [
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.010159969329833984
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "Delivery Note (no totals)",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "delivery_note",
+        "policy": "ACCEPT",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      },
+      "actual": {
+        "doc_type": "delivery_note",
+        "policy": "ACCEPT",
+        "confidence": 1.0,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": true,
+          "issues": [
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.0005161762237548828
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "Thermal Receipt with Change/Card",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "receipt",
+        "policy": "ACCEPT",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      },
+      "actual": {
+        "doc_type": "receipt",
+        "policy": "ACCEPT",
+        "confidence": 1.0,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": true,
+          "issues": [
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.0005068778991699219
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "Utility Bill",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "utility",
+        "policy": "ACCEPT",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      },
+      "actual": {
+        "doc_type": "utility",
+        "policy": "ACCEPT",
+        "confidence": 1.0,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": true,
+          "issues": [
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.0005247592926025391
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "Menu PDF",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "other",
+        "policy": "REJECT",
+        "validation": {
+          "arithmetic_ok": false,
+          "currency_ok": false,
+          "date_ok": false
+        }
+      },
+      "actual": {
+        "doc_type": "other",
+        "policy": "REJECT",
+        "confidence": 0.15,
+        "validation": {
+          "arithmetic_ok": false,
+          "currency_ok": false,
+          "vat_ok": false,
+          "date_ok": false,
+          "issues": [
+            {
+              "type": "DOC_UNKNOWN",
+              "severity": "error",
+              "message": "Document type is not a valid business document"
+            }
+          ]
+        },
+        "processing_time": 0.00025534629821777344
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "Future-dated Invoice (+10 days)",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "invoice",
+        "policy": "ACCEPT_WITH_WARNINGS",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": false
+        }
+      },
+      "actual": {
+        "doc_type": "invoice",
+        "policy": "ACCEPT_WITH_WARNINGS",
+        "confidence": 0.8636363636363638,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": false,
+          "issues": [
+            {
+              "type": "FUTURE_DATE",
+              "severity": "error",
+              "message": "Date 25/08/2025 is 6 days in the future (max allowed: 3)"
+            },
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.00040602684020996094
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "EUR Comma Decimals",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "invoice",
+        "policy": "ACCEPT",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      },
+      "actual": {
+        "doc_type": "invoice",
+        "policy": "ACCEPT",
+        "confidence": 0.8,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": true,
+          "issues": [
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.00036787986755371094
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    },
+    {
+      "test_name": "Receipt with Void/Refund",
+      "status": "\u2705 PASS",
+      "expected": {
+        "doc_type": "receipt",
+        "policy": "ACCEPT",
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      },
+      "actual": {
+        "doc_type": "receipt",
+        "policy": "ACCEPT",
+        "confidence": 0.9105263157894736,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "vat_ok": true,
+          "date_ok": true,
+          "issues": [
+            {
+              "type": "MISSING_SUPPLIER",
+              "severity": "warning",
+              "message": "Supplier name is missing or too short"
+            }
+          ]
+        },
+        "processing_time": 0.00035500526428222656
+      },
+      "matches": {
+        "doc_type": true,
+        "policy": true,
+        "validation": {
+          "arithmetic_ok": true,
+          "currency_ok": true,
+          "date_ok": true
+        }
+      }
+    }
+  ]
+}

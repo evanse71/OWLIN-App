@@ -1,0 +1,22 @@
+{
+  "customer": "Test Customer",
+  "device_id": "OWLIN-test123",
+  "expires_utc": "2026-12-31T23:59:59Z",
+  "features": {
+    "ocr": true,
+    "forecasting": true,
+    "updates": true,
+    "recovery": true
+  },
+  "license_id": "test-123",
+  "roles": {
+    "gm": 2,
+    "finance": 5,
+    "shift_lead": 10
+  },
+  "schema": 1,
+  "venue_ids": [
+    "VENUE-ALPHA"
+  ],
+  "signature": "test"
+}

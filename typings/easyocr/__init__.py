@@ -1,0 +1,1 @@
+# EasyOCR package stub 

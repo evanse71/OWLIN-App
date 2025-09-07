@@ -1,0 +1,23 @@
+# Advanced OCR Dependencies
+# Core OCR and Image Processing
+easyocr>=1.7.0
+pytesseract>=0.3.10
+opencv-python>=4.8.0
+Pillow>=10.0.0
+pdf2image>=1.16.3
+PyMuPDF>=1.23.0
+
+# Machine Learning and NLP
+transformers>=4.30.0
+torch>=2.0.0
+sentence-transformers>=2.2.0
+spacy>=3.6.0
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.21.0
+
+# Additional dependencies
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# Download spaCy model
+# Run: python -m spacy download en_core_web_sm 

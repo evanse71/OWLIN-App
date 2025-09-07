@@ -1,0 +1,4 @@
+dev/**
+test-results/**
+node_modules/**
+.next/** 

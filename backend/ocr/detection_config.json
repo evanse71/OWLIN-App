@@ -1,0 +1,91 @@
+{
+  "detection_config": {
+    "pattern_matching": {
+      "min_invoice_number_length": 3,
+      "max_invoice_number_length": 20,
+      "confidence_threshold": 0.7,
+      "context_window_size": 100,
+      "min_context_similarity": 0.8
+    },
+    "performance": {
+      "cache_ttl_seconds": 3600,
+      "max_workers": 4,
+      "batch_size": 10,
+      "enable_caching": true,
+      "cache_dir": "cache/multi_invoice"
+    },
+    "ml_ai": {
+      "use_ml_detection": true,
+      "ml_confidence_threshold": 0.8,
+      "enable_heuristic_prediction": true
+    },
+    "plugins": {
+      "enable_plugins": true,
+      "plugin_dir": "plugins/multi_invoice",
+      "auto_load_plugins": true
+    },
+    "logging": {
+      "level": "INFO",
+      "enable_detailed_logging": true,
+      "log_detection_results": true
+    },
+    "suppliers": {
+      "known_suppliers": [
+        "WILD HORSE BREWING CO LTD",
+        "RED DRAGON DISPENSE LIMITED", 
+        "SNOWDONIA HOSPITALITY",
+        "BREWERY SUPPLIES LTD",
+        "DISPENSE SOLUTIONS LIMITED"
+      ],
+      "supplier_patterns": [
+        "BREWING",
+        "BREWERY", 
+        "DISPENSE",
+        "HOSPITALITY",
+        "SUPPLIES",
+        "SOLUTIONS"
+      ]
+    },
+    "invoice_patterns": {
+      "number_patterns": [
+        "INV[0-9\\-_/]+",
+        "[A-Z]{2,4}[0-9]{3,8}",
+        "INVOICE[\\s#:]*[A-Za-z0-9\\-_/]{3,20}",
+        "BILL[\\s#:]*[A-Za-z0-9\\-_/]{3,20}"
+      ],
+      "date_patterns": [
+        "\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}",
+        "\\d{4}-\\d{2}-\\d{2}",
+        "[A-Za-z]+\\s+\\d{1,2},?\\s+\\d{4}"
+      ],
+      "amount_patterns": [
+        "[£$€]\\s*[\\d,]+\\s*\\.\\s*\\d{2}",
+        "TOTAL[\\s:]*[£$€]?\\s*[\\d,]+\\s*\\.\\s*\\d{2}",
+        "AMOUNT[\\s:]*[£$€]?\\s*[\\d,]+\\s*\\.\\s*\\d{2}"
+      ]
+    },
+    "page_separation": {
+      "markers": [
+        "---\\s*PAGE\\s*\\d+\\s*---",
+        "Page\\s+\\d+\\s+of\\s+\\d+",
+        "^\\s*\\d+\\s*$"
+      ],
+      "min_page_content_length": 50,
+      "max_pages_per_document": 50
+    },
+    "validation": {
+      "min_invoice_confidence": 0.6,
+      "min_supplier_confidence": 0.5,
+      "min_total_confidence": 0.7,
+      "require_invoice_number": true,
+      "require_supplier_name": true,
+      "require_total_amount": false
+    },
+    "error_handling": {
+      "max_retries": 3,
+      "retry_delay_seconds": 1,
+      "fallback_to_legacy": true,
+      "log_all_errors": true
+    }
+  }
+} 

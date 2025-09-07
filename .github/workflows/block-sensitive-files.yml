@@ -1,0 +1,29 @@
+name: Block sensitive files
+on: [push, pull_request]
+jobs:
+  block:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Determine range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> $GITHUB_OUTPUT
+            echo "head=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "base=${{ github.event.before }}" >> $GITHUB_OUTPUT
+            echo "head=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail on sensitive file patterns
+        run: |
+          set -euo pipefail
+          git diff --name-only ${{ steps.range.outputs.base }}...${{ steps.range.outputs.head }} > changed.txt || true
+          PATTERN="\.(db|db-shm|db-wal|sqlite|bak|backup|log)$"
+          if grep -E "$PATTERN" changed.txt; then
+            echo "::error::Sensitive file pattern detected. Add to .gitignore or remove."
+            exit 1
+          fi

@@ -1,0 +1,93 @@
+/* OWLIN Invoices Page - Global CSS Tokens & Animations */
+
+@keyframes fadeUp { 
+  from {opacity:0; transform: translateY(4px);} 
+  to {opacity:1; transform:none;} 
+}
+.fade-up { 
+  animation: fadeUp 150ms ease-out forwards; 
+}
+
+@keyframes softPulse { 
+  0%{opacity:.92} 
+  100%{opacity:1} 
+}
+.pulse { 
+  animation: softPulse 900ms ease-in-out infinite alternate; 
+}
+
+.focus-ring { 
+  outline: 2px solid #A7F3D0; 
+  outline-offset: 2px; 
+}
+
+.chip { 
+  background:#F1F5F9; 
+  color:#475569; 
+  border-radius:9999px; 
+  padding:2px 8px; 
+  font-size:12px; 
+  line-height:1; 
+  display:inline-flex; 
+  align-items:center; 
+  gap:6px; 
+}
+.chip-muted { 
+  background:#EEF2F6; 
+  color:#5B6470; 
+}
+.chip-success { 
+  background:#ECFDF5; 
+  color:#065F46; 
+  border:1px solid #86E5C1; 
+}
+
+.card-shadow { 
+  box-shadow: 0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.04); 
+}
+.card-shadow-hover { 
+  box-shadow: 0 1px 3px rgba(16,24,40,.08), 0 10px 28px rgba(16,24,40,.06); 
+}
+
+.placeholder-glow { 
+  box-shadow: 0 0 0 2px #A7F3D0; 
+  transition: box-shadow 400ms ease-out; 
+}
+.placeholder-glow.fade { 
+  box-shadow: none; 
+}
+
+.progress-spin { 
+  height:20px; 
+  width:20px; 
+  border-radius:50%; 
+  border:2px solid #E7EAF0; 
+  border-top-color:#10B981; 
+  animation: spin 900ms linear infinite; 
+}
+@keyframes spin { 
+  to { transform: rotate(360deg);} 
+}
+
+.drawer-overlay { 
+  background: rgba(0,0,0,.4); 
+}
+.drawer-panel { 
+  width: 420px; 
+  max-width: 90vw; 
+}
+
+.signature-modal-overlay { 
+  background: rgba(0,0,0,.4); 
+}
+.signature-modal-panel { 
+  max-height: 70vh; 
+  max-width: 80vw; 
+}
+
+.table-zebra:nth-child(odd) { 
+  background: rgba(248,250,252,.3); 
+} /* #F8FAFC/30 */
+.tabular { 
+  font-variant-numeric: tabular-nums; 
+} 

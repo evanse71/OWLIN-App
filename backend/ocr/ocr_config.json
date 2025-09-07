@@ -1,0 +1,62 @@
+{
+  "thresholds": {
+    "accept_min_confidence": 70,
+    "warning_min_confidence": 50,
+    "reject_max_confidence": 10,
+    "arithmetic_tolerance": {
+      "fixed": 0.50,
+      "percentage": 0.005
+    },
+    "future_date_days": 3
+  },
+  "classification": {
+    "negative_lexicon_gate": 0.35,
+    "min_fields_for_invoice": ["supplier", "total", "date"]
+  },
+  "performance": {
+    "per_page_timeout_seconds": 10,
+    "document_timeout_seconds": 90,
+    "max_pages_for_overlay": 50,
+    "max_words_for_overlay": 60000
+  },
+  "validation": {
+    "ignore_receipt_meta_rows": ["change", "cash", "card", "rounding", "void", "refund"],
+    "currency_symbols": ["£", "€", "$"],
+    "date_parsing": {
+      "order": "DMY",
+      "timezone": "Europe/London"
+    }
+  },
+  "policy": {
+    "critical_issues": ["ARITHMETIC_MISMATCH", "CURRENCY_INCONSISTENT", "FUTURE_DATE", "ARITH_FAIL"],
+    "auto_retry": {
+      "enabled": true,
+      "confidence_threshold": 55,
+      "avg_confidence_threshold": 50,
+      "retry_profile": "receipt",
+      "rotation_angles": [-2, 2]
+    }
+  },
+  "ui": {
+    "debug_panel_default": false,
+    "tooltips": {
+      "accept": "All checks passed.",
+      "warning": "Minor issues (see Why?).",
+      "quarantine": "Needs review — arithmetic/currency/date issue.",
+      "reject": "Not a valid business document (menu/letter/etc.).",
+      "heic_not_supported": "Install HEIC support to auto-process iPhone photos."
+    }
+  },
+  "llm": {
+    "enabled": false,
+    "model_path": "./models/mistral-7b-instruct.Q4_K_M.gguf",
+    "max_ms": 800,
+    "doctype_gate": 0.55
+  },
+  "supported_langs": ["en", "cy"],
+  "preferred_ui_lang": "en",
+  "lang_detect": {
+    "min_tokens": 6,
+    "bilingual_overlap_ratio": 0.25
+  }
+} 
