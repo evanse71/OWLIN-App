@@ -1,0 +1,501 @@
+{
+  "app_name": "Owlin",
+  "repo_root": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean",
+  "generated_at_utc": "2025-09-07T13:51:04.678961Z",
+  "overall_score_percent": 41.6,
+  "module_scores": [
+    {
+      "module": "upload_ocr_pipeline",
+      "weight_percent": 20,
+      "score_percent": 46.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/file_processor.py",
+          "justification": "Key file app/file_processor.py found"
+        },
+        {
+          "type": "file_presence",
+          "path": "app/ocr_factory.py",
+          "justification": "Key file app/ocr_factory.py found"
+        },
+        {
+          "type": "file_presence",
+          "path": "app/ocr_preprocessing.py",
+          "justification": "Key file app/ocr_preprocessing.py found"
+        },
+        {
+          "type": "file_presence",
+          "path": "app/easyocr_integration.py",
+          "justification": "Key file app/easyocr_integration.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L8-L13",
+          "excerpt": "   8|      - \"upload|multipart|/upload|/api/upload\"\n   9|      - \"ocr|paddle|tesseract|confidence|psm|split|multi\"\n  10|      - \"invoice.*upload|document.*upload\"\n  11|    key_files:\n  12|      - \"app/file_processor.py\"\n  13|      - \"app/ocr_factory.py\"",
+          "justification": "Pattern 'upload|multipart|/upload|/api/upload' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "invoice_data_model",
+      "weight_percent": 10,
+      "score_percent": 46.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/database.py",
+          "justification": "Key file app/database.py found"
+        },
+        {
+          "type": "file_presence",
+          "path": "data/owlin.db",
+          "justification": "Key file data/owlin.db found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L28-L33",
+          "excerpt": "  28|      - \"invoice.*model|line.*item|VAT|tax|gross|net|currency|uom|unit\"\n  29|      - \"create.*table.*invoice|CREATE TABLE.*invoice\"\n  30|      - \"invoice_number|supplier|amount|quantity\"\n  31|    key_files:\n  32|      - \"app/database.py\"\n  33|      - \"data/owlin.db\"",
+          "justification": "Pattern 'invoice.*model|line.*item|VAT|tax|gross|net|currency|uom|unit' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L29-L34",
+          "excerpt": "  29|      - \"create.*table.*invoice|CREATE TABLE.*invoice\"\n  30|      - \"invoice_number|supplier|amount|quantity\"\n  31|    key_files:\n  32|      - \"app/database.py\"\n  33|      - \"data/owlin.db\"\n  34|    schema_checks:",
+          "justification": "Pattern 'create.*table.*invoice|CREATE TABLE.*invoice' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L30-L35",
+          "excerpt": "  30|      - \"invoice_number|supplier|amount|quantity\"\n  31|    key_files:\n  32|      - \"app/database.py\"\n  33|      - \"data/owlin.db\"\n  34|    schema_checks:\n  35|      - \"invoices table\"",
+          "justification": "Pattern 'invoice_number|supplier|amount|quantity' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "delivery_note_matching",
+      "weight_percent": 10,
+      "score_percent": 42.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/database.py",
+          "justification": "Key file app/database.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L43-L48",
+          "excerpt": "  43|      - \"pair|match|similarity|levenshtein|dice|cosine|embeddings\"\n  44|      - \"delivery.*note|delivery_note\"\n  45|      - \"confirm.*pair|reject.*pair|pairing.*suggestion\"\n  46|    key_files:\n  47|      - \"app/database.py\"\n  48|    components:",
+          "justification": "Pattern 'pair|match|similarity|levenshtein|dice|cosine|embeddings' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L44-L49",
+          "excerpt": "  44|      - \"delivery.*note|delivery_note\"\n  45|      - \"confirm.*pair|reject.*pair|pairing.*suggestion\"\n  46|    key_files:\n  47|      - \"app/database.py\"\n  48|    components:\n  49|      - \"DocumentPairingSuggestionCard\"",
+          "justification": "Pattern 'delivery.*note|delivery_note' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L45-L50",
+          "excerpt": "  45|      - \"confirm.*pair|reject.*pair|pairing.*suggestion\"\n  46|    key_files:\n  47|      - \"app/database.py\"\n  48|    components:\n  49|      - \"DocumentPairingSuggestionCard\"\n  50|      - \"PairingConfirmation\"",
+          "justification": "Pattern 'confirm.*pair|reject.*pair|pairing.*suggestion' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "invoices_ui",
+      "weight_percent": 10,
+      "score_percent": 46.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/invoices_page.py",
+          "justification": "Key file app/invoices_page.py found"
+        },
+        {
+          "type": "file_presence",
+          "path": "app/ui_progress.py",
+          "justification": "Key file app/ui_progress.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L55-L60",
+          "excerpt": "  55|      - \"InvoiceCard|InvoiceCardsPanel|InvoiceDetail|accordion\"\n  56|      - \"progress.*state|badge.*status|matched|unmatched|flagged\"\n  57|      - \"responsive.*layout|left.*column|right.*detail\"\n  58|    key_files:\n  59|      - \"app/invoices_page.py\"\n  60|      - \"app/ui_progress.py\"",
+          "justification": "Pattern 'InvoiceCard|InvoiceCardsPanel|InvoiceDetail|accordion' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L56-L61",
+          "excerpt": "  56|      - \"progress.*state|badge.*status|matched|unmatched|flagged\"\n  57|      - \"responsive.*layout|left.*column|right.*detail\"\n  58|    key_files:\n  59|      - \"app/invoices_page.py\"\n  60|      - \"app/ui_progress.py\"\n  61|    components:",
+          "justification": "Pattern 'progress.*state|badge.*status|matched|unmatched|flagged' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L57-L62",
+          "excerpt": "  57|      - \"responsive.*layout|left.*column|right.*detail\"\n  58|    key_files:\n  59|      - \"app/invoices_page.py\"\n  60|      - \"app/ui_progress.py\"\n  61|    components:\n  62|      - \"InvoiceCardsPanel\"",
+          "justification": "Pattern 'responsive.*layout|left.*column|right.*detail' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "vat_totals_math",
+      "weight_percent": 8,
+      "score_percent": 42.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/invoices_page.py",
+          "justification": "Key file app/invoices_page.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L71-L76",
+          "excerpt": "  71|      - \"VAT.*calc|gross.*net|net.*gross|vat.*rate\"\n  72|      - \"pack.*math|crate.*math|unit.*price|extended.*total\"\n  73|      - \"rounding|banker.*round|ROUND_HALF\"\n  74|      - \"\\\\d+\\\\s*[x\u00d7]\\\\s*\\\\d+\"\n  75|    key_files:\n  76|      - \"app/invoices_page.py\"",
+          "justification": "Pattern 'VAT.*calc|gross.*net|net.*gross|vat.*rate' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L72-L77",
+          "excerpt": "  72|      - \"pack.*math|crate.*math|unit.*price|extended.*total\"\n  73|      - \"rounding|banker.*round|ROUND_HALF\"\n  74|      - \"\\\\d+\\\\s*[x\u00d7]\\\\s*\\\\d+\"\n  75|    key_files:\n  76|      - \"app/invoices_page.py\"\n  77|    math_checks:",
+          "justification": "Pattern 'pack.*math|crate.*math|unit.*price|extended.*total' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L73-L78",
+          "excerpt": "  73|      - \"rounding|banker.*round|ROUND_HALF\"\n  74|      - \"\\\\d+\\\\s*[x\u00d7]\\\\s*\\\\d+\"\n  75|    key_files:\n  76|      - \"app/invoices_page.py\"\n  77|    math_checks:\n  78|      - \"VAT calculation formulas\"",
+          "justification": "Pattern 'rounding|banker.*round|ROUND_HALF' found in code"
+        }
+      ],
+      "gaps": [
+        "No evidence found for pattern: \\d+\\s*[x\u00d7]\\s*\\d+"
+      ],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "flagged_issues",
+      "weight_percent": 8,
+      "score_percent": 38.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/flagged_issues_page.py",
+          "justification": "Key file app/flagged_issues_page.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L86-L91",
+          "excerpt": "  86|      - \"flagged.*issue|discrepancy.*detection|resolution.*flow\"\n  87|      - \"escalation|role.*aware.*resolution\"\n  88|    key_files:\n  89|      - \"app/flagged_issues_page.py\"\n  90|    components:\n  91|      - \"FlaggedIssuesTable\"",
+          "justification": "Pattern 'flagged.*issue|discrepancy.*detection|resolution.*flow' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L87-L92",
+          "excerpt": "  87|      - \"escalation|role.*aware.*resolution\"\n  88|    key_files:\n  89|      - \"app/flagged_issues_page.py\"\n  90|    components:\n  91|      - \"FlaggedIssuesTable\"\n  92|      - \"ResolutionWorkflow\"",
+          "justification": "Pattern 'escalation|role.*aware.*resolution' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "supplier_module",
+      "weight_percent": 6,
+      "score_percent": 38.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/suppliers_page.py",
+          "justification": "Key file app/suppliers_page.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L97-L102",
+          "excerpt": "  97|      - \"supplier.*scorecard|mismatch.*rate|volatility|delays\"\n  98|      - \"supplier.*export|supplier.*metrics\"\n  99|    key_files:\n 100|      - \"app/suppliers_page.py\"\n 101|    components:\n 102|      - \"SupplierScorecard\"",
+          "justification": "Pattern 'supplier.*scorecard|mismatch.*rate|volatility|delays' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L98-L103",
+          "excerpt": "  98|      - \"supplier.*export|supplier.*metrics\"\n  99|    key_files:\n 100|      - \"app/suppliers_page.py\"\n 101|    components:\n 102|      - \"SupplierScorecard\"\n 103|      - \"SupplierMetrics\"",
+          "justification": "Pattern 'supplier.*export|supplier.*metrics' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "forecasting_module",
+      "weight_percent": 6,
+      "score_percent": 38.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/forecast_page.py",
+          "justification": "Key file app/forecast_page.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L108-L113",
+          "excerpt": " 108|      - \"forecast|trend|linear|regress|confidence.*band\"\n 109|      - \"recharts|UniversalTrendGraph|item.*level.*trend\"\n 110|    key_files:\n 111|      - \"app/forecast_page.py\"\n 112|    components:\n 113|      - \"UniversalTrendGraph\"",
+          "justification": "Pattern 'forecast|trend|linear|regress|confidence.*band' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L109-L114",
+          "excerpt": " 109|      - \"recharts|UniversalTrendGraph|item.*level.*trend\"\n 110|    key_files:\n 111|      - \"app/forecast_page.py\"\n 112|    components:\n 113|      - \"UniversalTrendGraph\"\n 114|      - \"ForecastChart\"",
+          "justification": "Pattern 'recharts|UniversalTrendGraph|item.*level.*trend' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "notes_shift_logs",
+      "weight_percent": 3,
+      "score_percent": 34.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/notes_page.py",
+          "justification": "Key file app/notes_page.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L119-L124",
+          "excerpt": " 119|      - \"notes|shift.*log|write.*lock|accountability.*trail\"\n 120|    key_files:\n 121|      - \"app/notes_page.py\"\n 122|\n 123|  licensing_limited_mode:\n 124|    weight_percent: 5",
+          "justification": "Pattern 'notes|shift.*log|write.*lock|accountability.*trail' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "licensing_limited_mode",
+      "weight_percent": 5,
+      "score_percent": 30.8,
+      "evidence": [
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L127-L132",
+          "excerpt": " 127|      - \"HMAC|RSA|ECDSA|signed.*hash\"\n 128|    key_files:\n 129|      - \"license/*.lic\"\n 130|    components:\n 131|      - \"LimitedModeUI\"\n 132|      - \"LicenseVerification\"",
+          "justification": "Pattern 'HMAC|RSA|ECDSA|signed.*hash' found in code"
+        }
+      ],
+      "gaps": [
+        "Missing key file: license/*.lic",
+        "No evidence found for pattern: license|\\.lic|Limited.*Mode|limited|signature|verify|hash"
+      ],
+      "risks": [
+        "Critical files missing: ['license/*.lic']"
+      ],
+      "todo_fixes": [
+        {
+          "severity": "critical",
+          "action": "Implement missing key files: ['license/*.lic']",
+          "path": "multiple",
+          "hint": "Create the missing core files for this module"
+        }
+      ]
+    },
+    {
+      "module": "rbac",
+      "weight_percent": 5,
+      "score_percent": 38.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/sidebar.py",
+          "justification": "Key file app/sidebar.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L137-L142",
+          "excerpt": " 137|      - \"role|RBAC|permission|GM|Finance|Shift|authorize\"\n 138|      - \"Depends|get_current_user|@login_required\"\n 139|    key_files:\n 140|      - \"app/sidebar.py\"\n 141|    roles:\n 142|      - \"GM\"",
+          "justification": "Pattern 'role|RBAC|permission|GM|Finance|Shift|authorize' found in code"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L138-L143",
+          "excerpt": " 138|      - \"Depends|get_current_user|@login_required\"\n 139|    key_files:\n 140|      - \"app/sidebar.py\"\n 141|    roles:\n 142|      - \"GM\"\n 143|      - \"Finance\"",
+          "justification": "Pattern 'Depends|get_current_user|@login_required' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "audit_log",
+      "weight_percent": 4,
+      "score_percent": 34.8,
+      "evidence": [
+        {
+          "type": "file_presence",
+          "path": "app/database.py",
+          "justification": "Key file app/database.py found"
+        },
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L149-L154",
+          "excerpt": " 149|      - \"audit.*log|append.*only|export.*csv|timestamps|user.*ID\"\n 150|    key_files:\n 151|      - \"app/database.py\"\n 152|\n 153|  backups_recovery:\n 154|    weight_percent: 3",
+          "justification": "Pattern 'audit.*log|append.*only|export.*csv|timestamps|user.*ID' found in code"
+        }
+      ],
+      "gaps": [],
+      "risks": [],
+      "todo_fixes": []
+    },
+    {
+      "module": "backups_recovery",
+      "weight_percent": 3,
+      "score_percent": 30.8,
+      "evidence": [
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L156-L161",
+          "excerpt": " 156|      - \"backup|zipfile|restore|rollback|conflict.*resolver\"\n 157|    key_files:\n 158|      - \"data/\"\n 159|\n 160|  updates_rollback:\n 161|    weight_percent: 2",
+          "justification": "Pattern 'backup|zipfile|restore|rollback|conflict.*resolver' found in code"
+        }
+      ],
+      "gaps": [
+        "Missing key file: data/"
+      ],
+      "risks": [
+        "Critical files missing: ['data/']"
+      ],
+      "todo_fixes": [
+        {
+          "severity": "critical",
+          "action": "Implement missing key files: ['data/']",
+          "path": "multiple",
+          "hint": "Create the missing core files for this module"
+        }
+      ]
+    },
+    {
+      "module": "updates_rollback",
+      "weight_percent": 2,
+      "score_percent": 30.8,
+      "evidence": [
+        {
+          "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+          "lines": "L163-L168",
+          "excerpt": " 163|      - \"update.*bundle|rollback|signature.*check|changelog\"\n 164|    key_files:\n 165|      - \"scripts/\"\n 166|\n 167|# Scoring rubric weights\n 168|scoring_weights:",
+          "justification": "Pattern 'update.*bundle|rollback|signature.*check|changelog' found in code"
+        }
+      ],
+      "gaps": [
+        "Missing key file: scripts/"
+      ],
+      "risks": [
+        "Critical files missing: ['scripts/']"
+      ],
+      "todo_fixes": [
+        {
+          "severity": "critical",
+          "action": "Implement missing key files: ['scripts/']",
+          "path": "multiple",
+          "hint": "Create the missing core files for this module"
+        }
+      ]
+    }
+  ],
+  "math_checks": {
+    "vat_examples": [
+      {
+        "source_path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_repo.py",
+        "formula": "Found in code excerpt",
+        "sample_values": {
+          "net": 10.0,
+          "vat_rate": 0.2,
+          "gross": 12.0
+        },
+        "rounding_mode": "Unknown from code"
+      }
+    ],
+    "pack_crate_examples": []
+  },
+  "route_inventory": [],
+  "ui_inventory": [
+    {
+      "component": "unknown",
+      "file": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+      "states": [
+        "unknown"
+      ],
+      "status": "wired"
+    },
+    {
+      "component": "unknown",
+      "file": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+      "states": [
+        "unknown"
+      ],
+      "status": "wired"
+    },
+    {
+      "component": "unknown",
+      "file": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml",
+      "states": [
+        "unknown"
+      ],
+      "status": "wired"
+    }
+  ],
+  "rbac_matrix": [
+    {
+      "action": "general_access",
+      "gm": true,
+      "finance": false,
+      "shift_lead": false,
+      "evidence_path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/allfileshas.txt"
+    },
+    {
+      "action": "general_access",
+      "gm": false,
+      "finance": true,
+      "shift_lead": false,
+      "evidence_path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_repo.py"
+    },
+    {
+      "action": "general_access",
+      "gm": false,
+      "finance": false,
+      "shift_lead": true,
+      "evidence_path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/app/invoices_page_backup.py"
+    }
+  ],
+  "licensing": {
+    "file_detected": "none",
+    "signature_verification": "no",
+    "limited_mode_ui_locks": [
+      {
+        "component": "UploadButton",
+        "lock_tooltip": "Limited mode detected in code",
+        "file": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_repo.py"
+      },
+      {
+        "component": "UploadButton",
+        "lock_tooltip": "Limited mode detected in code",
+        "file": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/scripts/audit_checks.yml"
+      }
+    ]
+  }
+}

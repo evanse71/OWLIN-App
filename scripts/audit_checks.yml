@@ -1,0 +1,202 @@
+# OWLIN Full-App Status Audit Configuration
+# Brutal Russian Judge Mode - Evidence-Based Scoring
+
+modules:
+  upload_ocr_pipeline:
+    weight_percent: 20
+    evidence_patterns:
+      - "upload|multipart|/upload|/api/upload"
+      - "ocr|paddle|tesseract|confidence|psm|split|multi"
+      - "invoice.*upload|document.*upload"
+    key_files:
+      - "app/file_processor.py"
+      - "app/ocr_factory.py"
+      - "app/ocr_preprocessing.py"
+      - "app/easyocr_integration.py"
+    endpoints:
+      - "/upload"
+      - "/api/upload"
+      - "/ocr/process"
+    components:
+      - "UploadButton"
+      - "FileUploader"
+      - "OCRProgress"
+
+  invoice_data_model:
+    weight_percent: 10
+    evidence_patterns:
+      - "invoice.*model|line.*item|VAT|tax|gross|net|currency|uom|unit"
+      - "create.*table.*invoice|CREATE TABLE.*invoice"
+      - "invoice_number|supplier|amount|quantity"
+    key_files:
+      - "app/database.py"
+      - "data/owlin.db"
+    schema_checks:
+      - "invoices table"
+      - "line_items table"
+      - "VAT fields"
+      - "currency support"
+
+  delivery_note_matching:
+    weight_percent: 10
+    evidence_patterns:
+      - "pair|match|similarity|levenshtein|dice|cosine|embeddings"
+      - "delivery.*note|delivery_note"
+      - "confirm.*pair|reject.*pair|pairing.*suggestion"
+    key_files:
+      - "app/database.py"
+    components:
+      - "DocumentPairingSuggestionCard"
+      - "PairingConfirmation"
+
+  invoices_ui:
+    weight_percent: 10
+    evidence_patterns:
+      - "InvoiceCard|InvoiceCardsPanel|InvoiceDetail|accordion"
+      - "progress.*state|badge.*status|matched|unmatched|flagged"
+      - "responsive.*layout|left.*column|right.*detail"
+    key_files:
+      - "app/invoices_page.py"
+      - "app/ui_progress.py"
+    components:
+      - "InvoiceCardsPanel"
+      - "InvoiceDetailBox"
+      - "ProgressCircle"
+      - "HoverCard"
+      - "ConfidenceBadge"
+
+  vat_totals_math:
+    weight_percent: 8
+    evidence_patterns:
+      - "VAT.*calc|gross.*net|net.*gross|vat.*rate"
+      - "pack.*math|crate.*math|unit.*price|extended.*total"
+      - "rounding|banker.*round|ROUND_HALF"
+      - "\\d+\\s*[x×]\\s*\\d+"
+    key_files:
+      - "app/invoices_page.py"
+    math_checks:
+      - "VAT calculation formulas"
+      - "Pack/crate math parsing"
+      - "Currency rounding mode"
+      - "Unit vs extended price validation"
+
+  flagged_issues:
+    weight_percent: 8
+    evidence_patterns:
+      - "flagged.*issue|discrepancy.*detection|resolution.*flow"
+      - "escalation|role.*aware.*resolution"
+    key_files:
+      - "app/flagged_issues_page.py"
+    components:
+      - "FlaggedIssuesTable"
+      - "ResolutionWorkflow"
+
+  supplier_module:
+    weight_percent: 6
+    evidence_patterns:
+      - "supplier.*scorecard|mismatch.*rate|volatility|delays"
+      - "supplier.*export|supplier.*metrics"
+    key_files:
+      - "app/suppliers_page.py"
+    components:
+      - "SupplierScorecard"
+      - "SupplierMetrics"
+
+  forecasting_module:
+    weight_percent: 6
+    evidence_patterns:
+      - "forecast|trend|linear|regress|confidence.*band"
+      - "recharts|UniversalTrendGraph|item.*level.*trend"
+    key_files:
+      - "app/forecast_page.py"
+    components:
+      - "UniversalTrendGraph"
+      - "ForecastChart"
+
+  notes_shift_logs:
+    weight_percent: 3
+    evidence_patterns:
+      - "notes|shift.*log|write.*lock|accountability.*trail"
+    key_files:
+      - "app/notes_page.py"
+
+  licensing_limited_mode:
+    weight_percent: 5
+    evidence_patterns:
+      - "license|\\.lic|Limited.*Mode|limited|signature|verify|hash"
+      - "HMAC|RSA|ECDSA|signed.*hash"
+    key_files:
+      - "license/*.lic"
+    components:
+      - "LimitedModeUI"
+      - "LicenseVerification"
+
+  rbac:
+    weight_percent: 5
+    evidence_patterns:
+      - "role|RBAC|permission|GM|Finance|Shift|authorize"
+      - "Depends|get_current_user|@login_required"
+    key_files:
+      - "app/sidebar.py"
+    roles:
+      - "GM"
+      - "Finance"
+      - "Shift Lead"
+
+  audit_log:
+    weight_percent: 4
+    evidence_patterns:
+      - "audit.*log|append.*only|export.*csv|timestamps|user.*ID"
+    key_files:
+      - "app/database.py"
+
+  backups_recovery:
+    weight_percent: 3
+    evidence_patterns:
+      - "backup|zipfile|restore|rollback|conflict.*resolver"
+    key_files:
+      - "data/"
+
+  updates_rollback:
+    weight_percent: 2
+    evidence_patterns:
+      - "update.*bundle|rollback|signature.*check|changelog"
+    key_files:
+      - "scripts/"
+
+# Scoring rubric weights
+scoring_weights:
+  evidence_presence: 20      # 0/20/40/60/80/100
+  data_wiring: 25           # 0/25/50/75/100
+  edge_cases: 20            # 0/20/40/60/80/100
+  tests_probes: 30          # 0/30/60/100
+  ux_state_coverage: 25     # 0/25/50/75/100
+
+# Special VAT/Math validation
+vat_math_validation:
+  required_formulas:
+    - "gross = net * (1 + vat_rate)"
+    - "net = gross / (1 + vat_rate)"
+    - "vat_amount = gross - net"
+  pack_crate_patterns:
+    - "\\d+\\s*[x×]\\s*\\d+\\s*[a-zA-Z]*"
+  rounding_modes:
+    - "ROUND_HALF_UP"
+    - "ROUND_HALF_EVEN"
+    - "banker_rounding"
+
+# Route inventory patterns
+route_patterns:
+  - "FastAPI|APIRouter|@app\\.get|@app\\.post|uvicorn"
+  - "def.*upload|def.*ocr|def.*pair|def.*forecast"
+
+# UI component patterns  
+ui_patterns:
+  - "InvoiceCard|InvoiceCardsPanel|InvoiceDetail|DocumentPairingSuggestionCard"
+  - "ProgressCircle|HoverCard|ConfidenceBadge|SmartDocumentReview"
+  - "UniversalTrendGraph|ForecastChart|SupplierScorecard"
+
+# Database patterns
+db_patterns:
+  - "SQLite|sqlalchemy|create table|migrations|alembic"
+  - "CREATE TABLE.*invoice|CREATE TABLE.*line_item"

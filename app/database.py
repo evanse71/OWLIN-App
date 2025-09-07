@@ -12,9 +12,12 @@ import sqlite3
 import pandas as pd
 import logging
 import os
+import json
+import re
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from app.file_processor import get_uploaded_files
+from app.db_migrations import log_audit_event, get_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -401,6 +404,368 @@ def update_invoice_status(invoice_id: str, status: str, **kwargs) -> bool:
     except Exception as e:
         logger.error(f"Failed to update invoice status: {e}")
         return False
+
+def normalize_units(unit_descriptor: str) -> int:
+    """
+    Normalize unit descriptors to a standard unit count.
+    
+    Examples:
+        "24 x 275ml" -> 24
+        "12 pack" -> 12
+        "1 case" -> 1
+        "6 bottles" -> 6
+    """
+    if not unit_descriptor:
+        return 1
+    
+    # Extract numbers from unit descriptors
+    patterns = [
+        r'(\d+)\s*[x×]\s*\d+',  # "24 x 275ml"
+        r'(\d+)\s*pack',        # "12 pack"
+        r'(\d+)\s*case',        # "1 case"
+        r'(\d+)\s*bottles?',    # "6 bottles"
+        r'(\d+)\s*cans?',       # "4 cans"
+        r'(\d+)\s*units?',      # "8 units"
+        r'^(\d+)$'              # Just a number
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, unit_descriptor.lower())
+        if match:
+            return int(match.group(1))
+    
+    return 1
+
+def calculate_confidence_score(extracted_text: str, line_items: List[Dict]) -> float:
+    """
+    Calculate confidence score based on extraction quality.
+    
+    Args:
+        extracted_text: Raw OCR text
+        line_items: Extracted line items
+        
+    Returns:
+        Confidence score (0-100)
+    """
+    if not extracted_text or not line_items:
+        return 0.0
+    
+    base_score = 50.0
+    
+    # Text quality indicators
+    if len(extracted_text) > 100:
+        base_score += 10
+    if any(keyword in extracted_text.lower() for keyword in ['invoice', 'total', 'amount', 'vat']):
+        base_score += 15
+    if re.search(r'\d+\.\d{2}', extracted_text):  # Price patterns
+        base_score += 10
+    
+    # Line item quality
+    if len(line_items) > 0:
+        base_score += 10
+        for item in line_items:
+            if item.get('qty', 0) > 0 and item.get('price', 0) > 0:
+                base_score += 5
+    
+    return min(100.0, base_score)
+
+def detect_issues(invoice_data: Dict, line_items: List[Dict]) -> List[Dict]:
+    """
+    Detect issues in invoice data and line items.
+    
+    Args:
+        invoice_data: Invoice information
+        line_items: List of line items
+        
+    Returns:
+        List of detected issues
+    """
+    issues = []
+    
+    # Calculate expected totals
+    calculated_total = sum(item.get('total_pennies', 0) for item in line_items)
+    invoice_total = invoice_data.get('total_amount_pennies', 0)
+    
+    # Total mismatch check
+    if invoice_total > 0 and abs(calculated_total - invoice_total) > invoice_total * 0.01:  # >1% difference
+        issues.append({
+            'type': 'total_mismatch',
+            'severity': 'high',
+            'description': f'Calculated total ({calculated_total/100:.2f}) does not match invoice total ({invoice_total/100:.2f})',
+            'line_item_id': None
+        })
+    
+    # Line item checks
+    for item in line_items:
+        # Price mismatch
+        expected_total = item.get('qty', 0) * item.get('unit_price_pennies', 0)
+        actual_total = item.get('total_pennies', 0)
+        
+        if actual_total > 0 and abs(expected_total - actual_total) > actual_total * 0.01:
+            issues.append({
+                'type': 'price_mismatch',
+                'severity': 'medium',
+                'description': f'Line item total mismatch: expected {expected_total/100:.2f}, got {actual_total/100:.2f}',
+                'line_item_id': item.get('id')
+            })
+        
+        # Quantity mismatch
+        if item.get('delivery_qty') and item.get('qty'):
+            qty_diff = abs(item['qty'] - item['delivery_qty'])
+            if qty_diff > 0:
+                issues.append({
+                    'type': 'qty_mismatch',
+                    'severity': 'medium',
+                    'description': f'Quantity mismatch: invoice {item["qty"]}, delivery {item["delivery_qty"]}',
+                    'line_item_id': item.get('id')
+                })
+        
+        # Unit math check
+        unit_descriptor = item.get('unit_descriptor', '')
+        normalized_units = normalize_units(unit_descriptor)
+        if normalized_units > 1 and item.get('qty', 0) > 0:
+            # Check if the math makes sense for pack quantities
+            if item['qty'] % normalized_units != 0:
+                issues.append({
+                    'type': 'unit_math_suspect',
+                    'severity': 'low',
+                    'description': f'Unit math suspicious: {item["qty"]} items with {normalized_units} units per pack',
+                    'line_item_id': item.get('id')
+                })
+    
+    return issues
+
+def create_issue_record(issue_data: Dict, invoice_id: str) -> str:
+    """Create an issue record in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    issue_id = f"ISS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{invoice_id[:8]}"
+    
+    cursor.execute('''
+        INSERT INTO issues 
+        (id, invoice_id, line_item_id, issue_type, severity, description, 
+         status, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        issue_id, invoice_id, issue_data.get('line_item_id'),
+        issue_data['type'], issue_data['severity'], issue_data['description'],
+        'open', get_current_user_id(), datetime.now().isoformat()
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    # Log audit event
+    log_audit_event(
+        user_id=get_current_user_id(),
+        action='create_issue',
+        entity_type='issue',
+        entity_id=issue_id,
+        new_values=issue_data
+    )
+    
+    return issue_id
+
+def resolve_issue(issue_id: str, resolution_notes: str, user_id: str = None) -> bool:
+    """Resolve an issue."""
+    if not user_id:
+        user_id = get_current_user_id()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE issues 
+        SET status = 'resolved', resolved_by = ?, resolved_at = ?, resolution_notes = ?
+        WHERE id = ?
+    ''', (user_id, datetime.now().isoformat(), resolution_notes, issue_id))
+    
+    conn.commit()
+    conn.close()
+    
+    # Log audit event
+    log_audit_event(
+        user_id=user_id,
+        action='resolve_issue',
+        entity_type='issue',
+        entity_id=issue_id,
+        new_values={'status': 'resolved', 'resolution_notes': resolution_notes}
+    )
+    
+    return True
+
+def escalate_issue(issue_id: str, escalation_notes: str, user_id: str = None) -> bool:
+    """Escalate an issue."""
+    if not user_id:
+        user_id = get_current_user_id()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE issues 
+        SET status = 'escalated', resolved_by = ?, resolved_at = ?, resolution_notes = ?
+        WHERE id = ?
+    ''', (user_id, datetime.now().isoformat(), escalation_notes, issue_id))
+    
+    conn.commit()
+    conn.close()
+    
+    # Log audit event
+    log_audit_event(
+        user_id=user_id,
+        action='escalate_issue',
+        entity_type='issue',
+        entity_id=issue_id,
+        new_values={'status': 'escalated', 'resolution_notes': escalation_notes}
+    )
+    
+    return True
+
+def get_issues_for_invoice(invoice_id: str) -> List[Dict]:
+    """Get all issues for a specific invoice."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM issues 
+        WHERE invoice_id = ? 
+        ORDER BY created_at DESC
+    ''', (invoice_id,))
+    
+    issues = []
+    for row in cursor.fetchall():
+        issues.append({
+            'id': row[0],
+            'invoice_id': row[1],
+            'line_item_id': row[2],
+            'issue_type': row[3],
+            'severity': row[4],
+            'description': row[5],
+            'status': row[6],
+            'created_by': row[7],
+            'created_at': row[8],
+            'resolved_by': row[9],
+            'resolved_at': row[10],
+            'resolution_notes': row[11]
+        })
+    
+    conn.close()
+    return issues
+
+def create_pairing_suggestion(invoice_id: str, delivery_note_id: str, similarity_score: float) -> str:
+    """Create a pairing suggestion."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    pairing_id = f"PAIR-{datetime.now().strftime('%Y%m%d%H%M%S')}-{invoice_id[:8]}"
+    
+    cursor.execute('''
+        INSERT INTO pairings 
+        (id, invoice_id, delivery_note_id, similarity_score, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (pairing_id, invoice_id, delivery_note_id, similarity_score, 'suggested', datetime.now().isoformat()))
+    
+    conn.commit()
+    conn.close()
+    
+    # Log audit event
+    log_audit_event(
+        user_id=get_current_user_id(),
+        action='create_pairing_suggestion',
+        entity_type='pairing',
+        entity_id=pairing_id,
+        new_values={'invoice_id': invoice_id, 'delivery_note_id': delivery_note_id, 'similarity_score': similarity_score}
+    )
+    
+    return pairing_id
+
+def confirm_pairing(pairing_id: str, user_id: str = None) -> bool:
+    """Confirm a pairing suggestion."""
+    if not user_id:
+        user_id = get_current_user_id()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE pairings 
+        SET status = 'confirmed', confirmed_by = ?, confirmed_at = ?
+        WHERE id = ?
+    ''', (user_id, datetime.now().isoformat(), pairing_id))
+    
+    conn.commit()
+    conn.close()
+    
+    # Log audit event
+    log_audit_event(
+        user_id=user_id,
+        action='confirm_pairing',
+        entity_type='pairing',
+        entity_id=pairing_id,
+        new_values={'status': 'confirmed'}
+    )
+    
+    return True
+
+def reject_pairing(pairing_id: str, rejection_reason: str, user_id: str = None) -> bool:
+    """Reject a pairing suggestion."""
+    if not user_id:
+        user_id = get_current_user_id()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE pairings 
+        SET status = 'rejected', rejected_by = ?, rejected_at = ?, rejection_reason = ?
+        WHERE id = ?
+    ''', (user_id, datetime.now().isoformat(), rejection_reason, pairing_id))
+    
+    conn.commit()
+    conn.close()
+    
+    # Log audit event
+    log_audit_event(
+        user_id=user_id,
+        action='reject_pairing',
+        entity_type='pairing',
+        entity_id=pairing_id,
+        new_values={'status': 'rejected', 'rejection_reason': rejection_reason}
+    )
+    
+    return True
+
+def get_pairing_suggestions(invoice_id: str) -> List[Dict]:
+    """Get pairing suggestions for an invoice."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT p.*, dn.delivery_number, dn.delivery_date, dn.supplier
+        FROM pairings p
+        JOIN delivery_notes dn ON p.delivery_note_id = dn.id
+        WHERE p.invoice_id = ? AND p.status = 'suggested'
+        ORDER BY p.similarity_score DESC
+    ''', (invoice_id,))
+    
+    suggestions = []
+    for row in cursor.fetchall():
+        suggestions.append({
+            'id': row[0],
+            'invoice_id': row[1],
+            'delivery_note_id': row[2],
+            'similarity_score': row[3],
+            'status': row[4],
+            'created_at': row[5],
+            'delivery_number': row[8],
+            'delivery_date': row[9],
+            'supplier': row[10]
+        })
+    
+    conn.close()
+    return suggestions
 
 # Initialize database tables
 create_invoices_table()

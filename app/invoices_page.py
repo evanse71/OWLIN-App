@@ -1039,7 +1039,7 @@ def render_invoice_list(invoices, selected_index=None, on_select=None):
         if 'last_status_check' not in st.session_state:
             st.session_state.last_status_check = datetime.now()
         
-                # Check if we need to refresh statuses
+        # Check if we need to refresh statuses
         time_since_last_check = (datetime.now() - st.session_state.last_status_check).total_seconds()
         if time_since_last_check > 30:  # Refresh every 30 seconds
             try:
@@ -1060,6 +1060,11 @@ def render_invoice_list(invoices, selected_index=None, on_select=None):
                 
             except Exception as e:
                 st.warning(f"⚠️ Unable to refresh statuses: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"Error loading invoice list: {str(e)}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Utility Functions ---
 def get_enhanced_status_icon(status):
