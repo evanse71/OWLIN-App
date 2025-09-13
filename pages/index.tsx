@@ -1,0 +1,9 @@
+import type { GetServerSideProps } from 'next';
+
+export const getServerSideProps: GetServerSideProps = async () => ({
+  redirect: { destination: '/invoices', permanent: false },
+});
+
+export default function Index() {
+  return null; // never renders on client
+} 

@@ -1,0 +1,107 @@
+name: Test Owlin Cross-Platform
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        npm ci
+    
+    - name: Build UI
+      run: npm run build
+    
+    - name: Start Owlin (Windows)
+      run: |
+        powershell -ExecutionPolicy Bypass -File .\scripts\start_and_verify.ps1
+        Start-Sleep -s 10
+        irm http://127.0.0.1:8001/api/health  | % Content
+        irm http://127.0.0.1:8001/api/status  | % Content
+
+  test-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        npm ci
+    
+    - name: Build UI
+      run: npm run build
+    
+    - name: Start Owlin (Linux)
+      run: |
+        chmod +x scripts/start_and_verify.sh
+        ./scripts/start_and_verify.sh &
+        for i in {1..40}; do
+          curl -fsS http://127.0.0.1:8001/api/health && break
+          sleep 0.25
+        done
+        curl -fsS http://127.0.0.1:8001/api/status
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        npm ci
+    
+    - name: Build UI
+      run: npm run build
+    
+    - name: Start Owlin (macOS)
+      run: |
+        chmod +x scripts/start_and_verify.sh
+        ./scripts/start_and_verify.sh &
+        for i in {1..40}; do
+          curl -fsS http://127.0.0.1:8001/api/health && break
+          sleep 0.25
+        done
+        curl -fsS http://127.0.0.1:8001/api/status

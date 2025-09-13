@@ -1,0 +1,26 @@
+#!/bin/bash
+# Mock Tesseract binary for testing purposes
+# This is a placeholder that simulates Tesseract behavior
+
+if [[ "$1" == "--version" ]]; then
+    echo "tesseract 5.3.3"
+    echo " leptonica-1.82.0"
+    echo "  libgif 5.2.1 : libjpeg 8d (libjpeg-turbo 2.1.5.1) : libpng 1.6.37 : libtiff 4.4.0 : zlib 1.2.11 : libwebp 1.2.4 : libopenjp2 2.4.0"
+    echo " Found AVX2"
+    echo " Found AVX"
+    echo " Found FMA"
+    echo " Found SSE"
+    echo " Found libarchive 3.6.2 zlib/1.2.11 liblzma/5.2.5 bz2lib/1.0.8 liblz4/1.9.3 libzstd/1.5.2"
+    exit 0
+fi
+
+if [[ "$1" == "--list-langs" ]]; then
+    echo "List of available languages (1):"
+    echo "eng"
+    exit 0
+fi
+
+# For actual OCR, this would call the real Tesseract
+# For now, just return a mock response
+echo "Mock OCR result: This is a test image with sample text"
+exit 0 

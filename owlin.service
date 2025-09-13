@@ -1,0 +1,40 @@
+[Unit]
+Description=Owlin Single-Port Application Service
+Documentation=https://github.com/your-org/owlin
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=owlin
+Group=owlin
+WorkingDirectory=/opt/owlin
+ExecStart=/usr/bin/python3 -m backend.final_single_port
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=owlin
+
+# Environment variables
+Environment=OWLIN_PORT=8001
+Environment=LLM_BASE=http://127.0.0.1:11434
+Environment=LOG_LEVEL=INFO
+Environment=LOG_FILE=/var/log/owlin/owlin.log
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/owlin
+ReadWritePaths=/var/log/owlin
+ReadWritePaths=/var/lib/owlin
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

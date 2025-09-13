@@ -1,0 +1,17 @@
+
+INVOICE
+
+Supplier: WILD HORSE BREWING CO
+Invoice Number: TEST-DEBUG-001
+Date: 2025-01-15
+
+Items:
+1. Craft Beer - 6 Pack     £12.00
+2. IPA Selection - 12 Pack  £24.00
+3. Stout Collection - 4 Pack £18.00
+
+Subtotal: £54.00
+VAT (20%): £10.80
+TOTAL: £64.80
+
+Thank you for your business!

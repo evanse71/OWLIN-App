@@ -1,0 +1,49 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with: { python-version: "3.9" }
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn  # no sqlite3 here
+
+      - name: FK enforcement test
+        run: |
+          cd backend
+          python tests/test_db_fk.py
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Frontend checks
+        run: |
+          npm run -s type-check
+          npm run -s lint
+          npm run -s build
+
+      - name: Install sqlite3 CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3
+
+      - name: API smoke (pairing)
+        run: |
+          pip install "uvicorn[standard]" fastapi
+          nohup python -u backend/test_server.py &
+          sleep 2
+          ./scripts/pairing_smoke.sh
