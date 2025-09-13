@@ -1380,55 +1380,8 @@ def render_summary_metrics(metrics_data=None):
             st.session_state.metrics_error_count = 0
         st.session_state.metrics_error_count += 1
 
-# --- Component: Invoice List ---
-def render_invoice_list(invoices, selected_index=None, on_select=None):
-    """
-    Render a scrollable invoice list with selectable cards, real-time statuses, and enhanced accessibility.
-    
-    Args:
-        invoices (list): List of invoice dictionaries from the database
-        selected_index (int, optional): Currently selected invoice index. If None, uses session state
-        on_select (callable, optional): Callback function when an invoice is selected. 
-            Signature: on_select(index, invoice_data)
-    
-    Features:
-        - Real-time status updates with dynamic database loading
-        - Status icons for different invoice states (matched, discrepancy, pending, processing, not_paired)
-        - Clickable cards with clear visual selection highlighting
-        - Comprehensive accessibility support with ARIA labels and keyboard navigation
-        - Graceful handling of empty lists with friendly messaging
-        - External selection management support
-        - Real-time status polling and updates
-        - Enhanced visual feedback and animations
-    """
-    st.markdown('<div class="owlin-invoice-list" role="list" aria-label="Invoice list with real-time statuses">', unsafe_allow_html=True)
-    
-    try:
-        # Dynamic database loading with real-time updates
-        if not invoices:
-            invoices = []
-        
-        # Real-time status polling (refresh every 30 seconds)
-        if 'last_status_check' not in st.session_state:
-            st.session_state.last_status_check = datetime.now()
-        
-        # Check if we need to refresh statuses
-        time_since_last_check = (datetime.now() - st.session_state.last_status_check).total_seconds()
-        if time_since_last_check > 30:  # Refresh every 30 seconds
-            try:
-                # Reload invoices with fresh statuses
-                fresh_invoices = load_invoices_from_db()
-                if fresh_invoices:
-                    invoices = fresh_invoices
-                    st.session_state.last_status_check = datetime.now()
-                    
-                    # Announce status updates to screen readers
-
-
 # --- Utility Functions ---
 
-
-# --- Utility Functions ---
 def get_enhanced_status_icon(status):
     """Get enhanced status icon HTML with better accessibility and visual feedback."""
     icons = {
@@ -1479,32 +1432,14 @@ def detect_status_changes(previous_invoices, current_invoices):
     prev_lookup = {inv.get('id'): inv.get('status', 'pending') for inv in previous_invoices}
     curr_lookup = {inv.get('id'): inv.get('status', 'pending') for inv in current_invoices}
     
-    
-                invoice_number = next((inv.get('invoice_number', 'Unknown') for inv in current_invoices if inv.get('id') == inv_id), 'Unknown')
-                changes.append(f"Invoice {invoice_number} changed from {previous_status} to {current_status}")
+    # Check for status changes
+    for inv_id, previous_status in prev_lookup.items():
+        current_status = curr_lookup.get(inv_id)
+        if current_status and previous_status != current_status:
+            invoice_number = next((inv.get('invoice_number', 'Unknown') for inv in current_invoices if inv.get('id') == inv_id), 'Unknown')
+            changes.append(f"Invoice {invoice_number} changed from {previous_status} to {current_status}")
     
     return changes
-                    status_changes = detect_status_changes(st.session_state.get('previous_invoices', []), invoices)
-                    if status_changes:
-                        for change in status_changes:
-                            announce_to_screen_reader(f"Status update: {change}", 'polite')
-                
-                # Store current state for next comparison
-                st.session_state.previous_invoices = invoices.copy()
-                
-            except Exception as e:
-                st.warning(f"⚠️ Unable to refresh statuses: {str(e)}")
-        
-        # Handle selection state with enhanced logic
-        if selected_index is None:
-            # Use session state if no external selection provided
-            if 'selected_invoice_idx' not in st.session_state:
-                st.session_state.selected_invoice_idx = 0
-            selected_index = st.session_state.selected_invoice_idx
-        
-        # Ensure selected index is valid
-        if selected_index >= len(invoices):
-            selected_index = 0 if invoices else None
         
         if invoices:
             # Enhanced header with real-time status summary

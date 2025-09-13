@@ -1,42 +1,32 @@
-// API switch between fake and real implementations
-const BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8001";
-const USE_FAKE = (process.env.NEXT_PUBLIC_USE_FAKE_BACKEND ?? "false") === "true";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8001";
 
-import * as apiFake from './api.fake'
-import * as apiReal from './api.real'
-
-export const api = USE_FAKE ? apiFake : apiReal;
-
-// Re-export all functions
-export const {
-  getInvoices,
-  getInvoice,
-  getUnmatchedNotes,
-  getDeliveryNote,
-  pairNote,
-  uploadDocument,
-  getJob,
-  createInvoice,
-  createDeliveryNote,
-  compareDN,
-  unpairDN,
-  createInvoiceDraft,
-  updateInvoiceDraft,
-  addDraftItem,
-  updateDraftItem,
-  removeDraftItem,
-  attachToDraft,
-  finalizeInvoice,
-  discardDraft,
-  suggestInvoicesForDN,
-  pairDNtoInvoice,
-  createInvoiceFromDN,
-  compareDNtoInvoice,
-  clearAllDocuments,
-  saveDraftDocuments,
-  submitDocuments,
-  getUnmatchedDNCount,
-  getOpenIssuesCount,
-  getLicenseInfo,
-  runBackup,
-} = api 
+export async function postManualInvoice(body: any) {
+  const r = await fetch(`${API_BASE}/manual/invoices`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+export async function patchManualInvoice(id: string, body: any) {
+  const r = await fetch(`${API_BASE}/manual/invoices/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+export async function postManualDN(body: any) {
+  const r = await fetch(`${API_BASE}/manual/delivery-notes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+export async function patchManualDN(id: string, body: any) {
+  const r = await fetch(`${API_BASE}/manual/delivery-notes/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+export async function getUnpaired() {
+  const r = await fetch(`${API_BASE}/manual/unpaired`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+export async function postPair(body: { invoice_id: string; delivery_note_id: string }) {
+  const r = await fetch(`${API_BASE}/manual/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}

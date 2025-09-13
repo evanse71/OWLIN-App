@@ -210,7 +210,7 @@ def render_invoice_details(invoice: Dict[str, Any]):
         df['Flagged'] = df['flagged'].apply(lambda x: '⚠️' if x else '✅')
         
         st.dataframe(
-            df[['item', 'qty', 'Unit Price', 'Total', 'Flagged']],
+            df[['item', 'invoice_qty', 'Unit Price', 'Total', 'Flagged']],
             use_container_width=True,
             hide_index=True
         )

@@ -3,7 +3,7 @@ from typing import List, Dict, Optional
 from db_manager_unified import get_db_manager
 from ocr.parse_invoice import parse_invoice, extract_line_items
 from ocr.field_extractor import extract_invoice_metadata
-from services.invoice_query import invoice_query_service, InvoiceFilter, InvoiceSort
+from services.invoice_query import fetch_invoice, fetch_invoice_summary
 import os
 import logging
 from datetime import datetime

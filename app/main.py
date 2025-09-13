@@ -6,7 +6,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.sidebar import render_sidebar
-from app.invoices_page import render_invoices_page
+from app.enhanced_invoices_page import main as render_enhanced_invoices_page
 from app.flagged_issues_page import render_flagged_issues_page
 from app.suppliers_page import render_suppliers_page
 from app.forecast_page import render_forecast_page
@@ -27,7 +27,7 @@ st.title(f"Owlin - {selected_page}")
 if selected_page == "Dashboard":
     st.write("Dashboard page coming soon.")
 elif selected_page == "Invoices":
-    render_invoices_page()
+    render_enhanced_invoices_page()
 elif selected_page == "Flagged Issues":
     render_flagged_issues_page()
 elif selected_page == "Suppliers":
