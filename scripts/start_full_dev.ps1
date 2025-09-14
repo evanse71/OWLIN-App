@@ -9,12 +9,45 @@ param(
     [int]$RetryDelay = 2
 )
 
-# Always run from repo root relative to this script (script is in /scripts)
-Set-StrictMode -Version Latest
+# ------------------ bootstrap (do not remove) ------------------
+# Force UTF-8 and robust Python IO
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location -Path $here
-Set-Location ..
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"
+
+# Resolve repo root from script location and cd there (location-proof)
+$ScriptDir = Split-Path -Parent $PSCommandPath
+$RepoRoot  = Resolve-Path (Join-Path $ScriptDir "..")
+Set-Location $RepoRoot
+
+# Always prefer .cmd shims for npm/npx to avoid npm.ps1 policy blocks
+$npmCmds = @(
+    (Join-Path $env:ProgramFiles           "nodejs\npm.cmd"),
+    (Join-Path $env:LOCALAPPDATA           "Programs\nodejs\npm.cmd")
+)
+$npxCmds = @(
+    (Join-Path $env:ProgramFiles           "nodejs\npx.cmd"),
+    (Join-Path $env:LOCALAPPDATA           "Programs\nodejs\npx.cmd")
+)
+$npmShim = $npmCmds | Where-Object { Test-Path $_ } | Select-Object -First 1
+$npxShim = $npxCmds | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($npmShim) { Set-Alias -Name npm -Value $npmShim -Scope Script -Force }
+if ($npxShim) { Set-Alias -Name npx -Value $npxShim -Scope Script -Force }
+
+# Verify npm works; show actionable help if not
+try {
+    $npmVersion = (& npm -v) 2>$null
+} catch {
+    $npmVersion = $null
+}
+if (-not $npmVersion) {
+    Write-Host "ERROR: npm not found or blocked." -ForegroundColor Red
+    Write-Host "Install Node.js from https://nodejs.org/ and restart PowerShell." -ForegroundColor Yellow
+    Write-Host "If PowerShell still blocks npm.ps1, this script will route to npm.cmd automatically." -ForegroundColor Yellow
+    exit 1
+}
+# ---------------- end bootstrap (do not remove) ----------------
+
 $env:PYTHONPATH = (Get-Location).Path
 
 Write-Host "OWLIN - Full Development Mode Launcher" -ForegroundColor Cyan
