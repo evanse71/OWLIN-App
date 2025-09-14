@@ -2,26 +2,14 @@
 REM OWLIN - Desktop Launcher for Windows
 REM Double-click this file to start the full Owlin development environment
 
+REM Always change to the project root directory
+cd /d C:\Users\tedev\Downloads\OWLIN-App-main
+
 echo.
 echo ========================================
 echo   OWLIN - Full Development Launcher
 echo ========================================
 echo.
-
-REM Check if we're in the right directory
-if not exist "package.json" (
-    echo ERROR: package.json not found!
-    echo Please run this from the Owlin project root directory.
-    pause
-    exit /b 1
-)
-
-if not exist "backend\final_single_port.py" (
-    echo ERROR: backend\final_single_port.py not found!
-    echo Please run this from the Owlin project root directory.
-    pause
-    exit /b 1
-)
 
 echo Starting Owlin development environment...
 echo.
