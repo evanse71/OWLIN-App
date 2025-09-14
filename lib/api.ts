@@ -41,5 +41,7 @@ export const createDeliveryNote = (body: any) =>
   req("/api/manual/delivery-notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 export const getDeliveryNote = (id: string) => req(`/api/delivery-notes/${id}`);
 export const compareDN = (a: any, b: any) => ({ match: false, score: 0 });
+export const postManualInvoice = (body: any) => createInvoice(body);
+export const postManualDN = (body: any) => createDeliveryNote(body);
 
 export default api;
