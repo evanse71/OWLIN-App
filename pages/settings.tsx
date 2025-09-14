@@ -5,11 +5,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
-import { Settings, User, Bell, Shield, Palette, Database } from 'lucide-react'
+import { SettingsIcon as SettingsIconIcon, User, Bell, Shield, Palette, Database } from 'lucide-react'
 
-export default function Settings() {
+export default function SettingsIcon() {
   const [mounted, setMounted] = useState(false)
-  const [settings, setSettings] = useState({
+  const [settings, setSettingsIcon] = useState({
     notifications: {
       email: true,
       push: false,
@@ -30,7 +30,7 @@ export default function Settings() {
   }, [])
 
   const handleSettingChange = (category: string, key: string, value: any) => {
-    setSettings(prev => ({
+    setSettingsIcon(prev => ({
       ...prev,
       [category]: {
         ...prev[category as keyof typeof prev],
@@ -47,7 +47,7 @@ export default function Settings() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+          <h1 className="text-3xl font-bold tracking-tight">SettingsIcon</h1>
           <p className="text-muted-foreground">
             Manage your application preferences
           </p>
@@ -55,7 +55,7 @@ export default function Settings() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {/* General Settings */}
+        {/* General SettingsIcon */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
