@@ -5,8 +5,13 @@ param(
     [switch]$AutoStart
 )
 
-# Ensure we're running from the repo root
-$RepoRoot = (Split-Path -Parent $MyInvocation.MyCommand.Path) | Join-Path ".." | Resolve-Path
+# Always run from repo root relative to this script
+Set-StrictMode -Version Latest
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location -Path $here
+Set-Location ..
+
+$RepoRoot = (Get-Location).Path
 $LauncherPath = Join-Path $RepoRoot "scripts\launch_owlin_dev.bat"
 
 Write-Host "OWLIN - Creating Shortcuts"

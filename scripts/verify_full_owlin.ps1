@@ -5,6 +5,12 @@ param(
     [switch]$Force
 )
 
+# Always run from repo root relative to this script
+Set-StrictMode -Version Latest
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location -Path $here
+Set-Location ..
+
 Write-Host "OWLIN - Health Verifier"
 Write-Host "======================"
 Write-Host ""

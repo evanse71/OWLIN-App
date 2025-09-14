@@ -9,8 +9,13 @@ param(
     [int]$RetryDelay = 2
 )
 
-# Set UTF-8 safe console
+# Always run from repo root relative to this script (script is in /scripts)
+Set-StrictMode -Version Latest
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location -Path $here
+Set-Location ..
+$env:PYTHONPATH = (Get-Location).Path
 
 Write-Host "OWLIN - Full Development Mode Launcher" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
