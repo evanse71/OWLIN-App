@@ -191,6 +191,7 @@ $env:UI_MODE = "PROXY_NEXT"
 $env:NEXT_BASE = "http://127.0.0.1:3000"
 $env:LLM_BASE = "http://127.0.0.1:11434"
 $env:OWLIN_PORT = "8001"
+$env:PYTHONPATH = $PWD
 
 Write-Host "Environment variables set:" -ForegroundColor Gray
 Write-Host "  UI_MODE = $env:UI_MODE" -ForegroundColor Gray
@@ -232,6 +233,10 @@ function Cleanup {
 
 # Set up cleanup on script termination
 $null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { Cleanup }
+
+# Open browser
+Write-Host "Opening browser to http://127.0.0.1:8001..." -ForegroundColor Blue
+Start-Process "http://127.0.0.1:8001"
 
 # Start the FastAPI backend (this will run in foreground)
 try {

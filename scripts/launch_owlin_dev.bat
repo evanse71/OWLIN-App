@@ -2,8 +2,8 @@
 REM OWLIN - Desktop Launcher for Windows
 REM Double-click this file to start the full Owlin development environment
 
-REM Always change to the project root directory
-cd /d C:\Users\tedev\Downloads\OWLIN-App-main
+REM Always run from repo root relative to this script
+pushd "%~dp0.."
 
 echo.
 echo ========================================
