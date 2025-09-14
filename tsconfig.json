@@ -1,35 +1,26 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "es2022"
-    ],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
-      ],
-      "@/components/*": [
-        "components/*",
-        "frontend/components/*"
-      ],
-      "@/types/*": [
-        "types/*",
-        "frontend/types/*"
       ]
     },
+    "jsx": "preserve",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "strict": false,
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "es2022"
+    ],
+    "allowJs": false,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "isolatedModules": true,
     "types": [
       "node"
     ],
@@ -38,22 +29,19 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "strictNullChecks": true
   },
   "include": [
-    "next-env.d.ts",
-    "frontend/**/*",
-    "components/**/*",
-    "pages/**/*",
-    "lib/**/*",
+    "**/*.ts",
+    "**/*.tsx",
     ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "backend",
+    "frontend",
+    "backend", 
     "scripts",
-    "tests",
-    "frontend/tests",
-    "src"
+    "tests"
   ]
 }

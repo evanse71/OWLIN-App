@@ -103,8 +103,7 @@ print("CWD:", os.getcwd())
 importlib.import_module("backend")
 print("backend import OK")
 '@
-    python - <<$code
-$code
+    python -c $code
     $importOk = $LASTEXITCODE -eq 0
 } catch {
     $importOk = $false

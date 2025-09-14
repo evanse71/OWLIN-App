@@ -68,6 +68,8 @@ if os.getenv("LOG_FILE"):
 
 FRONTEND_DIR = Path("out")
 LLM_BASE = os.getenv("LLM_BASE", "http://127.0.0.1:11434")
+NEXT_BASE = os.getenv("NEXT_BASE", "http://127.0.0.1:3000")
+UI_MODE = os.getenv("UI_MODE", "STATIC")
 PORT = int(os.getenv("OWLIN_PORT", os.getenv("PORT", "8001")))
 DB_URL = os.getenv("OWLIN_DB_URL", "sqlite:///./owlin.db")
 
@@ -307,7 +309,11 @@ def status():
         "ok": True,
         "api_mounted": getattr(app.state, "api_mounted", False),
         "api_error": getattr(app.state, "api_error", None),
-        "message": "Single-port Owlin running successfully"
+        "ui_mode": UI_MODE,
+        "port": PORT,
+        "llm_base": LLM_BASE,
+        "next_base": NEXT_BASE if UI_MODE == "PROXY_NEXT" else None,
+        "message": f"Single-port Owlin running successfully in {UI_MODE} mode"
     }
 
 app.include_router(status_router, prefix="/api")
@@ -336,6 +342,15 @@ async def startup():
         follow_redirects=True, 
         timeout=httpx.Timeout(connect=5, read=120, write=30, pool=5)
     )
+    
+    # Log startup configuration
+    logger.info(f"Owlin starting in {UI_MODE} mode")
+    logger.info(f"Port: {PORT}")
+    logger.info(f"LLM Base: {LLM_BASE}")
+    if UI_MODE == "PROXY_NEXT":
+        logger.info(f"Next.js Base: {NEXT_BASE}")
+    else:
+        logger.info(f"Frontend Dir: {FRONTEND_DIR}")
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -366,6 +381,53 @@ async def _proxy(request: Request, upstream_base: str) -> Response:
     return StreamingResponse(stream(), status_code=r.status_code, headers=filtered,
                              background=BackgroundTask(r.aclose))
 
+async def _proxy_nextjs(request: Request) -> Response:
+    """Proxy requests to Next.js dev server"""
+    # Build the upstream URL
+    upstream_url = f"{NEXT_BASE}{request.url.path}"
+    if request.url.query:
+        upstream_url += f"?{request.url.query}"
+    
+    # Prepare headers
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers["host"] = f"127.0.0.1:3000"  # Set correct host for Next.js
+    
+    # Get request body
+    body = await request.body()
+
+    try:
+        # Make the request to Next.js
+        r = await http_client.request(
+            request.method,
+            upstream_url,
+            headers=headers,
+            content=body,
+            params=request.query_params,
+        )
+
+        # Stream the response
+        async def stream():
+            async for chunk in r.aiter_bytes():
+                yield chunk
+
+        # Filter headers to avoid conflicts
+        filtered = {k: v for k, v in r.headers.items()
+                    if k.lower() not in ("transfer-encoding", "connection", "keep-alive", "content-encoding")}
+        
+        return StreamingResponse(
+            stream(), 
+            status_code=r.status_code, 
+            headers=filtered,
+            background=BackgroundTask(r.aclose)
+        )
+    except Exception as e:
+        logger.error(f"Next.js proxy error: {str(e)}")
+        return JSONResponse(
+            {"error": "Next.js proxy failed", "detail": str(e)}, 
+            status_code=502
+        )
+
 @app.api_route("/llm/{path:path}", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
 async def llm_proxy(path: str, request: Request):
     return await _proxy(request, LLM_BASE)
@@ -376,12 +438,18 @@ if FRONTEND_DIR.exists():
 INDEX_FILE = FRONTEND_DIR / "index.html"
 
 # Catch-all for UI (must be LAST to not interfere with API routes)
-@app.get("/{full_path:path}")
-async def spa(full_path: str):
+@app.api_route("/{full_path:path}", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
+async def catch_all(full_path: str, request: Request):
     # Don't intercept API or LLM routes
     if full_path.startswith("api/") or full_path.startswith("llm/"):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
     
+    # Handle PROXY_NEXT mode
+    if UI_MODE == "PROXY_NEXT":
+        logger.info(f"Proxying to Next.js: {request.method} {request.url.path}")
+        return await _proxy_nextjs(request)
+    
+    # Handle static mode (original behavior)
     if not INDEX_FILE.exists():
         return JSONResponse({
             "ok": True, 
@@ -393,8 +461,10 @@ async def spa(full_path: str):
                 "llm_proxy": "/llm/*"
             }
         }, status_code=200)
+    
     if full_path.startswith("_static/"):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
+    
     return FileResponse(str(INDEX_FILE), media_type="text/html")
 
 if __name__ == "__main__":
