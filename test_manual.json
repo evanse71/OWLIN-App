@@ -1,0 +1,15 @@
+{
+  "supplier": "Test Supplier",
+  "invoice_date": "2025-09-16",
+  "reference": "TEST-001",
+  "currency": "GBP",
+  "line_items": [
+    {
+      "description": "Test Item 1",
+      "quantity": 2,
+      "unit_price": 50.0,
+      "uom": "each",
+      "vat_rate": 20
+    }
+  ]
+}

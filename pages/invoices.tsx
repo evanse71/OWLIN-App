@@ -1,659 +1,186 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import { useToast } from '@/hooks/use-toast'
-import { 
-  getInvoices, 
-  getUnmatchedNotes, 
-  uploadDocument, 
-  getJob,
-  getInvoice,
-  pairNote, 
-  clearAllDocuments, 
-  saveDraftDocuments, 
-  submitDocuments,
-  getUnmatchedDNCount,
-  getOpenIssuesCount,
-  createInvoice,
-  createDeliveryNote
-} from '@/lib/api'
-import { reprocessInvoice } from '@/lib/api.real'
-import type { InvoiceSummary, DeliveryNote, LineItem } from '@/types'
-import { 
-  Trash2,
-  Save,
-  Send,
-  Plus
-} from 'lucide-react'
+import * as React from "react";
+import { useRouter } from "next/router";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Search, Plus, FileText, Package } from "lucide-react";
+import UploadGlass from "@/components/invoices/UploadGlass";
+import InvoiceCardEnhanced from "@/components/invoices/InvoiceCardEnhanced";
+import DeliveryNoteCard from "@/components/invoices/DeliveryNoteCard";
+import ManualInvoiceModal from "@/components/invoices/ManualInvoiceModal";
+import ManualDeliveryNoteModal from "@/components/invoices/ManualDeliveryNoteModal";
+import { getInvoices, getDNs, type Invoice, type DeliveryNote } from "@/lib/api";
 
-// Progress semantics
-const PROGRESS_STAGES = {
-  UPLOAD:    { min: 0,  max: 60, label: 'Uploading…' },
-  OCR_PARSE: { min: 60, max: 95, label: 'Processing…' },
-  COMPLETE:  { min: 95, max: 100, label: 'Complete' }
-};
+// Types imported from lib/api.ts
 
-const clampProgress = (n: number) => Math.max(0, Math.min(100, n ?? 0));
+export default function InvoicesPage() {
+  const router = useRouter();
+  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
+  const [deliveryNotes, setDeliveryNotes] = React.useState<DeliveryNote[]>([]);
+  const [searchTerm, setSearchTerm] = React.useState<string>("");
+  const [showManualInvoice, setShowManualInvoice] = React.useState(false);
+  const [showManualDN, setShowManualDN] = React.useState(false);
 
-// Import Lovable components
-import PageHeader from '@/components/layout/PageHeader'
-import UploadArea from '@/components/invoices/UploadArea'
-import InvoiceCard from '@/components/invoices/InvoiceCard'
-import UnmatchedDeliveryNotesSidebar from '@/components/invoices/UnmatchedDeliveryNotesSidebar'
-import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
-import CreateDeliveryNoteModal from '@/components/invoices/CreateDeliveryNoteModal'
-import ManualCreateOverlay from '@/components/manual/ManualCreateOverlay'
-
-interface Filters {
-  q?: string
-  venue?: string
-  supplier?: string
-  from?: string
-  to?: string
-  onlyUnmatched?: boolean
-  onlyFlagged?: boolean
-}
-
-export default function Invoices() {
-  const [invoices, setInvoices] = useState<InvoiceSummary[]>([])
-  const [deliveryNotes, setDeliveryNotes] = useState<DeliveryNote[]>([])
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceSummary | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [unmatchedCount, setUnmatchedCount] = useState(0)
-  const [issuesCount, setIssuesCount] = useState(0)
-  const [itemsById, setItemsById] = useState<Record<string, LineItem[]>>({})
-  const [filters, setFilters] = useState<Filters>({})
-  const [overlayOpen, setOverlayOpen] = useState(false)
-  const [overlayMode, setOverlayMode] = useState<"invoice"|"dn">("invoice")
-  const { toast } = useToast()
-
-  const loadData = useCallback(async () => {
+  const refresh = React.useCallback(async () => {
     try {
-      const [invoicesData, notesData, unmatchedCountData, issuesCountData] = await Promise.all([
+      const [invoicesData, dnsData] = await Promise.all([
         getInvoices(),
-        getUnmatchedNotes(),
-        getUnmatchedDNCount(),
-        getOpenIssuesCount()
-      ])
-      
-      setInvoices(invoicesData)
-      setDeliveryNotes(notesData)
-      setUnmatchedCount(unmatchedCountData)
-      setIssuesCount(issuesCountData)
-      
-      // Load items for each invoice and merge VAT fields
-      const itemsMap: Record<string, LineItem[]> = {}
-      for (const invoice of invoicesData) {
-        try {
-          const invoiceDetail = await getInvoice(invoice.id)
-          if (invoiceDetail && Array.isArray(invoiceDetail.line_items)) {
-            itemsMap[invoice.id] = invoiceDetail.line_items
-            
-            // Merge VAT fields from detail into list invoice, never overwrite non-null values
-            setInvoices(prev => prev.map(x =>
-              x.id === invoice.id
-                ? {
-                    ...x,
-                    ...invoiceDetail,
-                    subtotal_p: invoiceDetail.subtotal_p ?? x.subtotal_p ?? null,
-                    vat_total_p: invoiceDetail.vat_total_p ?? x.vat_total_p ?? null,
-                    total_p: invoiceDetail.total_p ?? x.total_p ?? null,
-                    status: 'scanned',
-                    processing_progress: null,
-                  }
-                : x
-            ))
-          } else {
-            // Handle case where line_items is undefined or not an array
-            itemsMap[invoice.id] = []
-            console.warn(`Invoice ${invoice.id} has no line_items or invalid format:`, invoiceDetail)
-          }
-        } catch (error) {
-          console.error(`Failed to load items for invoice ${invoice.id}:`, error)
-          itemsMap[invoice.id] = []
-        }
-      }
-      setItemsById(itemsMap)
+        getDNs()
+      ]);
+      setInvoices(invoicesData.items);
+      setDeliveryNotes(dnsData.items);
     } catch (error) {
-      console.error('Failed to load data:', error)
-      toast({
-        title: "Error",
-        description: "Failed to load invoices and delivery notes.",
-        variant: "destructive",
-      })
+      console.error('Failed to refresh data:', error);
     }
-  }, [toast])
+  }, []);
 
-  useEffect(() => {
-    loadData()
-  }, [loadData])
+  React.useEffect(() => { refresh(); }, [refresh]);
 
-  // Apply filters to invoices
-  const applyFilters = (invoices: InvoiceSummary[], filters: Filters): InvoiceSummary[] => {
-    return invoices.filter(invoice => {
-      // Search query
-      if (filters.q) {
-        const query = filters.q.toLowerCase()
-        const matchesNumber = invoice.invoice_number?.toLowerCase().includes(query)
-        const matchesSupplier = invoice.supplier_name?.toLowerCase().includes(query)
-        if (!matchesNumber && !matchesSupplier) return false
-      }
+  React.useEffect(() => {
+    const supplier = String(router.query.supplier || "");
+    if (supplier) setSearchTerm(supplier);
+  }, [router.query.supplier]);
 
-      // Venue filter
-      if (filters.venue && invoice.venue !== filters.venue) return false
+  // Polling for queued invoices
+  React.useEffect(() => {
+    const hasQueued = invoices.some(inv => inv.status === 'queued');
+    if (!hasQueued) return;
 
-      // Supplier filter
-      if (filters.supplier && invoice.supplier_name !== filters.supplier) return false
+    const interval = setInterval(refresh, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [invoices, refresh]);
 
-      // Date range
-      if (filters.from && invoice.invoice_date) {
-        const fromDate = new Date(filters.from)
-        const invoiceDate = new Date(invoice.invoice_date)
-        if (invoiceDate < fromDate) return false
-      }
+  const handleUploaded = React.useCallback((res: {invoice_id?: string, dn_id?: string}) => {
+    // Optimistic update - refresh after a short delay to allow backend processing
+    setTimeout(refresh, 1000);
+  }, [refresh]);
 
-      if (filters.to && invoice.invoice_date) {
-        const toDate = new Date(filters.to)
-        const invoiceDate = new Date(invoice.invoice_date)
-        if (invoiceDate > toDate) return false
-      }
-
-      // Only unmatched
-      if (filters.onlyUnmatched && invoice.paired) return false
-
-      // Only flagged
-      if (filters.onlyFlagged && invoice.issues_count === 0) return false
-
-      return true
-    })
-  }
-
-  const visibleInvoices = applyFilters(invoices, filters)
-
-  const handleFilterChange = (newFilters: Filters) => {
-    setFilters(newFilters)
-  }
-
-  const handleFiles = async (files: File[]) => {
-    setIsUploading(true)
+  const filteredInvoices = React.useMemo(() => {
+    const s = (searchTerm || "").toLowerCase().trim();
+    if (!s) return invoices;
     
-    for (const file of files) {
-      try {
-        // Upload file and get job ID
-        const result = await uploadDocument(file)
-        
-        // Create optimistic invoice
-        const optimisticInvoice: InvoiceSummary = {
-          id: `tmp_${result.job_id}`,
-          status: 'processing',
-          processing_progress: 10,
-          invoice_number: null,
-          supplier_name: 'Processing document...', // Better placeholder text
-          invoice_date: null,
-          total_amount: 0,
-          confidence: 0,
-          paired: 0,
-          issues_count: 0,
-          venue: ''
-        }
-        
-        // Add to state
-        setInvoices(prev => [optimisticInvoice, ...prev])
-        
-        // Start polling
-        const pollJob = async (startTime = Date.now()) => {
-          try {
-            const job = await getJob(result.job_id)
-            
-            // Update progress
-            setInvoices(prev => prev.map(inv => 
-              inv.id === `tmp_${result.job_id}` 
-                ? { ...inv, processing_progress: job.progress }
-                : inv
-            ))
-            
-            if (job.status === 'done') {
-              // Get the real invoice
-              const invoiceId = JSON.parse(job.result_json).invoice_id
-              const fullInvoice = await getInvoice(invoiceId)
-              
-              if (fullInvoice) {
-                // Replace optimistic with real invoice - handle both 'scanned' and 'parsed' status
-                setInvoices(prev => prev.map(inv => 
-                  inv.id === `tmp_${result.job_id}` 
-                    ? {
-                        id: fullInvoice.id,
-                        status: fullInvoice.status || 'parsed', // Use actual status from backend
-                        processing_progress: null, // Clear processing progress
-                        invoice_number: fullInvoice.invoice_number,
-                        supplier_name: fullInvoice.supplier_name,
-                        invoice_date: fullInvoice.invoice_date,
-                        total_amount: fullInvoice.total_amount,
-                        confidence: fullInvoice.confidence,
-                        paired: fullInvoice.paired,
-                        issues_count: fullInvoice.issues_count,
-                        venue: fullInvoice.venue
-                      }
-                    : inv
-                ))
-                
-                // Store line items
-                setItemsById(prev => ({
-                  ...prev,
-                  [fullInvoice.id]: fullInvoice.line_items || []
-                }))
-                
-                toast({
-                  title: "Upload successful",
-                  description: "Document processed successfully.",
-                })
-              }
-              return
-            } else if (job.status === 'failed') {
-              throw new Error(job.error || 'Processing failed')
-            }
-            
-            // Check timeout (30 seconds)
-            if (Date.now() - startTime > 30000) {
-              throw new Error('Processing timeout - job took too long')
-            }
-            
-            // Continue polling
-            setTimeout(() => pollJob(startTime), 1000)
-          } catch (error) {
-            // Remove optimistic invoice on error
-            setInvoices(prev => prev.filter(inv => inv.id !== `tmp_${result.job_id}`))
-            throw error
-          }
-        }
-        
-        setTimeout(pollJob, 1000)
-        
-      } catch (error) {
-        console.error('Upload failed:', error)
-        toast({
-          title: "Upload failed",
-          description: `Failed to process ${file.name}.`,
-          variant: "destructive",
-        })
-      }
-    }
-    
-    setIsUploading(false)
-  }
-
-  const handleInvoiceChange = (invoiceId: string, patch: Partial<InvoiceSummary> & { line_items?: LineItem[] }) => {
-    // Update invoice in state
-    setInvoices(prev => prev.map(inv => 
-      inv.id === invoiceId 
-        ? { ...inv, ...patch }
-        : inv
-    ))
-    
-    // Update line items if provided
-    if (patch.line_items) {
-      setItemsById(prev => ({
-        ...prev,
-        [invoiceId]: patch.line_items!
-      }))
-    }
-  }
-
-  const handleInvoiceSelect = (invoice: InvoiceSummary) => {
-    setSelectedInvoice(invoice)
-  }
-
-  const handleRetry = async (invoiceId: string) => {
-    try {
-      const { job_id } = await reprocessInvoice(invoiceId);
-
-      // Replace card with an optimistic processing state tied to the new job
-      setInvoices(prev => prev.map(inv =>
-        inv.id === invoiceId
-          ? { ...inv, status: 'processing', processing_progress: 10, error_message: undefined, show_retry: false }
-          : inv
-      ));
-
-      // Simple polling for the retry job
-      const pollRetryJob = async (startTime = Date.now()) => {
-        try {
-          const job = await getJob(job_id)
-          
-          // Update progress
-          setInvoices(prev => prev.map(inv => 
-            inv.id === invoiceId 
-              ? { ...inv, processing_progress: job.progress }
-              : inv
-          ))
-          
-          if (job.status === 'done') {
-            // Get the real invoice
-            const invoiceId = JSON.parse(job.result_json).invoice_id
-            const fullInvoice = await getInvoice(invoiceId)
-            
-            if (fullInvoice) {
-              // Replace with real invoice
-              setInvoices(prev => prev.map(inv => 
-                inv.id === invoiceId 
-                  ? {
-                      ...fullInvoice,
-                      status: fullInvoice.status || 'parsed',
-                      processing_progress: null,
-                      error_message: undefined,
-                      show_retry: false
-                    }
-                  : inv
-              ))
-              
-              // Store line items
-              setItemsById(prev => ({
-                ...prev,
-                [fullInvoice.id]: fullInvoice.line_items || []
-              }))
-              
-              toast({
-                title: "Retry successful",
-                description: "Document reprocessed successfully.",
-              })
-            }
-            return
-          } else if (job.status === 'failed' || job.status === 'timeout') {
-            // Update invoice with error state
-            setInvoices(prev => prev.map(inv => 
-              inv.id === invoiceId 
-                ? { 
-                    ...inv, 
-                    status: job.status, 
-                    error_message: job.error || 'Processing failed',
-                    show_retry: true 
-                  }
-                : inv
-            ))
-            return
-          }
-          
-          // Check timeout (30 seconds)
-          if (Date.now() - startTime > 30000) {
-            setInvoices(prev => prev.map(inv => 
-              inv.id === invoiceId 
-                ? { 
-                    ...inv, 
-                    status: 'timeout', 
-                    error_message: 'Processing timeout - job took too long',
-                    show_retry: true 
-                  }
-                : inv
-            ))
-            return
-          }
-          
-          // Continue polling
-          setTimeout(() => pollRetryJob(startTime), 1000)
-        } catch (error) {
-          // Update invoice with error state
-          setInvoices(prev => prev.map(inv => 
-            inv.id === invoiceId 
-              ? { 
-                  ...inv, 
-                  status: 'failed', 
-                  error_message: 'Retry failed',
-                  show_retry: true 
-                }
-              : inv
-          ))
-        }
-      }
-      
-      // Start polling
-      setTimeout(() => pollRetryJob(), 1000);
-
-      toast({ title: "Retry started", description: "Reprocessing the document…" });
-    } catch (e: any) {
-      toast({ title: "Retry failed", description: e.message || "Could not restart processing", variant: "destructive" });
-    }
-  }
-
-  const handleCreateInvoice = (invoice: any) => {
-    // Add new invoice to the top of the list
-    setInvoices(prev => [invoice, ...prev])
-    toast({
-      title: "Invoice created",
-      description: "New invoice has been created successfully.",
-    })
-  }
-
-  const handleCreateDeliveryNote = (deliveryNote: any) => {
-    // Add new delivery note to the list
-    setDeliveryNotes(prev => [deliveryNote, ...prev])
-    toast({
-      title: "Delivery note created",
-      description: "New delivery note has been created successfully.",
-    })
-  }
-
-  // Overlay handlers
-  const openInvoiceCreate = () => { setOverlayMode("invoice"); setOverlayOpen(true); }
-  const openDNCreate = () => { setOverlayMode("dn"); setOverlayOpen(true); }
-  const closeOverlay = () => setOverlayOpen(false)
-  const onSaved = (_id: string) => { loadData(); } // Refresh the list
-
-  const handlePair = async (noteId: string) => {
-    if (!selectedInvoice) return
-    
-    try {
-      const success = await pairNote(selectedInvoice.id, noteId)
-      if (success) {
-        await loadData() // Refresh data
-        toast({
-          title: "Paired successfully",
-          description: "Delivery note paired with invoice.",
-        })
-      } else {
-        throw new Error('Pairing failed')
-      }
-    } catch (error) {
-      console.error('Pairing failed:', error)
-      toast({
-        title: "Pairing failed",
-        description: "Failed to pair delivery note with invoice.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleClearAll = async () => {
-    try {
-      // Clear non-submitted invoices from state
-      setInvoices(prev => prev.filter(inv => inv.status === 'submitted'))
-      setItemsById(prev => {
-        const newItemsById: Record<string, LineItem[]> = {}
-        invoices.forEach(inv => {
-          if (inv.status === 'submitted') {
-            newItemsById[inv.id] = prev[inv.id] || []
-          }
-        })
-        return newItemsById
-      })
-      toast({
-        title: "Cleared all documents",
-        description: "Non-submitted documents have been cleared.",
-      })
-    } catch (error) {
-      console.error('Clear failed:', error)
-      toast({
-        title: "Clear failed",
-        description: "Failed to clear documents.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleSaveDraft = async () => {
-    try {
-      // Save current state to localStorage
-      const draftData = {
-        invoices,
-        itemsById,
-        deliveryNotes,
-        timestamp: new Date().toISOString()
-      }
-      localStorage.setItem('owlin:draft', JSON.stringify(draftData))
-      toast({
-        title: "Draft saved",
-        description: "Your work has been saved as a draft.",
-      })
-    } catch (error) {
-      console.error('Save failed:', error)
-      toast({
-        title: "Save failed",
-        description: "Failed to save draft.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleSubmitToOwlin = async () => {
-    setIsSubmitting(true)
-    try {
-      const result = await submitDocuments()
-      if (result.success) {
-        await loadData() // Refresh data
-        toast({
-          title: "Submitted to Owlin",
-          description: "Documents have been submitted successfully.",
-        })
-      } else {
-        throw new Error(result.errors?.join(', ') || 'Submission failed')
-      }
-    } catch (error) {
-      console.error('Submission failed:', error)
-      toast({
-        title: "Submission failed",
-        description: "Failed to submit documents to Owlin.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
+    return invoices.filter(inv =>
+      [inv.supplier, inv.id, inv.document_id, inv.filename].filter(Boolean)
+        .map(x => String(x).toLowerCase())
+        .some(txt => txt.includes(s))
+    );
+  }, [invoices, searchTerm]);
 
   return (
-    <div id="__owlin-main" className="min-h-screen bg-[var(--ow-bg)]">
-      {/* Sticky filters header */}
-      <PageHeader 
-        onFilterChange={handleFilterChange}
-        issuesCount={issuesCount}
-        unmatchedCount={unmatchedCount}
-      />
+    <div className="space-y-6">
+      {/* Header with dual glass upload */}
+      <Card className="rounded-2xl">
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="text-lg font-semibold">Upload Documents</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 sm:p-6 pt-0">
+          <UploadGlass onUploaded={handleUploaded} />
+        </CardContent>
+      </Card>
 
-      {/* Main content with proper grid layout */}
-      <div className="max-w-[1280px] mx-auto px-6 pt-4 pb-24">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr),360px] gap-6">
-          <section className="min-w-0">
-            <UploadArea onFiles={handleFiles} isUploading={isUploading} />
-            
-            {/* Invoices List */}
-            <div className="space-y-4 mt-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-[var(--ow-ink)]">
-                  Recent Invoices {filters.q && `(${visibleInvoices.length} results)`}
-                </h2>
-                <div className="flex gap-2">
-                  <CreateInvoiceModal onCreated={handleCreateInvoice}>
-                    <Button size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Invoice
-                    </Button>
-                  </CreateInvoiceModal>
-                  <Button size="sm" onClick={openInvoiceCreate} variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Manual Invoice
+      {/* Search and controls */}
+      <Card className="rounded-2xl">
+        <CardContent className="p-4 sm:p-6">
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search invoices..."
+                className="w-full h-10 pl-10 pr-4 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <Button variant="outline" onClick={refresh}>
+              Refresh
+            </Button>
+            <Button variant="outline" onClick={() => setShowManualInvoice(true)}>
+              <FileText className="w-4 h-4 mr-2" />
+              Manual Invoice
+            </Button>
+            <Button variant="outline" onClick={() => setShowManualDN(true)}>
+              <Package className="w-4 h-4 mr-2" />
+              Manual DN
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Delivery Notes Section */}
+      {deliveryNotes.length > 0 && (
+        <Card className="rounded-2xl">
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="text-lg font-semibold">
+              Delivery Notes ({deliveryNotes.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-6 pt-0">
+            <div className="space-y-3">
+              {deliveryNotes.slice(0, 3).map(dn => (
+                <DeliveryNoteCard key={dn.id} dn={dn} />
+              ))}
+              {deliveryNotes.length > 3 && (
+                <div className="text-center pt-2">
+                  <Button variant="ghost" size="sm">
+                    View all {deliveryNotes.length} delivery notes
                   </Button>
-                  <Button size="sm" onClick={openDNCreate} variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Manual Delivery Note
-                  </Button>
-                </div>
-              </div>
-              {visibleInvoices.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-[var(--ow-ink-dim)]">
-                    {invoices.length === 0 
-                      ? "No invoices found. Upload a document to get started."
-                      : "No invoices match your filters."
-                    }
-                  </p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {visibleInvoices.map((invoice) => (
-                    <InvoiceCard
-                      key={invoice.id}
-                      invoice={invoice}
-                      items={itemsById[invoice.id]}
-                      isSelected={selectedInvoice?.id === invoice.id}
-                      onClick={() => handleInvoiceSelect(invoice)}
-                      onChange={(patch) => handleInvoiceChange(invoice.id, patch)}
-                      onRetry={() => handleRetry(invoice.id)}
-                    />
-                  ))}
                 </div>
               )}
             </div>
-          </section>
+          </CardContent>
+        </Card>
+      )}
 
-          <aside className="lg:sticky lg:top-[64px] lg:self-start order-first lg:order-last" data-testid="dn-panel">
-            {/* Debug info */}
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-              <strong>Debug Info:</strong><br/>
-              Delivery Notes: {deliveryNotes.length}<br/>
-              Selected Invoice: {selectedInvoice?.id || 'none'}<br/>
-              Issues Count: {issuesCount}<br/>
-              Unmatched Count: {unmatchedCount}
-            </div>
-            <UnmatchedDeliveryNotesSidebar
-              deliveryNotes={deliveryNotes}
-              selectedInvoice={selectedInvoice}
-              onPair={handlePair}
-              onCreateDeliveryNote={handleCreateDeliveryNote}
-            />
-          </aside>
-        </div>
+      {/* Invoices List */}
+      <div className="space-y-4">
+        {filteredInvoices.map(invoice => (
+          <InvoiceCardEnhanced 
+            key={invoice.id} 
+            inv={invoice} 
+            onChanged={refresh}
+          />
+        ))}
+        
+        {filteredInvoices.length === 0 && (
+          <Card className="rounded-2xl">
+            <CardContent className="py-12 text-center">
+              <div className="text-gray-500">
+                {searchTerm ? (
+                  <div>
+                    <Search className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>No invoices match your search criteria.</p>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setSearchTerm('');
+                        router.push('/invoices');
+                      }} 
+                      className="mt-2"
+                    >
+                      Clear filters
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <p>No invoices yet. Upload a PDF or create a manual invoice to get started.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {/* Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[var(--ow-card)] border-t border-[var(--ow-border)] p-4 z-10">
-        <div className="max-w-[1280px] mx-auto flex items-center justify-between">
-          <div className="text-sm text-[var(--ow-ink-dim)]">
-            {invoices.length} invoices • {deliveryNotes.length} delivery notes ready
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={handleClearAll}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear All
-            </Button>
-            <Button variant="ghost" onClick={handleSaveDraft}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Draft
-            </Button>
-            <Button 
-              onClick={handleSubmitToOwlin}
-              disabled={isSubmitting}
-            >
-              <Send className="h-4 w-4 mr-2" />
-              {isSubmitting ? 'Submitting...' : 'Submit to Owlin'}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Full-screen blocking overlay */}
-      <ManualCreateOverlay
-        open={overlayOpen}
-        mode={overlayMode}
-        onClose={closeOverlay}
-        onSaved={onSaved}
+      {/* Manual Modals */}
+      <ManualInvoiceModal
+        isOpen={showManualInvoice}
+        onClose={() => setShowManualInvoice(false)}
+        onCreated={refresh}
+      />
+      <ManualDeliveryNoteModal
+        isOpen={showManualDN}
+        onClose={() => setShowManualDN(false)}
+        onCreated={refresh}
       />
     </div>
-  )
-} 
+  );
+}

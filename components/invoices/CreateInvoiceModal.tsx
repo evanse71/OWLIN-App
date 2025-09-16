@@ -25,7 +25,7 @@ export default function CreateInvoiceModal({ onCreated, children }: CreateInvoic
     e.preventDefault()
     
     try {
-      const response = await fetch('http://localhost:8001/invoices', {
+      const response = await fetch('/api/invoices', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

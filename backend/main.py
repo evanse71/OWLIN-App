@@ -1,115 +1,125 @@
+from fastapi import FastAPI, APIRouter
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from starlette.requests import Request
+from pathlib import Path
+import importlib, pkgutil, inspect
 import sys
 import os
-from pathlib import Path
 
-# Add the current directory to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Import the new routers
+try:
+    from backend.routers import health as health_router
+    from backend.routers import invoices as invoices_router
+    from backend.routers import uploads as uploads_router
+    from backend.routers import pairing as pairing_router
+except ImportError:
+    from routers import health as health_router
+    from routers import invoices as invoices_router
+    from routers import uploads as uploads_router
+    from routers import pairing as pairing_router
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from routes import invoices, flagged_issues, suppliers, analytics, ocr, products
-from routes import document_queue, upload_review, confirm_splits, upload_fixed
-from routes import dev, agent, test_ocr, upload_enhanced, matching, upload_validation
-import logging
+# Add the project root to Python path
+ROOT = str(Path(__file__).resolve().parents[1])
+if ROOT not in sys.path: 
+    sys.path.insert(0, ROOT)
+print(f"[startup] PYTHONPATH -> {ROOT}")
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- logging + exception handler (DEV ONLY) ---
+import logging, traceback
+from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Owlin API", version="1.0.0")
-
-# Configure CORS for development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
+logger = logging.getLogger("owlin")
 
-# Create data directories
-data_dir = Path("data")
-data_dir.mkdir(exist_ok=True)
-previews_dir = data_dir / "previews"
-previews_dir.mkdir(exist_ok=True)
+# ROOT already defined above
 
-# Mount static files for preview images
-app.mount("/previews", StaticFiles(directory="data/previews"), name="previews")
+def _resolve_frontend_out() -> Path:
+    for p in (Path(ROOT) / "frontend" / "out", Path(ROOT) / "out"):
+        if (p / "index.html").exists():
+            return p
+    raise RuntimeError("Exported frontend missing (frontend/out or ./out)")
+FRONTEND_OUT = _resolve_frontend_out()
+print(f"[startup] FRONTEND_OUT -> {FRONTEND_OUT}")
 
-# Include essential route modules only
-app.include_router(upload_fixed.router, prefix="/api")
-app.include_router(upload_review.router, prefix="/api")
-app.include_router(confirm_splits.router, prefix="/api")
-app.include_router(invoices.router, prefix="/api")
-app.include_router(flagged_issues.router, prefix="/api")
-app.include_router(suppliers.router, prefix="/api")
-app.include_router(analytics.router, prefix="/api")
-app.include_router(ocr.router, prefix="/api")
-app.include_router(products.router, prefix="/api/products")
-app.include_router(document_queue.router, prefix="/api")
-app.include_router(agent.router, prefix="/api")
-app.include_router(test_ocr.router)
+def _include_all_api_routers(app: FastAPI):
+    blacklist = {
+        "backend.routes.upload_fixed",
+        "backend.routes.upload_bulletproof",
+        "backend.routes.upload_legacy",
+    }
+    for pkg_name in ("backend.api", "backend.routes"):
+        try:
+            pkg = importlib.import_module(pkg_name)
+        except Exception as e:
+            print(f"[router-scan] skip {pkg_name}: {e}")
+            continue
+        for _, modname, _ in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
+            if modname in blacklist:
+                print(f"[router-scan] BLACKLISTED {modname}")
+                continue
+            try:
+                mod = importlib.import_module(modname)
+            except Exception as e:
+                print(f"[router-scan] import fail {modname}: {e}")
+                continue
+            mounted = False
+            for name, obj in vars(mod).items():
+                if isinstance(obj, APIRouter):
+                    app.include_router(obj, prefix="/api")
+                    print(f"[router-scan] mounted {modname}.{name}")
+                    mounted = True
+            get_router = getattr(mod, "get_router", None)
+            if callable(get_router):
+                r = get_router()
+                if isinstance(r, APIRouter):
+                    app.include_router(r, prefix="/api")
+                    print(f"[router-scan] mounted via get_router {modname}")
+                    mounted = True
+            if not mounted:
+                pass
 
-# ✅ Include health check routes
-try:
-    from backend.routes import health
-    app.include_router(health.router, tags=["health"])
-    print("✅ Health check routes loaded")
-except ImportError as e:
-    print(f"⚠️ Health check routes not available: {e}")
+app = FastAPI(title="Owlin Unified Single Port")
 
-# ✅ Include invoices API routes
-try:
-    from routes import invoices_api
-    app.include_router(invoices_api.invoices_api_bp, prefix="/api")
-    print("✅ Invoices API routes loaded")
-except ImportError as e:
-    print(f"⚠️ Invoices API routes not available: {e}")
+# Include the new routers
+app.include_router(health_router.router)
+app.include_router(invoices_router.router)
+app.include_router(uploads_router.router)
+app.include_router(uploads_router.legacy)  # Legacy upload endpoint
+app.include_router(pairing_router.router)
 
-# ✅ Include pairing API routes
-try:
-    from routes import pairing_api
-    app.include_router(pairing_api.pairing_api_bp, prefix="/api")
-    print("✅ Pairing API routes loaded")
-except ImportError as e:
-    print(f"⚠️ Pairing API routes not available: {e}")
+@app.exception_handler(Exception)
+async def global_exc_handler(request, exc):
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "trace": traceback.format_exc().splitlines()[-10:]  # last 10 lines
+        }
+    )
 
-# ✅ OCR Harness routes
-try:
-    from backend.routes import ocr_harness
-    app.include_router(ocr_harness.router, prefix="/api", tags=["ocr-harness"])
-    print("✅ OCR Harness routes loaded")
-except ImportError as e:
-    print(f"⚠️ OCR Harness routes not available: {e}")
+_include_all_api_routers(app)  # your scanner, keeps prefix="/api"
 
-# ✅ Include enhanced upload routes
-app.include_router(upload_enhanced.router, prefix="/api", tags=["enhanced-upload"])
+# ✅ MINIMAL SPA (never touches /api)
+@app.middleware("http")
+async def spa_fallback(request: Request, call_next):
+    resp = await call_next(request)
+    if resp.status_code == 404 and request.method == "GET" and not request.url.path.startswith("/api"):
+        return HTMLResponse((FRONTEND_OUT/'index.html').read_text(encoding='utf-8'), status_code=200)
+    return resp
 
-# ✅ Include matching routes
-app.include_router(matching.router, prefix="/api", tags=["matching"])
+# ✅ STATIC ON (after API routes)
+app.mount("/", StaticFiles(directory=str(FRONTEND_OUT), html=True), name="static")
 
-# ✅ Include upload validation routes
-app.include_router(upload_validation.router, prefix="/api", tags=["upload-validation"])
-
-# ✅ Include dev routes for testing
-app.include_router(dev.router, prefix="/api/dev", tags=["development"])
-
-@app.get("/")
-async def root():
-    return {"message": "Owlin API is running"}
-
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
-
-@app.get("/api/health")
-def api_health_check():
-    return {"status": "ok"}
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return (FRONTEND_OUT / "index.html").read_text(encoding="utf-8")
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting Owlin Backend Server...")
-    print("📍 Server will be available at: http://localhost:8000")
-    print("✅ Health check: http://localhost:8000/health")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8081)

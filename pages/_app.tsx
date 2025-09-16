@@ -10,7 +10,7 @@ function DevReset() {
     if (process.env.NODE_ENV === 'development') {
       const resetOnLoad = async () => {
         try {
-          const response = await fetch('http://localhost:8001/dev/reset', {
+          const response = await fetch('/api/dev/reset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
           })
@@ -30,11 +30,18 @@ function DevReset() {
   return null
 }
 
-export default function App({ Component, pageProps }: AppProps) {
+export default function OwlinApp({ Component, pageProps, router }: AppProps) {
+  // Title by route (simple)
+  const title =
+    router.pathname === "/invoices" ? "Invoices" :
+    router.pathname === "/suppliers" ? "Suppliers" :
+    router.pathname === "/settings" ? "Settings" :
+    "Dashboard";
+  
   return (
     <>
       <DevReset />
-      <AppShell>
+      <AppShell title={title}>
         <Component {...pageProps} />
       </AppShell>
       <Toaster />

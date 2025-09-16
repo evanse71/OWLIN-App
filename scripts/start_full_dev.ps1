@@ -73,14 +73,14 @@ function Stop-ProcessOnPort {
     try {
         $processes = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
         if ($processes) {
-            $processes | ForEach-Object {
-                $pid = $_.OwningProcess
-                $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
-                if ($process) {
-                    Write-Host "Killing process $($process.ProcessName) (PID: $pid) on port $Port" -ForegroundColor Yellow
-                    Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-                }
+        $processes | ForEach-Object {
+            $processId = $_.OwningProcess
+            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+            if ($process) {
+                Write-Host "Killing process $($process.ProcessName) (PID: $processId) on port $Port" -ForegroundColor Yellow
+                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
             }
+        }
         }
     }
     catch {
@@ -99,7 +99,7 @@ function Wait-ForService {
     Write-Host "Waiting for service at $Url..." -ForegroundColor Yellow
     for ($i = 1; $i -le $MaxRetries; $i++) {
         try {
-            $response = Invoke-WebRequest -Uri $Url -TimeoutSec 5 -ErrorAction Stop
+            Invoke-WebRequest -Uri $Url -TimeoutSec 5 -ErrorAction Stop | Out-Null
             Write-Host "Service is responsive after $i attempts" -ForegroundColor Green
             return $true
         }
@@ -145,55 +145,25 @@ if ($Force -or (Test-Port 8001)) {
 
 Write-Host "Cleanup completed" -ForegroundColor Green
 
-# Step 3: Start Next.js dev server in background
+# Step 3: Start Next.js dev server
 Write-Host "Step 3: Starting Next.js dev server..." -ForegroundColor Blue
 
-# Check if npm is available
-try {
-    $npmVersion = npm --version 2>$null
-    if ($npmVersion) {
-        Write-Host "Using npm version: $npmVersion" -ForegroundColor Gray
-    } else {
-        throw "npm not found"
-    }
-}
-catch {
-    Write-Host "ERROR: npm not found. Please install Node.js and npm." -ForegroundColor Red
-    Write-Host ""
-    Write-Host "To install Node.js:" -ForegroundColor Yellow
-    Write-Host "1. Download from https://nodejs.org/" -ForegroundColor Yellow
-    Write-Host "2. Or use winget: winget install OpenJS.NodeJS" -ForegroundColor Yellow
-    Write-Host "3. Or use chocolatey: choco install nodejs" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "After installation, restart PowerShell and try again." -ForegroundColor Yellow
+if (Test-Path "package.json") {
+    Write-Host "Starting Next.js dev server..." -ForegroundColor Yellow
+    # Use npm.cmd shim directly to bypass policy restrictions
+    Start-Process -NoNewWindow -FilePath "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory $PSScriptRoot\.. 
+    Start-Sleep -Seconds 5
+} else {
+    Write-Host "ERROR: package.json not found, cannot start Next.js" -ForegroundColor Red
     exit 1
 }
-
-# Start Next.js in background job
-Write-Host "Starting Next.js dev server in background..." -ForegroundColor Yellow
-$nextjsJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD
-    npm run dev
-}
-
-# Give Next.js a moment to start
-Start-Sleep -Seconds 3
 
 # Step 4: Wait for Next.js to be responsive
 Write-Host "Step 4: Waiting for Next.js to be ready..." -ForegroundColor Blue
 
 if (-not (Wait-ForService -Url "http://127.0.0.1:3000" -MaxRetries $MaxRetries -RetryDelay $RetryDelay)) {
     Write-Host "ERROR: Next.js failed to start or become responsive" -ForegroundColor Red
-    Write-Host "Checking Next.js job status..." -ForegroundColor Yellow
-    
-    $jobState = Get-Job -Id $nextjsJob.Id
-    if ($jobState.State -eq "Failed") {
-        Write-Host "Next.js job failed. Error details:" -ForegroundColor Red
-        Receive-Job -Id $nextjsJob.Id
-    }
-    
-    Stop-Job -Id $nextjsJob.Id
-    Remove-Job -Id $nextjsJob.Id
+    Write-Host "Please check if Next.js is running and accessible at http://127.0.0.1:3000" -ForegroundColor Yellow
     exit 1
 }
 
@@ -253,13 +223,6 @@ Write-Host ""
 function Cleanup {
     Write-Host ""
     Write-Host "Shutting down services..." -ForegroundColor Yellow
-    
-    # Stop Next.js job
-    if ($nextjsJob) {
-        Write-Host "Stopping Next.js dev server..." -ForegroundColor Yellow
-        Stop-Job -Id $nextjsJob.Id -ErrorAction SilentlyContinue
-        Remove-Job -Id $nextjsJob.Id -ErrorAction SilentlyContinue
-    }
     
     # Stop any remaining processes on our ports
     Stop-ProcessOnPort 3000

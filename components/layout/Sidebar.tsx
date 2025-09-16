@@ -98,6 +98,13 @@ export function Sidebar({
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-2">
         <SidebarItem
+          href="/"
+          icon={BarChart3}
+          label="Dashboard"
+          isExpanded={isExpanded}
+          testId="sidebar-dashboard"
+        />
+        <SidebarItem
           href="/invoices"
           icon={FileText}
           label="Invoices"
@@ -105,11 +112,11 @@ export function Sidebar({
           testId="sidebar-invoices"
         />
         <SidebarItem
-          href="/reports"
-          icon={BarChart3}
-          label="Reports"
+          href="/suppliers"
+          icon={Download}
+          label="Suppliers"
           isExpanded={isExpanded}
-          testId="sidebar-reports"
+          testId="sidebar-suppliers"
         />
         <SidebarItem
           href="/settings"

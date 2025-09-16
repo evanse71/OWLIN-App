@@ -6,7 +6,7 @@ from uuid import UUID
 from typing import List
 
 from contracts import SupportPackInfo
-from services.permissions import require_permission
+from services import permissions
 from services import support_pack as support_pack_service
 
 router = APIRouter(prefix="/support-packs", tags=["support-packs"])

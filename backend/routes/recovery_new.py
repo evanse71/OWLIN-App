@@ -13,7 +13,7 @@ from services.recovery_service import (
 # Import existing auth and permissions
 try:
     from services.auth import get_current_user
-    from services.permissions import require_permission
+    from services import permissions
     AUTH_AVAILABLE = True
 except ImportError:
     AUTH_AVAILABLE = False

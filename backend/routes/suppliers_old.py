@@ -11,7 +11,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from schemas.supplier import SupplierScorecard
 from services.supplier_service import get_supplier_scorecard
-from services.permissions import require_permission
+from services import permissions
 
 try:
 	from contracts import SupplierScorecard as SupplierScorecardV2

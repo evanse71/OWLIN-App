@@ -200,7 +200,7 @@ export default function InvoiceCard({
       }
       
       // Call PATCH /invoices/:id
-      const response = await fetch(`http://localhost:8001/invoices/${invoice.id}`, {
+      const response = await fetch(`/api/invoices/${invoice.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

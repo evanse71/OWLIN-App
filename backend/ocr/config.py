@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+
+# OCR Backend Safety - Optional Dependencies
+try:
+    import paddleocr as _paddle  # optional
+    PADDLE_OK = True
+except Exception:
+    PADDLE_OK = False
+
+try:
+    import pytesseract as _tess   # optional
+    TESSERACT_OK = True
+except Exception:
+    TESSERACT_OK = False
+
+OCR_BACKENDS = {"paddle": PADDLE_OK, "tesseract": TESSERACT_OK}
+DEFAULT_OCR = "paddle" if PADDLE_OK else ("tesseract" if TESSERACT_OK else None)
 """
 OCR Configuration Management
 

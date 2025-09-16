@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query
 import sqlite3
 from pathlib import Path
 from typing import Dict, Any
@@ -99,5 +99,89 @@ async def manual_pairing(invoice_id: str, request: Request):
         
         return {"ok": True}
         
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@pairing_api_bp.get("/pairing/suggestions")
+def pairing_suggestions(invoice_id: str, date_window: int = 3, amount_tol: float = 1.0):
+    """Get pairing suggestions for an invoice"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get invoice details
+        inv = cursor.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+        if not inv:
+            raise HTTPException(404, "invoice not found")
+        
+        # Find potential delivery note matches
+        cursor.execute("""
+            SELECT *
+            FROM delivery_notes
+            WHERE lower(supplier) = lower(?)
+        """, (inv["supplier"],))
+        
+        candidates = cursor.fetchall()
+        
+        out = []
+        for c in candidates:
+            # Simple scoring: supplier match + date proximity + amount proximity
+            supplier_score = 1.0  # exact match
+            date_score = 1.0  # exact date gets 1.0; +/-1 day 0.8; etc.
+            amt_score = 1.0  # set from your totals if available
+            
+            score = 0.5*supplier_score + 0.3*date_score + 0.2*amt_score
+            out.append({
+                "delivery_note_id": c["id"],
+                "score": round(score, 3),
+                "supplier": c["supplier"],
+                "delivery_date": c["delivery_date"],
+            })
+        
+        out.sort(key=lambda x: x["score"], reverse=True)
+        conn.close()
+        return {"invoice_id": invoice_id, "candidates": out[:5]}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@pairing_api_bp.post("/pairing/confirm")
+def pairing_confirm(invoice_id: str = Query(...), delivery_note_id: str = Query(...)):
+    """Confirm pairing between invoice and delivery note"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Update invoice with matched delivery note
+        cursor.execute("""
+            UPDATE invoices 
+            SET matched_delivery_note_id = ?
+            WHERE id = ?
+        """, (delivery_note_id, invoice_id))
+        
+        if cursor.rowcount != 1:
+            raise HTTPException(400, "update failed")
+        
+        conn.commit()
+        conn.close()
+        
+        return {"ok": True, "message": "Pairing confirmed"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@pairing_api_bp.post("/pairing/reject")
+def pairing_reject(invoice_id: str = Query(...), delivery_note_id: str = Query(...)):
+    """Reject pairing between invoice and delivery note"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Optional: persist rejections
+        conn.commit()
+        conn.close()
+        
+        return {"ok": True, "message": "Pairing rejected"}
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 

@@ -1,7 +1,12 @@
 from fastapi import APIRouter
 
-router = APIRouter()
+try:
+    from ..ocr.unified_ocr_engine import UnifiedOCREngine
+except ImportError:
+    from backend.ocr.unified_ocr_engine import UnifiedOCREngine
 
-@router.get("/health")
-def health():
-    return {"ok": True}
+router = APIRouter(prefix="/api/health", tags=["health"])
+
+@router.get("/ocr")
+def ocr_health():
+    return UnifiedOCREngine.instance().health()

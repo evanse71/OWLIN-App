@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Basic global styles for development */
 * {
   box-sizing: border-box;
@@ -100,4 +104,80 @@ body {
   background-color: transparent;
   border: 1px solid #e2e8f0;
   color: #475569;
+}
+
+/* Accordion styles */
+.accordion {
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.accordion-item {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.accordion-item:last-child {
+  border-bottom: none;
+}
+
+.accordion-trigger {
+  width: 100%;
+  padding: 1rem;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.accordion-trigger:hover {
+  background-color: #f8fafc;
+}
+
+.accordion-trigger::after {
+  content: "▼";
+  transition: transform 0.2s;
+  font-size: 12px;
+}
+
+.accordion-trigger[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}
+
+.accordion-content {
+  padding: 0 1rem 1rem 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Button size variants */
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-size: 16px;
+}
+
+.btn-icon {
+  padding: 8px;
+  width: 40px;
+  height: 40px;
+}
+
+/* Card header and title styles */
+.card-header {
+  padding: 1rem 1rem 0 1rem;
+}
+
+.card-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
 }

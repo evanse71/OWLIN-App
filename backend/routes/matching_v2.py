@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from contracts import MatchingSummary, MatchingPair, MatchingConfig
 from services.matching_service import rebuild_matching, get_matching_summary, compute_matching_pair
 from services.matching_config import get_matching_config
-from services.permissions import require_permission
+from services import permissions
 
 router = APIRouter(prefix="/matching", tags=["matching-v2"])
 

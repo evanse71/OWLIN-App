@@ -19,7 +19,7 @@ import math
 np.random.seed(1337)
 
 from contracts import ForecastPoint, ForecastSeries, ForecastQuality, ForecastScenario
-from services.permissions import require_permission
+from services import permissions
 
 DB_PATH = os.path.join("data", "owlin.db")
 

@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import List
 
 from contracts import UpdateBundle, ChangelogEntry, UpdateValidateResult, UpdateDependencies, UpdateProgressTick
-from services.permissions import require_permission
+from services import permissions
 from services import update_manager as svc
 
 router = APIRouter(prefix="/api/updates", tags=["updates"])

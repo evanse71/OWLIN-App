@@ -1,8 +1,27 @@
 from fastapi import APIRouter, HTTPException
 import sqlite3
 from db_manager_unified import get_db_manager
+from uuid import uuid4
 
 router = APIRouter()
+
+@router.get("/invoices")
+def list_invoices():
+    """List all invoices with status and filename"""
+    try:
+        conn = sqlite3.connect("data/owlin.db")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT i.id, i.document_id, i.supplier, i.invoice_date, i.total_value,
+                   i.matched_delivery_note_id, i.status, d.path AS filename
+            FROM invoices i
+            LEFT JOIN documents d ON d.id = i.document_id
+            ORDER BY COALESCE(i.invoice_date,'1970-01-01') DESC
+        """).fetchall()
+        conn.close()
+        return {"items": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/invoices/{invoice_id}")
 def get_invoice(invoice_id: str):
@@ -47,3 +66,36 @@ def get_invoice(invoice_id: str):
         return {"id": inv["id"], "meta": meta, "lines": lines}
     finally:
         conn.close()
+
+@router.get("/invoices/{invoice_id}/line-items")
+def invoice_lines(invoice_id: str):
+    """Get line items for an invoice"""
+    try:
+        conn = sqlite3.connect("data/owlin.db")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT description, qty, unit_price, total
+            FROM invoice_line_items
+            WHERE invoice_id=? ORDER BY rowid
+        """, (invoice_id,)).fetchall()
+        conn.close()
+        return {"items": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/invoices/manual")
+def create_manual_invoice(body: dict):
+    """Create manual invoice"""
+    try:
+        conn = sqlite3.connect("data/owlin.db")
+        cursor = conn.cursor()
+        inv_id = str(uuid4())
+        cursor.execute("""
+            INSERT INTO invoices (id, file_id, supplier_name, invoice_date, total_amount, status, upload_timestamp)
+            VALUES (?, NULL, ?, ?, ?, 'manual', datetime('now'))
+        """, (inv_id, body.get("supplier") or "Unknown", body.get("invoice_date"), body.get("total_value")))
+        conn.commit()
+        conn.close()
+        return {"id": inv_id, "status": "manual"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

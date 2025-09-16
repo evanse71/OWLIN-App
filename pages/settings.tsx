@@ -5,11 +5,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
-import { SettingsIcon as SettingsIconIcon, User, Bell, Shield, Palette, Database } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Settings, User, Bell, Shield, Palette, Database, Download, FileText, Key, Clock } from 'lucide-react'
 
-export default function SettingsIcon() {
+export default function SettingsPage() {
   const [mounted, setMounted] = useState(false)
-  const [settings, setSettingsIcon] = useState({
+  const [settings, setSettings] = useState({
     notifications: {
       email: true,
       push: false,
@@ -24,19 +25,41 @@ export default function SettingsIcon() {
       timezone: 'UTC'
     }
   })
+  
+  const [systemInfo, setSystemInfo] = useState({
+    role: 'GM',
+    version: '1.0.0',
+    dbPath: 'data/owlin.db',
+    lastBackup: null as string | null
+  })
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
   const handleSettingChange = (category: string, key: string, value: any) => {
-    setSettingsIcon(prev => ({
+    setSettings(prev => ({
       ...prev,
       [category]: {
         ...prev[category as keyof typeof prev],
         [key]: value
       }
     }))
+  }
+  
+  const handleBackup = async () => {
+    // TODO: Implement backup functionality
+    console.log('Creating backup...')
+  }
+  
+  const handleExportAudit = async () => {
+    // TODO: Implement audit log export
+    console.log('Exporting audit log...')
+  }
+  
+  const handleLicenseManager = async () => {
+    // TODO: Implement license manager
+    console.log('Opening license manager...')
   }
 
   if (!mounted) {
@@ -47,12 +70,51 @@ export default function SettingsIcon() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">SettingsIcon</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
           <p className="text-muted-foreground">
-            Manage your application preferences
+            Manage your application preferences and system information
           </p>
         </div>
       </div>
+
+      {/* System Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            System Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Role:</span>
+              <Badge variant="outline">{systemInfo.role}</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">App Version:</span>
+              <Badge variant="outline">{systemInfo.version}</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Database Path:</span>
+              <span className="text-sm text-gray-600 font-mono">{systemInfo.dbPath}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Last Backup:</span>
+              <span className="text-sm text-gray-600">
+                {systemInfo.lastBackup ? (
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {systemInfo.lastBackup}
+                  </span>
+                ) : (
+                  'Never'
+                )}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* General SettingsIcon */}
@@ -71,6 +133,7 @@ export default function SettingsIcon() {
                 value={settings.general.language}
                 onChange={(e) => handleSettingChange('general', 'language', e.target.value)}
                 className="w-full p-2 border rounded-md"
+                aria-label="Select language"
               >
                 <option value="en">English</option>
                 <option value="es">Spanish</option>
@@ -85,6 +148,7 @@ export default function SettingsIcon() {
                 value={settings.general.timezone}
                 onChange={(e) => handleSettingChange('general', 'timezone', e.target.value)}
                 className="w-full p-2 border rounded-md"
+                aria-label="Select timezone"
               >
                 <option value="UTC">UTC</option>
                 <option value="America/New_York">Eastern Time</option>
@@ -148,6 +212,7 @@ export default function SettingsIcon() {
                 value={settings.appearance.theme}
                 onChange={(e) => handleSettingChange('appearance', 'theme', e.target.value)}
                 className="w-full p-2 border rounded-md"
+                aria-label="Select theme"
               >
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
@@ -165,23 +230,38 @@ export default function SettingsIcon() {
           </CardContent>
         </Card>
 
-        {/* Security */}
+        {/* Quick Actions */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5" />
-              Security
+              Quick Actions
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Button variant="outline" className="w-full">
-              Change Password
+            <Button 
+              variant="outline" 
+              className="w-full flex items-center gap-2"
+              onClick={handleBackup}
+            >
+              <Download className="h-4 w-4" />
+              Create Backup (ZIP)
             </Button>
-            <Button variant="outline" className="w-full">
-              Two-Factor Authentication
+            <Button 
+              variant="outline" 
+              className="w-full flex items-center gap-2"
+              onClick={handleExportAudit}
+            >
+              <FileText className="h-4 w-4" />
+              Export Audit Log
             </Button>
-            <Button variant="outline" className="w-full">
-              Session Management
+            <Button 
+              variant="outline" 
+              className="w-full flex items-center gap-2"
+              onClick={handleLicenseManager}
+            >
+              <Key className="h-4 w-4" />
+              Open License Manager
             </Button>
           </CardContent>
         </Card>

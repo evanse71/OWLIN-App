@@ -1,0 +1,22 @@
+{
+  "supplier": "Test Supplier Ltd",
+  "invoice_date": "2025-09-16",
+  "reference": "INV-001",
+  "currency": "GBP",
+  "line_items": [
+    {
+      "description": "Keg Lager 11g",
+      "quantity": 2,
+      "unit_price": 99.5,
+      "uom": "each",
+      "vat_rate": 20
+    },
+    {
+      "description": "Limes (box)",
+      "quantity": 1,
+      "unit_price": 18.0,
+      "uom": "box",
+      "vat_rate": 0
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import type { InvoiceSummary, InvoiceDetail, DeliveryNote, InvoiceDraft, LineItem } from '@/types'
 
-const BASE = "http://localhost:8001";
+// Same-origin API calls only
 
 async function j<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(await r.text());
@@ -8,11 +8,11 @@ async function j<T>(r: Response): Promise<T> {
 }
 
 export async function getInvoices(): Promise<InvoiceSummary[]> {
-  return j(await fetch(`${BASE}/invoices`));
+  return j(await fetch(`/api/invoices`));
 }
 
 export async function getInvoice(id: string): Promise<InvoiceDetail | null> {
-  const response = await fetch(`${BASE}/invoices/${id}`);
+  const response = await fetch(`/api/invoices/${id}`);
   if (!response.ok) return null;
   const data = await j<{invoice: any, line_items: any[]}>(response);
   if (!data.invoice) return null;
@@ -30,7 +30,7 @@ export async function getInvoice(id: string): Promise<InvoiceDetail | null> {
 }
 
 export async function createInvoice(payload: any): Promise<InvoiceDetail> {
-  return j(await fetch(`${BASE}/invoices`, {
+  return j(await fetch(`/api/invoices`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -42,32 +42,32 @@ export async function createInvoice(payload: any): Promise<InvoiceDetail> {
 export async function uploadDocument(file: File): Promise<{ job_id: string }> {
   const form = new FormData();
   form.append("file", file);
-  return j<{job_id:string}>(await fetch(`${BASE}/upload`, {
+  return j<{job_id:string}>(await fetch(`/api/upload`, {
     method: "POST",
     body: form
   }));
 }
 
 export async function getJob(job_id: string): Promise<any> {
-  return j(await fetch(`${BASE}/jobs/${job_id}`));
+  return j(await fetch(`/api/jobs/${job_id}`));
 }
 
 export async function reprocessInvoice(id: string): Promise<{ job_id: string }> {
-  const res = await fetch(`${BASE}/invoices/${id}/reprocess`, { method: "POST" });
+  const res = await fetch(`/api/invoices/${id}/reprocess`, { method: "POST" });
   if (!res.ok) throw new Error("Reprocess failed");
   return res.json(); // { job_id }
 }
 
 export async function getUnmatchedNotes(): Promise<DeliveryNote[]> {
-  return j(await fetch(`${BASE}/delivery-notes/unmatched`));
+  return j(await fetch(`/api/delivery-notes/unmatched`));
 }
 
 export async function getDeliveryNote(id: string): Promise<any> {
-  return j(await fetch(`${BASE}/delivery-notes/${id}`));
+  return j(await fetch(`/api/delivery-notes/${id}`));
 }
 
 export async function createDeliveryNote(payload: any): Promise<DeliveryNote> {
-  return j(await fetch(`${BASE}/delivery-notes`, {
+  return j(await fetch(`/api/delivery-notes`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -80,7 +80,7 @@ export async function pairNote(invoice_id: string, dn_id: string): Promise<boole
   const form = new FormData();
   form.append("invoice_id", invoice_id);
   form.append("dn_id", dn_id);
-  const response = await fetch(`${BASE}/pair`, {
+  const response = await fetch(`/api/pair`, {
     method: "POST",
     body: form
   });
@@ -90,7 +90,7 @@ export async function pairNote(invoice_id: string, dn_id: string): Promise<boole
 export async function unpairDN(dn_id: string): Promise<boolean> {
   const form = new FormData();
   form.append("dn_id", dn_id);
-  const response = await fetch(`${BASE}/unpair`, {
+  const response = await fetch(`/api/unpair`, {
     method: "POST",
     body: form
   });
@@ -98,11 +98,11 @@ export async function unpairDN(dn_id: string): Promise<boolean> {
 }
 
 export async function compareDN(dn_id: string, invoice_id: string): Promise<{diffs:any[]}> {
-  return j<{diffs:any[]}>(await fetch(`${BASE}/compare?dn_id=${dn_id}&invoice_id=${invoice_id}`));
+  return j<{diffs:any[]}>(await fetch(`/api/compare?dn_id=${dn_id}&invoice_id=${invoice_id}`));
 }
 
 export async function submitDocuments(): Promise<{ success: boolean; errors?: string[] }> {
-  await j(await fetch(`${BASE}/submit`, {
+  await j(await fetch(`/api/submit`, {
     method: "POST"
   }));
   return { success: true };

@@ -35,7 +35,7 @@ import io
 
 # Local imports
 from ocr.enhanced_ocr_engine import enhanced_ocr_engine
-from ocr.enhanced_line_item_extractor import enhanced_line_item_extractor, LineItem
+from ocr.enhanced_line_item_extractor import get_enhanced_line_item_extractor, LineItem
 from upload.adaptive_processor import adaptive_processor
 from upload.multi_page_processor import multi_page_processor, DocumentResult
 from upload_validator import validate_upload, get_validation_summary, create_upload_metadata
@@ -366,6 +366,6 @@ def convert_pdf_to_images(file_path: str) -> List[Image.Image]:
 
 # Global instances for easy access
 enhanced_ocr_engine = enhanced_ocr_engine
-enhanced_line_item_extractor = enhanced_line_item_extractor
+enhanced_line_item_extractor = get_enhanced_line_item_extractor()
 adaptive_processor = adaptive_processor
 multi_page_processor = multi_page_processor 

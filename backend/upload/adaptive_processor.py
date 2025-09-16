@@ -29,7 +29,7 @@ from fastapi import HTTPException
 
 # Local imports
 from .multi_page_processor import multi_page_processor, DocumentResult
-from backend.ocr.enhanced_ocr_engine import enhanced_ocr_engine
+from ocr.enhanced_ocr_engine import enhanced_ocr_engine
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class AdaptiveProcessor:
     def _ensure_ocr_engine_loaded(self):
         """Lazy load OCR engine when needed"""
         if self.ocr_engine is None:
-            from backend.ocr.enhanced_ocr_engine import enhanced_ocr_engine
+            from ocr.enhanced_ocr_engine import enhanced_ocr_engine
             self.ocr_engine = enhanced_ocr_engine
     
     def calculate_timeout(self, file_path: str) -> int:

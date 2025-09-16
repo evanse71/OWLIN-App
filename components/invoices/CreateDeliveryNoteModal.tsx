@@ -29,7 +29,7 @@ export default function CreateDeliveryNoteModal({ onCreated, children }: CreateD
     e.preventDefault()
     
     try {
-      const response = await fetch('http://localhost:8001/delivery-notes', {
+      const response = await fetch('/api/delivery-notes', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

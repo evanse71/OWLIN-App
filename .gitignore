@@ -222,3 +222,19 @@ temp/
 *.njsproj
 *.sln
 *.sw?
+
+# Additional Python and environment files
+.venv/
+**/__pycache__/
+*.pyc
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# License files
+license/*.lic
+
+# Frontend environment
+frontend/.env.local

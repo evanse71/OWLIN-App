@@ -28,9 +28,9 @@ from PIL import Image
 import pypdfium2 as pdfium
 
 # Local imports
-from backend.ocr.enhanced_ocr_engine import enhanced_ocr_engine
-from backend.ocr.enhanced_line_item_extractor import get_enhanced_line_item_extractor, LineItem
-from backend.ocr.ocr_engine import OCRResult
+from ocr.enhanced_ocr_engine import enhanced_ocr_engine
+from ocr.enhanced_line_item_extractor import get_enhanced_line_item_extractor, LineItem
+from ocr.ocr_engine import OCRResult
 
 """
 Multi-Invoice Splitter

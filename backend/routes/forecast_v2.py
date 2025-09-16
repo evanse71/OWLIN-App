@@ -18,7 +18,7 @@ from contracts import ForecastSeries, ForecastQuality, ForecastSummary, Forecast
 from services.forecast_service import (
     compute_forecast, save_forecast, get_forecast_summary, get_forecast_quality
 )
-from services.permissions import require_permission
+from services import permissions
 
 router = APIRouter(prefix="/forecast", tags=["forecast-v2"])
 
