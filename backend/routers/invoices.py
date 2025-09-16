@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 try:
@@ -38,8 +38,9 @@ def create_manual(inv: InvoiceManualIn):
     )
     for li in inv.line_items or []:
         tot = float(li.quantity) * float(li.unit_price)
-        execute("INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?)",
-                   (inv_id, li.description, li.quantity, li.unit_price, tot, li.uom, li.vat_rate, "manual"))
+        line_id = uuid_str()
+        execute("INSERT INTO invoice_line_items (id, invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                   (line_id, inv_id, li.description, li.quantity, li.unit_price, tot, li.uom, li.vat_rate, "manual"))
     return {"id": inv_id, "status": "manual"}
 
 @router.get("/{invoice_id}/line-items")
@@ -51,8 +52,9 @@ def get_items(invoice_id: str):
 def add_items(invoice_id: str, items: List[InvoiceLineItemIn]):
     for li in items or []:
         tot = float(li.quantity) * float(li.unit_price)
-        execute("INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?)",
-                   (invoice_id, li.description, li.quantity, li.unit_price, tot, li.uom, li.vat_rate, "manual"))
+        line_id = uuid_str()
+        execute("INSERT INTO invoice_line_items (id, invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                   (line_id, invoice_id, li.description, li.quantity, li.unit_price, tot, li.uom, li.vat_rate, "manual"))
     return {"ok": True}
 
 @router.post("/{invoice_id}/rescan")
@@ -70,6 +72,26 @@ def rescan(invoice_id: str):
         qty = float(li.get("quantity") or 0)
         up  = float(li.get("unit_price") or 0)
         tot = qty * up
-        execute("INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?)",
-                   (invoice_id, li.get("description"), qty, up, tot, li.get("uom"), li.get("vat_rate") or 0, "ocr"))
+        line_id = uuid_str()
+        execute("INSERT INTO invoice_line_items (id, invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                   (line_id, invoice_id, li.get("description"), qty, up, tot, li.get("uom"), li.get("vat_rate") or 0, "ocr"))
+    return {"ok": True}
+
+@router.put("/{invoice_id}/line-items/{line_id}")
+def update_line_item(invoice_id: str, line_id: str, body: dict = Body(...)):
+    row = fetch_one("SELECT id FROM invoice_line_items WHERE id=? AND invoice_id=?", (line_id, invoice_id))
+    if not row:
+        raise HTTPException(404, "not found")
+    qty = float(body.get("quantity") or 0)
+    up  = float(body.get("unit_price") or 0)
+    tot = qty * up
+    execute(
+        "UPDATE invoice_line_items SET description=?, quantity=?, unit_price=?, total=?, uom=?, vat_rate=? WHERE id=? AND invoice_id=?",
+        (body.get("description"), qty, up, tot, body.get("uom"), float(body.get("vat_rate") or 0), line_id, invoice_id)
+    )
+    return {"ok": True}
+
+@router.delete("/{invoice_id}/line-items/{line_id}")
+def delete_line_item(invoice_id: str, line_id: str):
+    execute("DELETE FROM invoice_line_items WHERE id=? AND invoice_id=?", (line_id, invoice_id))
     return {"ok": True}

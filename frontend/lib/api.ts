@@ -89,6 +89,24 @@ export async function apiRescanInvoice(id: string) {
   return res.json();
 }
 
+export async function apiUpdateLineItem(invoiceId: string, lineId: number | string, body: any) {
+  const res = await fetch(`${BASE_URL}/api/invoices/${invoiceId}/line-items/${lineId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("update line item failed");
+  return res.json();
+}
+
+export async function apiDeleteLineItem(invoiceId: string, lineId: number | string) {
+  const res = await fetch(`${BASE_URL}/api/invoices/${invoiceId}/line-items/${lineId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("delete line item failed");
+  return res.json();
+}
+
 // Legacy upload operations (for backward compatibility)
 export const uploadInvoice = (file: File) => {
   const fd = new FormData();

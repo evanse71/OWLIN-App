@@ -2,7 +2,11 @@ import React, { useState, useEffect } from "react";
 import { apiInvoiceLineItems, apiRescanInvoice } from "@/lib/api";
 import LineItemsTable from "./LineItemsTable";
 
-type CreatedItem = { type: string; id: string | null; page: number };
+type CreatedItem = { 
+  type: string; 
+  id: string | null; 
+  page: number; 
+};
 
 export default function InvoiceCardEnhanced({ item }: { item: CreatedItem }) {
   const [open, setOpen] = useState(false);
@@ -16,7 +20,7 @@ export default function InvoiceCardEnhanced({ item }: { item: CreatedItem }) {
     try {
       const data = await apiInvoiceLineItems(item.id);
       setLines(data.items || []);
-    } catch (e) { console.error(e); }
+    } catch (e) { /* Error handling */ }
     finally { setLoading(false); }
   };
 
@@ -46,7 +50,11 @@ export default function InvoiceCardEnhanced({ item }: { item: CreatedItem }) {
             <div className="text-sm text-zinc-500">Loading line items…</div>
           ) : (
             <>
-              <LineItemsTable items={lines || []} />
+              <LineItemsTable
+                invoiceId={item.id || ""}
+                items={lines || []}
+                onChange={load}
+              />
               {(lines?.length ?? 0) === 0 && (
                 <div className="mt-2 text-xs text-zinc-600">
                   No lines detected — try a{" "}
