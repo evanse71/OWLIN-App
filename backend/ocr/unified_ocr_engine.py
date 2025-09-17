@@ -52,7 +52,8 @@ class UnifiedOCREngine:
     def run_ocr(self, image_bgr):
         self.ensure_ready()
         if _PADDLE_OK and self._paddle is not None:
-            result = self._paddle.ocr(image_bgr, cls=True)
+            # Do NOT pass cls=... (older/newer PaddleOCR disagree). Angle CLS is enabled already.
+            result = self._paddle.ocr(image_bgr)
             lines = []
             for page in result:
                 for box, (text, conf) in [(it[0], it[1]) for it in page]:

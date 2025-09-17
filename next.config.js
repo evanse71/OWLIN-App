@@ -1,10 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  images: { unoptimized: true },
-  trailingSlash: true,
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
-}
+  async rewrites() {
+    if (!process.env.NEXT_PUBLIC_API_BASE_URL) {
+      return [{ source: "/api/:path*", destination: "http://127.0.0.1:8081/api/:path*" }];
+    }
+    return [];
+  },
+};
 
-module.exports = nextConfig
+export default nextConfig;

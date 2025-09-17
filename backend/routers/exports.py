@@ -1,6 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
-from ..db import execute, fetch_one, fetch_all, uuid_str
+try:
+    from ..db import execute, fetch_one, fetch_all, uuid_str
+except ImportError:
+    try:
+        from backend.db import execute, fetch_one, fetch_all, uuid_str
+    except ImportError:
+        from db import execute, fetch_one, fetch_all, uuid_str
 import os, json, zipfile, time, uuid
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])

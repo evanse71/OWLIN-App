@@ -14,6 +14,7 @@ try:
     from backend.routers import uploads as uploads_router
     from backend.routers import exports as exports_router
     from backend.routers import pairing as pairing_router
+    from backend.routers import delivery_notes as delivery_notes_router
 except ImportError:
     try:
         from .routers import health as health_router
@@ -21,12 +22,14 @@ except ImportError:
         from .routers import uploads as uploads_router
         from .routers import exports as exports_router
         from .routers import pairing as pairing_router
+        from .routers import delivery_notes as delivery_notes_router
     except ImportError:
         from routers import health as health_router
         from routers import invoices as invoices_router
         from routers import uploads as uploads_router
         from routers import exports as exports_router
         from routers import pairing as pairing_router
+        from routers import delivery_notes as delivery_notes_router
 
 # Add the project root to Python path
 ROOT = str(Path(__file__).resolve().parents[1])
@@ -94,6 +97,15 @@ def _include_all_api_routers(app: FastAPI):
 
 app = FastAPI(title="Owlin Unified Single Port")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3002", "http://127.0.0.1:3002", "http://localhost:3003", "http://127.0.0.1:3003"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include the new routers
 app.include_router(health_router.router)
 app.include_router(uploads_router.router)
@@ -101,6 +113,7 @@ app.include_router(uploads_router.legacy)  # legacy shim for /api/upload?kind=in
 app.include_router(invoices_router.router)
 app.include_router(exports_router.router)
 app.include_router(pairing_router.router)
+app.include_router(delivery_notes_router.router)
 
 @app.exception_handler(Exception)
 async def global_exc_handler(request, exc):

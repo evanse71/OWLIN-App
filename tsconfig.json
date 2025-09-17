@@ -39,7 +39,6 @@
   ],
   "exclude": [
     "node_modules",
-    "frontend",
     "backend", 
     "scripts",
     "tests"

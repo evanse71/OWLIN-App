@@ -2,7 +2,10 @@ from fastapi import APIRouter, HTTPException
 try:
     from ..db import fetch_one, fetch_all
 except ImportError:
-    from backend.db import fetch_one, fetch_all
+    try:
+        from backend.db import fetch_one, fetch_all
+    except ImportError:
+        from db import fetch_one, fetch_all
 
 router = APIRouter(prefix="/api/pairing", tags=["pairing"])
 

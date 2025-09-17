@@ -3,7 +3,10 @@ from fastapi import APIRouter
 try:
     from ..ocr.unified_ocr_engine import UnifiedOCREngine
 except ImportError:
-    from backend.ocr.unified_ocr_engine import UnifiedOCREngine
+    try:
+        from backend.ocr.unified_ocr_engine import UnifiedOCREngine
+    except ImportError:
+        from ocr.unified_ocr_engine import UnifiedOCREngine
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 

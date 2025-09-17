@@ -3,12 +3,27 @@ from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException
 from typing import List, Dict, Any, Optional
 import os, uuid, json
 import numpy as np, cv2, pypdfium2 as pdfium
+from pathlib import Path
 
-from ..ocr.unified_ocr_engine import UnifiedOCREngine
-from ..extraction.parsers.invoice_parser import parse_invoice_from_ocr
-from ..extraction.grouping import group_pages
-from ..utils.pdf_to_image import render_pdf_page_bgr
-from ..db import execute, fetch_one, fetch_all, uuid_str
+try:
+    from ..ocr.unified_ocr_engine import UnifiedOCREngine
+    from ..extraction.parsers.invoice_parser import parse_invoice_from_ocr
+    from ..extraction.grouping import group_pages
+    from ..utils.pdf_to_image import render_pdf_page_bgr
+    from ..db import execute, fetch_one, fetch_all, uuid_str
+except ImportError:
+    try:
+        from backend.ocr.unified_ocr_engine import UnifiedOCREngine
+        from backend.extraction.parsers.invoice_parser import parse_invoice_from_ocr
+        from backend.extraction.grouping import group_pages
+        from backend.utils.pdf_to_image import render_pdf_page_bgr
+        from backend.db import execute, fetch_one, fetch_all, uuid_str
+    except ImportError:
+        from ocr.unified_ocr_engine import UnifiedOCREngine
+        from extraction.parsers.invoice_parser import parse_invoice_from_ocr
+        from extraction.grouping import group_pages
+        from utils.pdf_to_image import render_pdf_page_bgr
+        from db import execute, fetch_one, fetch_all, uuid_str
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 legacy = APIRouter(prefix="/api/upload", tags=["uploads-legacy"])
@@ -17,6 +32,8 @@ UPLOAD_DIR = os.path.join("data","uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_IMG = {"image/png","image/jpeg","image/jpg"}
 ALLOWED_PDF = {"application/pdf"}
+ALLOWED_EXTS = {".pdf", ".png", ".jpg", ".jpeg"}
+ALLOWED_MIMES = {"application/pdf", "image/png", "image/jpeg"}
 
 def _save(pathlike: UploadFile) -> str:
     ext = os.path.splitext(pathlike.filename or "")[1]
@@ -68,14 +85,28 @@ def _persist_invoice_group(path: str, document_id: str, pages: List[int], page_p
     inv_date = next((p.get("invoice_date") for p in page_parses if p.get("invoice_date")), None)
     reference = next((p.get("reference") for p in page_parses if p.get("reference")), None)
     currency = next((p.get("currency") for p in page_parses if p.get("currency")), "GBP")
+    total_value = next((p.get("total_value") for p in page_parses if p.get("total_value")), None)
     execute(
         "INSERT INTO invoices (id, supplier, invoice_date, status, currency, document_id, page_no, total_value) VALUES (?,?,?,?,?,?,?,?)",
-        (inv_id, supplier, inv_date, "scanned", currency, document_id, pages[0], None)
+        (inv_id, supplier, inv_date, "scanned", currency, document_id, pages[0], total_value)
     )
-    # pages table
-    for idx in pages:
-        execute("INSERT INTO invoice_pages (id, invoice_id, page_no, ocr_json) VALUES (?,?,?,?)",
-                   (uuid_str(), inv_id, idx, None))
+    
+    # pages table - always insert at least one page row (safety net)
+    any_pages = False
+    for pno, parsed in zip(pages, page_parses):
+        execute(
+            "INSERT INTO invoice_pages (id, invoice_id, page_no, ocr_json) VALUES (?, ?, ?, json(?))",
+            (uuid_str(), inv_id, int(pno), json.dumps(parsed or {})),
+        )
+        any_pages = True
+
+    if not any_pages:
+        # guarantee at least page 0 exists
+        execute(
+            "INSERT INTO invoice_pages (id, invoice_id, page_no, ocr_json) VALUES (?, ?, 0, json('{}'))",
+            (uuid_str(), inv_id),
+        )
+    
     # merge line items: concat all, compute totals server-side
     for p in page_parses:
         for li in p.get("line_items", []):
@@ -92,14 +123,16 @@ def _persist_invoice_group(path: str, document_id: str, pages: List[int], page_p
 async def upload(file: UploadFile = File(...), doc_type: Optional[str] = Form(None), kind: Optional[str] = Query(None)):
     # Save & content-type gate
     path = _save(file)
+    ext = Path(file.filename or "").suffix.lower()
     ctype = (file.content_type or "").lower()
-    if not (ctype in ALLOWED_PDF or path.lower().endswith(".pdf") or ctype in ALLOWED_IMG or any(path.lower().endswith(e) for e in [".png",".jpg",".jpeg"])):
-        raise HTTPException(415, f"Unsupported file type: {ctype or os.path.splitext(path)[1]}")
+    
+    if ext not in ALLOWED_EXTS or ctype not in ALLOWED_MIMES:
+        raise HTTPException(415, f"Unsupported file type: {ext} ({ctype})")
 
     document_id = _persist_document(path)
     items: List[Dict[str,Any]] = []
 
-    if ctype in ALLOWED_PDF or path.lower().endswith(".pdf"):
+    if ctype == "application/pdf" or ext == ".pdf":
         # PDF → OCR each page → group → persist per-invoice
         # Collect parses per page
         pages = _pdf_pages(path)
