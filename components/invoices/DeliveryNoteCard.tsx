@@ -70,7 +70,7 @@ export default function DeliveryNoteCard({ dn }: DeliveryNoteCardProps) {
               Line Items
             </AccordionTrigger>
             <AccordionContent className="pt-3">
-              <LineItemsTable invoiceId={dn.id} type="delivery_note" />
+              <LineItemsTable invoiceId={dn.id} items={[]} onChange={() => {}} />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

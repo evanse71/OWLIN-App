@@ -10,6 +10,10 @@ except ImportError:
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
+@router.get("/")
+def health():
+    return {"status": "healthy"}
+
 @router.get("/ocr")
 def ocr_health():
     return UnifiedOCREngine.instance().health()

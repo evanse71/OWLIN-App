@@ -68,11 +68,9 @@ export default function UploadArea({ onFiles, isUploading = false }: UploadAreaP
             multiple
           />
           <label htmlFor="file-upload">
-            <Button asChild disabled={isUploading}>
-              <span>
-                <Upload className="h-4 w-4 mr-2" />
-                {isUploading ? 'Uploading...' : 'Choose Files'}
-              </span>
+            <Button disabled={isUploading}>
+              <Upload className="h-4 w-4 mr-2" />
+              {isUploading ? 'Uploading...' : 'Choose Files'}
             </Button>
           </label>
         </div>

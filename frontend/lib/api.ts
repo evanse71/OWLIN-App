@@ -133,3 +133,27 @@ export const getPairingSuggestions = (invoiceId: string) => fetchJSON(`/api/pair
 // Supplier operations
 export const getSuppliers = () => fetchJSON('/api/suppliers');
 export const getSupplierScorecards = () => fetchJSON('/api/suppliers/scorecards');
+
+// Missing API functions for backward compatibility
+export const getJSON = (path: string) => fetchJSON(path);
+export const compareDN = (dnId: string, invoiceId: string) => fetchJSON(`/api/delivery-notes/${dnId}/compare/${invoiceId}`);
+export const createManualDN = (dn: any) => fetchJSON('/api/delivery-notes', { method: 'POST', body: JSON.stringify(dn) });
+export const postManualDN = (dn: any) => fetchJSON('/api/delivery-notes', { method: 'POST', body: JSON.stringify(dn) });
+export const postManualInvoice = (invoice: any) => fetchJSON('/api/invoices', { method: 'POST', body: JSON.stringify(invoice) });
+export const getUnpaired = () => fetchJSON('/api/delivery-notes?matched=false');
+export const postPair = (body: any) => fetchJSON('/api/delivery-notes/pair', { method: 'POST', body: JSON.stringify(body) });
+export const getUnmatchedNotes = () => fetchJSON('/api/delivery-notes?matched=false');
+export const uploadDocument = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return fetchJSON('/api/uploads', { method: 'POST', body: fd });
+};
+export const getJob = (jobId: string) => fetchJSON(`/api/uploads/jobs/${jobId}`);
+export const pairNote = (body: any) => fetchJSON('/api/delivery-notes/pair', { method: 'POST', body: JSON.stringify(body) });
+export const clearAllDocuments = () => fetchJSON('/api/uploads/clear', { method: 'POST' });
+export const saveDraftDocuments = (body: any) => fetchJSON('/api/uploads/draft', { method: 'POST', body: JSON.stringify(body) });
+export const submitDocuments = (body: any) => fetchJSON('/api/uploads/submit', { method: 'POST', body: JSON.stringify(body) });
+export const getUnmatchedDNCount = () => fetchJSON('/api/delivery-notes/count?matched=false');
+export const getOpenIssuesCount = () => fetchJSON('/api/issues/count');
+export const createInvoice = (invoice: any) => fetchJSON('/api/invoices', { method: 'POST', body: JSON.stringify(invoice) });
+export const createDeliveryNote = (dn: any) => fetchJSON('/api/delivery-notes', { method: 'POST', body: JSON.stringify(dn) });

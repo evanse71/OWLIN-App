@@ -60,11 +60,11 @@ def list_delivery_notes(
         params = []
         
         if q:
-            conditions.append("(supplier LIKE ? OR note_date LIKE ?)")
+            conditions.append("(supplier_name LIKE ? OR delivery_date LIKE ?)")
             params.extend([f"%{q}%", f"%{q}%"])
         
         if supplier:
-            conditions.append("supplier LIKE ?")
+            conditions.append("supplier_name LIKE ?")
             params.append(f"%{supplier}%")
         
         if matched is not None:
@@ -77,12 +77,12 @@ def list_delivery_notes(
         
         query = f"""
             SELECT 
-                id, supplier, note_date, status, total_amount,
+                id, supplier_name, delivery_date, status, total_amount,
                 matched_invoice_id, suggested_invoice_id, 
                 suggested_score, suggested_reason
             FROM delivery_notes
             {where_clause}
-            ORDER BY note_date DESC
+            ORDER BY delivery_date DESC
             LIMIT ? OFFSET ?
         """
         
@@ -94,8 +94,8 @@ def list_delivery_notes(
         for row in rows:
             items.append({
                 "id": row["id"],
-                "supplier": row.get("supplier") or "Unknown",
-                "note_date": row.get("note_date"),
+                "supplier": row.get("supplier_name") or "Unknown",
+                "note_date": row.get("delivery_date"),
                 "status": row.get("status") or "scanned",
                 "total_amount": row.get("total_amount"),
                 "matched_invoice_id": row.get("matched_invoice_id"),
