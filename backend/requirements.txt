@@ -1,9 +1,9 @@
 # Core dependencies with version pins to prevent OCR regressions
 paddleocr==2.7.0.3
-paddlepaddle==2.6.1
+paddlepaddle>=3.0.0
 rapidfuzz==3.9.6
 pypdfium2==4.30.0
-opencv-python==4.10.0.84
+opencv-python<=4.6.0.66
 
 # FastAPI and web framework
 fastapi==0.104.1
@@ -11,11 +11,11 @@ uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
 # Database
-sqlite3
+# sqlite3 is built-in to Python
 
 # Image processing
-Pillow==10.1.0
-numpy==1.24.3
+Pillow>=10.4.0
+numpy>=1.24.3
 
 # OCR fallback
 pytesseract==0.3.10

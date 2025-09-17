@@ -41,6 +41,9 @@
     "node_modules",
     "backend", 
     "scripts",
-    "tests"
+    "tests",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "_owlin_sources"
   ]
 }

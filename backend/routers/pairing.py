@@ -1,29 +1,45 @@
-from fastapi import APIRouter, HTTPException
-try:
-    from ..db import fetch_one, fetch_all
-except ImportError:
-    try:
-        from backend.db import fetch_one, fetch_all
-    except ImportError:
-        from db import fetch_one, fetch_all
+from __future__ import annotations
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, HTTPException, Query, Body
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/pairing", tags=["pairing"])
 
+
+class PairingSuggestionDTO(BaseModel):
+    delivery_note_id: str
+    invoice_id: Optional[str] = None
+    score: float
+    reason: Optional[str] = None
+
+
 @router.get("/suggestions")
-def suggest(invoice_id: str):
-    inv = fetch_one("SELECT supplier, invoice_date, total_value FROM invoices WHERE id=?", (invoice_id,))
-    if not inv: raise HTTPException(404, "invoice not found")
-    cands = fetch_all("SELECT id, supplier, note_date, total_amount FROM delivery_notes ORDER BY note_date DESC LIMIT 50")
-    out = []
-    for c in cands:
-        score = 0
-        if inv["supplier"] and c["supplier"] and inv["supplier"].lower()==c["supplier"].lower():
-            score += 50
-        if inv["invoice_date"] and c["note_date"] and inv["invoice_date"]==c["note_date"]:
-            score += 30
-        if inv["total_value"] and c["total_amount"] and abs(inv["total_value"]-c["total_amount"])<=2.0:
-            score += 20
-        if score>0:
-            out.append({"delivery_note_id": c["id"], "score": score, "reason":"heuristics"})
-    out.sort(key=lambda x: x["score"], reverse=True)
-    return {"suggestions": out, "total_candidates": len(cands)}
+def suggestions(invoice_id: str = Query(...)) -> Dict[str, List[PairingSuggestionDTO]]:
+    # Stub: return empty list; wire up real scoring later
+    return {"suggestions": []}
+
+
+# Delivery-notes side (if your UI calls /api/delivery-notes/pair etc.)
+dn_router = APIRouter(prefix="/api/delivery-notes", tags=["delivery-notes-pairing"])
+
+
+class PairBody(BaseModel):
+    delivery_note_id: str
+    invoice_id: str
+
+
+@dn_router.post("/pair")
+def pair_dn(body: PairBody = Body(...)) -> Dict[str, Any]:
+    # TODO: write relationship into DB table delivery_notes.invoice_id = body.invoice_id
+    return {"ok": True}
+
+
+@dn_router.post("/unpair")
+def unpair_dn(body: Dict[str, str] = Body(...)) -> Dict[str, Any]:
+    # TODO: set delivery_notes.invoice_id = NULL where id=body["delivery_note_id"]
+    return {"ok": True}
+
+
+@dn_router.get("/suggestions")
+def dn_suggestions(id: str = Query(...)) -> Dict[str, List[PairingSuggestionDTO]]:
+    return {"suggestions": []}

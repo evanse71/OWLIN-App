@@ -108,11 +108,12 @@ app.add_middleware(
 
 # Include the new routers
 app.include_router(health_router.router)
-app.include_router(uploads_router.router)
-app.include_router(uploads_router.legacy)  # legacy shim for /api/upload?kind=invoice
 app.include_router(invoices_router.router)
+app.include_router(uploads_router.router)
+app.include_router(uploads_router.legacy_router)  # legacy shim for /api/upload?kind=invoice
 app.include_router(exports_router.router)
 app.include_router(pairing_router.router)
+app.include_router(pairing_router.dn_router)  # delivery notes pairing endpoints
 app.include_router(delivery_notes_router.router)
 
 @app.exception_handler(Exception)
