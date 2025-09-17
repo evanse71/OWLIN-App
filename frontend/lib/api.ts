@@ -107,6 +107,28 @@ export async function apiDeleteLineItem(invoiceId: string, lineId: number | stri
   return res.json();
 }
 
+export async function apiListInvoices() {
+  const r = await fetch(`${BASE_URL}/api/invoices`);
+  if (!r.ok) throw new Error("list invoices failed");
+  return r.json(); // {items:[{id,supplier,...,pages, page_count}]}
+}
+
+export async function apiGetInvoice(id: string) {
+  const r = await fetch(`${BASE_URL}/api/invoices/${id}`);
+  if (!r.ok) throw new Error("get invoice failed");
+  return r.json();
+}
+
+export async function apiExportInvoices(ids: string[]) {
+  const r = await fetch(`${BASE_URL}/api/exports/invoices`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ invoice_ids: ids })
+  });
+  if (!r.ok) throw new Error("export failed");
+  return r.json(); // {ok, zip_path}
+}
+
 // Legacy upload operations (for backward compatibility)
 export const uploadInvoice = (file: File) => {
   const fd = new FormData();

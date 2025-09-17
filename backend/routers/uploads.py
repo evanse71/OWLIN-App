@@ -1,162 +1,134 @@
 from __future__ import annotations
 from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException
 from typing import List, Dict, Any, Optional
-import os, uuid
-import fitz
-import numpy as np
-import cv2
-import json
+import os, uuid, json
+import numpy as np, cv2, pypdfium2 as pdfium
 
-try:
-    from ..ocr.unified_ocr_engine import UnifiedOCREngine
-    from ..extraction.parsers.invoice_parser import parse_invoice_from_ocr
-    from ..db import execute, fetch_one, fetch_all, uuid_str
-except ImportError:
-    from backend.ocr.unified_ocr_engine import UnifiedOCREngine
-    from backend.extraction.parsers.invoice_parser import parse_invoice_from_ocr
-    from backend.db import execute, fetch_one, fetch_all, uuid_str
+from ..ocr.unified_ocr_engine import UnifiedOCREngine
+from ..extraction.parsers.invoice_parser import parse_invoice_from_ocr
+from ..extraction.grouping import group_pages
+from ..utils.pdf_to_image import render_pdf_page_bgr
+from ..db import db
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 legacy = APIRouter(prefix="/api/upload", tags=["uploads-legacy"])
 
-UPLOAD_DIR = os.path.join("data", "uploads")
+UPLOAD_DIR = os.path.join("data","uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 ALLOWED_IMG = {"image/png","image/jpeg","image/jpg"}
 ALLOWED_PDF = {"application/pdf"}
 
-def _save_to_disk(f: UploadFile) -> str:
-    ext = os.path.splitext(f.filename or "")[1]
+def _save(pathlike: UploadFile) -> str:
+    ext = os.path.splitext(pathlike.filename or "")[1]
+    fname = f"{uuid.uuid4()}{ext}"
+    out = os.path.join(UPLOAD_DIR, fname)
+    with open(out, "wb") as w: w.write(pathlike.file.read())
+    return out
+
+def _persist_document(path: str) -> str:
     doc_id = str(uuid.uuid4())
-    fname = f"{doc_id}{ext}"
-    out_path = os.path.join(UPLOAD_DIR, fname)
-    with open(out_path, "wb") as w:
-        w.write(f.file.read())
-    return out_path
-
-def _pdf_to_bgr_list(pdf_path: str) -> List[np.ndarray]:
-    pages = []
-    doc = fitz.open(pdf_path)
-    for i in range(doc.page_count):
-        page = doc.load_page(i)
-        pix = page.get_pixmap(alpha=False)
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
-        pages.append(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-    doc.close()
-    return pages
-
-def _decode_img(path: str) -> np.ndarray:
-    with open(path, "rb") as r:
-        arr = np.frombuffer(r.read(), dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise HTTPException(400, "Failed to decode image")
-    return img
-
-def _guess_kind(texts: List[str], fallback: Optional[str]) -> str:
-    if fallback: return fallback
-    j = " ".join(t.lower() for t in texts if t)
-    if "delivery note" in j or "goods received" in j or "grn" in j:
-        return "delivery_note"
-    if "invoice" in j:
-        return "invoice"
-    return "unknown"
-
-def _persist_doc(path: str) -> str:
-    doc_id = uuid_str()
-    execute("INSERT INTO documents (id, path) VALUES (?,?)", (doc_id, path))
+    db.execute("INSERT INTO documents (id, path) VALUES (?,?)", (doc_id, path))
     return doc_id
 
-def _persist_invoice(parsed: Dict[str,Any], document_id: str, page_no: int) -> str:
-    inv_id = uuid_str()
-    execute(
-        "INSERT INTO invoices (id, supplier, invoice_date, status, currency, document_id, page_no, total_value) VALUES (?,?,?,?,?,?,?,?)",
-        (inv_id, parsed.get("supplier"), parsed.get("invoice_date"), "scanned", parsed.get("currency","GBP"), document_id, page_no, None)
-    )
-    for li in parsed.get("line_items", []):
-        qty = float(li.get("quantity") or 0.0)
-        up  = float(li.get("unit_price") or 0.0)
-        tot = qty * up
-        execute(
-          "INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?)",
-          (inv_id, li.get("description"), qty, up, tot, li.get("uom"), li.get("vat_rate") or 0, "ocr")
-        )
-    return inv_id
+def _ocr_page(img_bgr) -> Dict[str, Any]:
+    ocr = UnifiedOCREngine.instance().run_ocr(img_bgr)
+    # stash raw lines for grouping
+    ocr["raw_lines"] = ocr.get("lines", [])
+    return ocr
 
-def _persist_dn(parsed: Dict[str,Any], document_id: str, page_no: int) -> str:
-    dn_id = uuid_str()
-    execute(
-        "INSERT INTO delivery_notes (id, supplier, note_date, status, document_id, page_no, total_amount) VALUES (?,?,?,?,?,?,?)",
-        (dn_id, parsed.get("supplier"), parsed.get("invoice_date"), "scanned", document_id, page_no, None)
-    )
-    return dn_id
+def _pdf_pages(path: str) -> List[int]:
+    pdf = pdfium.PdfDocument(path)
+    n = len(pdf)
+    pdf.close()
+    return list(range(n))
 
-def _create_job(total_pages: int, document_id: str, kind: Optional[str]) -> str:
-    job_id = uuid_str()
-    execute(
-        "INSERT INTO processing_jobs (id, kind, status, current_page, total_pages, message, created_ids, document_id) VALUES (?,?,?,?,?,?,?,?)",
-        (job_id, kind or "unknown", "queued", 0, total_pages, "Queued", json.dumps([]), document_id)
-    )
-    return job_id
-
-def _update_job(job_id: str, **fields):
-    cols = ", ".join([f"{k}=?" for k in fields.keys()])
-    vals = list(fields.values())
-    vals.append(job_id)
-    execute(f"UPDATE processing_jobs SET {cols} WHERE id=?", tuple(vals))
-
-@router.get("/jobs/{job_id}")
-def get_job(job_id: str):
-    row = fetch_one("SELECT * FROM processing_jobs WHERE id=?", (job_id,))
-    if not row: raise HTTPException(404, "job not found")
-    return dict(row)
-
-def _process_pages(job_id: str, pages: List[np.ndarray], doc_type: Optional[str], document_id: str) -> List[Dict[str,Any]]:
-    engine = UnifiedOCREngine.instance()
-    created = []
-    _update_job(job_id, status="processing", message="OCR running", current_page=0)
-    for idx, bgr in enumerate(pages):
-        _update_job(job_id, current_page=idx, message=f"OCR page {idx+1}")
-        ocr = engine.run_ocr(bgr)
-        texts = [l.get("text","") for l in ocr.get("lines",[])]
-        inferred = _guess_kind(texts, doc_type)
+def _parse_and_group(path: str, doc_type: Optional[str]) -> List[Dict[str,Any]]:
+    # 1) OCR every page
+    pages = _pdf_pages(path)
+    parsed_pages: List[Dict[str,Any]] = []
+    for i in pages:
+        bgr = render_pdf_page_bgr(path, i)
+        ocr = _ocr_page(bgr)
         parsed = parse_invoice_from_ocr(ocr)
-        if inferred == "invoice":
-            eid = _persist_invoice(parsed, document_id, idx)
-            created.append({"type":"invoice","id":eid,"page":idx})
-        elif inferred == "delivery_note":
-            eid = _persist_dn(parsed, document_id, idx)
-            created.append({"type":"delivery_note","id":eid,"page":idx})
-        else:
-            created.append({"type":"unknown","id":None,"page":idx})
-    _update_job(job_id, status="persisted", message="Entities saved", created_ids=json.dumps(created))
-    _update_job(job_id, status="done", message="Complete")
-    return created
+        parsed["raw_lines"] = ocr.get("lines", [])
+        parsed_pages.append({"page_index": i, "parse": parsed})
+    # 2) Group pages into invoices
+    groups = group_pages(parsed_pages)  # e.g., [[4,5,7],[6],...]
+    out: List[Dict[str,Any]] = []
+    doc_id = None
+    return_groups = []
+    return_groups = groups
+    return return_groups
+
+def _persist_invoice_group(path: str, document_id: str, pages: List[int], page_parses: List[Dict[str,Any]]) -> Dict[str,Any]:
+    """Create one invoice from multiple pages; merge line items and fields."""
+    inv_id = str(uuid.uuid4())
+    # merge fields (prefer first non-empty)
+    supplier = next((p.get("supplier") for p in page_parses if p.get("supplier")), None)
+    inv_date = next((p.get("invoice_date") for p in page_parses if p.get("invoice_date")), None)
+    reference = next((p.get("reference") for p in page_parses if p.get("reference")), None)
+    currency = next((p.get("currency") for p in page_parses if p.get("currency")), "GBP")
+    db.execute(
+        "INSERT INTO invoices (id, supplier, invoice_date, status, currency, document_id, page_no, total_value) VALUES (?,?,?,?,?,?,?,?)",
+        (inv_id, supplier, inv_date, "scanned", currency, document_id, pages[0], None)
+    )
+    # pages table
+    for idx in pages:
+        db.execute("INSERT INTO invoice_pages (id, invoice_id, page_no, ocr_json) VALUES (?,?,?,?)",
+                   (str(uuid.uuid4()), inv_id, idx, None))
+    # merge line items: concat all, compute totals server-side
+    for p in page_parses:
+        for li in p.get("line_items", []):
+            q = float(li.get("quantity") or 0)
+            up = float(li.get("unit_price") or 0)
+            tot = q * up
+            db.execute(
+              "INSERT INTO invoice_line_items (id, invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?,?)",
+              (str(uuid.uuid4()), inv_id, li.get("description"), q, up, tot, li.get("uom"), float(li.get("vat_rate") or 0), li.get("source") or "ocr")
+            )
+    return {"type":"invoice","id":inv_id,"pages":pages,"page_count":len(pages)}
 
 @router.post("")
-async def upload(
-    file: UploadFile = File(...),
-    doc_type: Optional[str] = Form(None),
-    kind: Optional[str] = Query(None)
-):
-    path = _save_to_disk(file)
-    doc_id = _persist_doc(path)
+async def upload(file: UploadFile = File(...), doc_type: Optional[str] = Form(None), kind: Optional[str] = Query(None)):
+    # Save & content-type gate
+    path = _save(file)
     ctype = (file.content_type or "").lower()
-
-    # pages
-    if ctype in ALLOWED_PDF or path.lower().endswith(".pdf"):
-        pages = _pdf_to_bgr_list(path)
-    elif ctype in ALLOWED_IMG or any(path.lower().endswith(ext) for ext in [".png",".jpg",".jpeg"]):
-        pages = [_decode_img(path)]
-    else:
+    if not (ctype in ALLOWED_PDF or path.lower().endswith(".pdf") or ctype in ALLOWED_IMG or any(path.lower().endswith(e) for e in [".png",".jpg",".jpeg"])):
         raise HTTPException(415, f"Unsupported file type: {ctype or os.path.splitext(path)[1]}")
 
-    job_id = _create_job(len(pages), doc_id, doc_type or kind)
-    # process inline (simple) so we don't introduce a new worker system
-    created = _process_pages(job_id, pages, doc_type or kind, doc_id)
-    return {"job_id": job_id, "document_id": doc_id, "items": created, "stored_path": path}
+    document_id = _persist_document(path)
+    items: List[Dict[str,Any]] = []
 
-# legacy shim: POST /api/upload?kind=invoice
+    if ctype in ALLOWED_PDF or path.lower().endswith(".pdf"):
+        # PDF → OCR each page → group → persist per-invoice
+        # Collect parses per page
+        pages = _pdf_pages(path)
+        per_page_parses = []
+        for i in pages:
+            bgr = render_pdf_page_bgr(path, i)
+            ocr = _ocr_page(bgr)
+            parsed = parse_invoice_from_ocr(ocr)
+            parsed["raw_lines"] = ocr.get("lines", [])
+            per_page_parses.append({"page_index": i, "parse": parsed})
+
+        # Group into invoices
+        groups = group_pages(per_page_parses)
+
+        # Persist per-group (invoice)
+        for grp in groups:
+            grp_parses = [pp["parse"] for pp in per_page_parses if pp["page_index"] in grp]
+            item = _persist_invoice_group(path, document_id, grp, grp_parses)
+            items.append(item)
+    else:
+        # Single image → one invoice
+        bgr = cv2.imdecode(np.frombuffer(open(path, "rb").read(), dtype=np.uint8), cv2.IMREAD_COLOR)
+        ocr = _ocr_page(bgr)
+        parsed = parse_invoice_from_ocr(ocr)
+        inv = _persist_invoice_group(path, document_id, [0], [parsed])
+        items.append(inv)
+
+    return {"document_id": document_id, "items": items, "stored_path": path}
+
 @legacy.post("")
 async def upload_legacy(file: UploadFile = File(...), kind: Optional[str] = Query(None)):
     return await upload(file=file, doc_type=None, kind=kind)

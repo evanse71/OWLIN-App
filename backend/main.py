@@ -12,11 +12,13 @@ try:
     from backend.routers import health as health_router
     from backend.routers import invoices as invoices_router
     from backend.routers import uploads as uploads_router
+    from backend.routers import exports as exports_router
     from backend.routers import pairing as pairing_router
 except ImportError:
     from routers import health as health_router
     from routers import invoices as invoices_router
     from routers import uploads as uploads_router
+    from routers import exports as exports_router
     from routers import pairing as pairing_router
 
 # Add the project root to Python path
@@ -87,9 +89,10 @@ app = FastAPI(title="Owlin Unified Single Port")
 
 # Include the new routers
 app.include_router(health_router.router)
-app.include_router(invoices_router.router)
 app.include_router(uploads_router.router)
-app.include_router(uploads_router.legacy)  # Legacy upload endpoint
+app.include_router(uploads_router.legacy)  # legacy shim for /api/upload?kind=invoice
+app.include_router(invoices_router.router)
+app.include_router(exports_router.router)
 app.include_router(pairing_router.router)
 
 @app.exception_handler(Exception)
