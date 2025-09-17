@@ -8,7 +8,7 @@ from ..ocr.unified_ocr_engine import UnifiedOCREngine
 from ..extraction.parsers.invoice_parser import parse_invoice_from_ocr
 from ..extraction.grouping import group_pages
 from ..utils.pdf_to_image import render_pdf_page_bgr
-from ..db import db
+from ..db import execute, fetch_one, fetch_all, uuid_str
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 legacy = APIRouter(prefix="/api/upload", tags=["uploads-legacy"])
@@ -26,8 +26,8 @@ def _save(pathlike: UploadFile) -> str:
     return out
 
 def _persist_document(path: str) -> str:
-    doc_id = str(uuid.uuid4())
-    db.execute("INSERT INTO documents (id, path) VALUES (?,?)", (doc_id, path))
+    doc_id = uuid_str()
+    execute("INSERT INTO documents (id, path) VALUES (?,?)", (doc_id, path))
     return doc_id
 
 def _ocr_page(img_bgr) -> Dict[str, Any]:
@@ -68,23 +68,23 @@ def _persist_invoice_group(path: str, document_id: str, pages: List[int], page_p
     inv_date = next((p.get("invoice_date") for p in page_parses if p.get("invoice_date")), None)
     reference = next((p.get("reference") for p in page_parses if p.get("reference")), None)
     currency = next((p.get("currency") for p in page_parses if p.get("currency")), "GBP")
-    db.execute(
+    execute(
         "INSERT INTO invoices (id, supplier, invoice_date, status, currency, document_id, page_no, total_value) VALUES (?,?,?,?,?,?,?,?)",
         (inv_id, supplier, inv_date, "scanned", currency, document_id, pages[0], None)
     )
     # pages table
     for idx in pages:
-        db.execute("INSERT INTO invoice_pages (id, invoice_id, page_no, ocr_json) VALUES (?,?,?,?)",
-                   (str(uuid.uuid4()), inv_id, idx, None))
+        execute("INSERT INTO invoice_pages (id, invoice_id, page_no, ocr_json) VALUES (?,?,?,?)",
+                   (uuid_str(), inv_id, idx, None))
     # merge line items: concat all, compute totals server-side
     for p in page_parses:
         for li in p.get("line_items", []):
             q = float(li.get("quantity") or 0)
             up = float(li.get("unit_price") or 0)
             tot = q * up
-            db.execute(
+            execute(
               "INSERT INTO invoice_line_items (id, invoice_id, description, quantity, unit_price, total, uom, vat_rate, source) VALUES (?,?,?,?,?,?,?,?,?)",
-              (str(uuid.uuid4()), inv_id, li.get("description"), q, up, tot, li.get("uom"), float(li.get("vat_rate") or 0), li.get("source") or "ocr")
+              (uuid_str(), inv_id, li.get("description"), q, up, tot, li.get("uom"), float(li.get("vat_rate") or 0), li.get("source") or "ocr")
             )
     return {"type":"invoice","id":inv_id,"pages":pages,"page_count":len(pages)}
 

@@ -15,11 +15,18 @@ try:
     from backend.routers import exports as exports_router
     from backend.routers import pairing as pairing_router
 except ImportError:
-    from routers import health as health_router
-    from routers import invoices as invoices_router
-    from routers import uploads as uploads_router
-    from routers import exports as exports_router
-    from routers import pairing as pairing_router
+    try:
+        from .routers import health as health_router
+        from .routers import invoices as invoices_router
+        from .routers import uploads as uploads_router
+        from .routers import exports as exports_router
+        from .routers import pairing as pairing_router
+    except ImportError:
+        from routers import health as health_router
+        from routers import invoices as invoices_router
+        from routers import uploads as uploads_router
+        from routers import exports as exports_router
+        from routers import pairing as pairing_router
 
 # Add the project root to Python path
 ROOT = str(Path(__file__).resolve().parents[1])
