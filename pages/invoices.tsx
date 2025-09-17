@@ -1,186 +1,123 @@
-import * as React from "react";
-import { useRouter } from "next/router";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Search, Plus, FileText, Package } from "lucide-react";
-import UploadGlass from "@/components/invoices/UploadGlass";
+import React, { useEffect, useState } from "react";
+import UploadGlass from "@/components/UploadGlass";
 import InvoiceCardEnhanced from "@/components/invoices/InvoiceCardEnhanced";
-import DeliveryNoteCard from "@/components/invoices/DeliveryNoteCard";
-import ManualInvoiceModal from "@/components/invoices/ManualInvoiceModal";
-import ManualDeliveryNoteModal from "@/components/invoices/ManualDeliveryNoteModal";
-import { getInvoices, getDNs, type Invoice, type DeliveryNote } from "@/lib/api";
+import BottomActionBar from "@/components/BottomActionBar";
+import { apiListInvoices } from "@/lib/api";
 
-// Types imported from lib/api.ts
+type Item = { type:string; id:string; pages:number[]; page_count:number };
 
 export default function InvoicesPage() {
-  const router = useRouter();
-  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
-  const [deliveryNotes, setDeliveryNotes] = React.useState<DeliveryNote[]>([]);
-  const [searchTerm, setSearchTerm] = React.useState<string>("");
-  const [showManualInvoice, setShowManualInvoice] = React.useState(false);
-  const [showManualDN, setShowManualDN] = React.useState(false);
+  const [items, setItems] = useState<Item[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
 
-  const refresh = React.useCallback(async () => {
-    try {
-      const [invoicesData, dnsData] = await Promise.all([
-        getInvoices(),
-        getDNs()
-      ]);
-      setInvoices(invoicesData.items);
-      setDeliveryNotes(dnsData.items);
-    } catch (error) {
-      console.error('Failed to refresh data:', error);
-    }
-  }, []);
+  const refresh = async () => {
+    const data = await apiListInvoices();
+    // Map list to card items
+    const mapped = (data.items || []).map((x:any)=>({ type:"invoice", id:x.id, pages:x.pages || [], page_count:x.page_count || 0 }));
+    setItems(mapped);
+  };
 
-  React.useEffect(() => { refresh(); }, [refresh]);
+  useEffect(()=>{ refresh(); }, []);
 
-  React.useEffect(() => {
-    const supplier = String(router.query.supplier || "");
-    if (supplier) setSearchTerm(supplier);
-  }, [router.query.supplier]);
+  const onCreated = (newItems: any[]) => {
+    const mapped = newItems.map((x:any)=>({ type:"invoice", id:x.id, pages:x.pages || [], page_count:x.page_count || 0 }));
+    setItems(prev => [...mapped, ...prev]);
+  };
 
-  // Polling for queued invoices
-  React.useEffect(() => {
-    const hasQueued = invoices.some(inv => inv.status === 'queued');
-    if (!hasQueued) return;
+  const onSave = () => {
+    console.log("Save selected:", selected);
+    // TODO: implement save logic
+  };
 
-    const interval = setInterval(refresh, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
-  }, [invoices, refresh]);
-
-  const handleUploaded = React.useCallback((res: {invoice_id?: string, dn_id?: string}) => {
-    // Optimistic update - refresh after a short delay to allow backend processing
-    setTimeout(refresh, 1000);
-  }, [refresh]);
-
-  const filteredInvoices = React.useMemo(() => {
-    const s = (searchTerm || "").toLowerCase().trim();
-    if (!s) return invoices;
-    
-    return invoices.filter(inv =>
-      [inv.supplier, inv.id, inv.document_id, inv.filename].filter(Boolean)
-        .map(x => String(x).toLowerCase())
-        .some(txt => txt.includes(s))
-    );
-  }, [invoices, searchTerm]);
+  const onCancel = () => {
+    setSelected([]);
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header with dual glass upload */}
-      <Card className="rounded-2xl">
-        <CardHeader className="p-4 sm:p-6">
-          <CardTitle className="text-lg font-semibold">Upload Documents</CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 sm:p-6 pt-0">
-          <UploadGlass onUploaded={handleUploaded} />
-        </CardContent>
-      </Card>
+      {/* Upload Box */}
+      <div className="card rounded-2xl">
+        <div className="card-header p-4 sm:p-6">
+          <h3 className="card-title text-lg font-semibold">Upload Documents</h3>
+        </div>
+        <div className="card-content p-4 sm:p-6 pt-0">
+          <UploadGlass onCreated={onCreated} />
+        </div>
+      </div>
 
-      {/* Search and controls */}
-      <Card className="rounded-2xl">
-        <CardContent className="p-4 sm:p-6">
+      {/* Search and Actions */}
+      <div className="card rounded-2xl">
+        <div className="card-content p-4 sm:p-6">
           <div className="flex items-center gap-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search invoices..."
-                className="w-full h-10 pl-10 pr-4 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+              </svg>
+              <input placeholder="Search invoices..." className="w-full h-10 pl-10 pr-4 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             </div>
-            <Button variant="outline" onClick={refresh}>
-              Refresh
-            </Button>
-            <Button variant="outline" onClick={() => setShowManualInvoice(true)}>
-              <FileText className="w-4 h-4 mr-2" />
+            <button className="btn btn-outline btn-default" onClick={refresh}>Refresh</button>
+            <button className="btn btn-outline btn-default">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text w-4 h-4 mr-2">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" x2="8" y1="13" y2="13"></line>
+                <line x1="16" x2="8" y1="17" y2="17"></line>
+                <line x1="10" x2="8" y1="9" y2="9"></line>
+              </svg>
               Manual Invoice
-            </Button>
-            <Button variant="outline" onClick={() => setShowManualDN(true)}>
-              <Package className="w-4 h-4 mr-2" />
+            </button>
+            <button className="btn btn-outline btn-default">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-package w-4 h-4 mr-2">
+                <path d="m7.5 4.27 9 5.15"></path>
+                <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+                <path d="m3.3 7 8.7 5 8.7-5"></path>
+                <path d="M12 22V12"></path>
+              </svg>
               Manual DN
-            </Button>
+            </button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* Delivery Notes Section */}
-      {deliveryNotes.length > 0 && (
-        <Card className="rounded-2xl">
-          <CardHeader className="p-4 sm:p-6">
-            <CardTitle className="text-lg font-semibold">
-              Delivery Notes ({deliveryNotes.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 sm:p-6 pt-0">
-            <div className="space-y-3">
-              {deliveryNotes.slice(0, 3).map(dn => (
-                <DeliveryNoteCard key={dn.id} dn={dn} />
-              ))}
-              {deliveryNotes.length > 3 && (
-                <div className="text-center pt-2">
-                  <Button variant="ghost" size="sm">
-                    View all {deliveryNotes.length} delivery notes
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Invoices List */}
+      {/* Invoice Cards */}
       <div className="space-y-4">
-        {filteredInvoices.map(invoice => (
-          <InvoiceCardEnhanced 
-            key={invoice.id} 
-            inv={invoice} 
-            onChanged={refresh}
-          />
-        ))}
-        
-        {filteredInvoices.length === 0 && (
-          <Card className="rounded-2xl">
-            <CardContent className="py-12 text-center">
+        {items.length === 0 ? (
+          <div className="card rounded-2xl">
+            <div className="card-content py-12 text-center">
               <div className="text-gray-500">
-                {searchTerm ? (
-                  <div>
-                    <Search className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                    <p>No invoices match your search criteria.</p>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => {
-                        setSearchTerm('');
-                        router.push('/invoices');
-                      }} 
-                      className="mt-2"
-                    >
-                      Clear filters
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <p>No invoices yet. Upload a PDF or create a manual invoice to get started.</p>
-                  </div>
-                )}
+                <div>
+                  <p>No invoices yet. Upload a PDF or create a manual invoice to get started.</p>
+                </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
+        ) : (
+          items.map((item) => (
+            <InvoiceCardEnhanced
+              key={item.id}
+              item={item}
+              selected={selected.includes(item.id)}
+              onSelect={(id, checked) => {
+                if (checked) {
+                  setSelected(prev => [...prev, id]);
+                } else {
+                  setSelected(prev => prev.filter(x => x !== id));
+                }
+              }}
+            />
+          ))
         )}
       </div>
 
-      {/* Manual Modals */}
-      <ManualInvoiceModal
-        isOpen={showManualInvoice}
-        onClose={() => setShowManualInvoice(false)}
-        onCreated={refresh}
-      />
-      <ManualDeliveryNoteModal
-        isOpen={showManualDN}
-        onClose={() => setShowManualDN(false)}
-        onCreated={refresh}
-      />
+      {/* Bottom Action Bar */}
+      {selected.length > 0 && (
+        <BottomActionBar
+          selectedIds={selected}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      )}
     </div>
   );
 }

@@ -1,113 +1,154 @@
-// Same-origin API calls only - no external base URLs
-async function req(path: string, init?: RequestInit) {
-  const r = await fetch(path, { credentials: "same-origin", ...init });
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-  const ct = r.headers.get("content-type") || "";
-  return ct.includes("application/json") ? r.json() : r.text();
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8081';
+
+// Helper function for API calls
+async function apiCall(endpoint: string, options: any = {}) {
+  const url = `${BASE_URL}${endpoint}`;
+  const response = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
 }
 
-export const api = {
-  health: () => req("/api/health"),
-  status: () => req("/api/status"),
-  listInvoices: () => req("/api/invoices"),
-  createInvoice: (body: any) =>
-    req("/api/manual/invoices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
-  suppliers: () => req("/api/suppliers")
-};
-
-// Legacy exports for backward compatibility
-export const getUnmatchedNotes = () => req("/api/unmatched-notes");
-export const uploadDocument = (file: File) => {
-  const formData = new FormData();
-  formData.append("file", file);
-  return req("/api/upload", { method: "POST", body: formData });
-};
-export const getJob = (id: string) => req(`/api/jobs/${id}`);
-export const pairNote = (invoiceId: string, noteId: string) => 
-  req(`/api/pair-note`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invoiceId, noteId }) });
-export const clearAllDocuments = () => req("/api/clear-documents", { method: "POST" });
-export const saveDraftDocuments = (data: any) => 
-  req("/api/save-drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
-export const submitDocuments = (data: any) => 
-  req("/api/submit-documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
-export const getUnmatchedDNCount = () => req("/api/unmatched-dn-count");
-export const getOpenIssuesCount = () => req("/api/open-issues-count");
-export const createInvoice = api.createInvoice;
-export const createDeliveryNote = (body: any) =>
-  req("/api/manual/delivery-notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-export const getDeliveryNote = (id: string) => req(`/api/delivery-notes/${id}`);
-export const compareDN = (a: any, b: any) => ({ match: false, score: 0 });
-export const postManualInvoice = (body: any) => createInvoice(body);
-export const postManualDN = (body: any) => createDeliveryNote(body);
-
-export default api;
-
-// Additional helper functions for the UI integration
-export const getJSON = async <T>(path: string): Promise<T> => {
-  const r = await fetch(path, { cache: 'no-store' });
-  if (!r.ok) throw new Error(`${path} ${r.status}`);
-  return r.json();
-};
-
-export const postForm = async <T>(path: string, form: FormData): Promise<T> => {
-  const r = await fetch(path, { method: 'POST', body: form });
-  if (!r.ok) throw new Error(`${path} ${r.status}`);
-  return r.json();
-};
-
-export const postJSON = async <T>(path: string, body: any): Promise<T> => {
-  const r = await fetch(path + (path.includes('?') ? '' : ''), {
+// Helper function for form data
+async function postForm(endpoint: string, formData: FormData) {
+  const url = `${BASE_URL}${endpoint}`;
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
+    body: formData,
   });
-  if (!r.ok) throw new Error(`${path} ${r.status}`);
+
+  if (!response.ok) {
+    throw new Error(`Form submission failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Health check
+export const checkHealth = () => apiCall('/api/health');
+export const checkOCRHealth = () => apiCall('/api/health/ocr');
+
+// Upload operations (new endpoints)
+export async function apiUpload(file: File, docType?: "invoice"|"delivery_note") {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (docType) fd.append("doc_type", docType);
+  const res = await fetch(`${BASE_URL}/api/uploads`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+  return res.json(); // {job_id, document_id, items, stored_path}
+}
+
+export async function apiUploadLegacy(file: File, kind: "invoice"|"delivery_note") {
+  const fd = new FormData(); fd.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/upload?kind=${encodeURIComponent(kind)}`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+  return res.json();
+}
+
+export async function apiJob(jobId: string) {
+  const res = await fetch(`${BASE_URL}/api/uploads/jobs/${jobId}`);
+  if (!res.ok) throw new Error("job not found");
+  return res.json();
+}
+
+// Invoice operations
+export const getInvoices = () => apiCall('/api/invoices');
+export const getInvoice = (id: string) => apiCall(`/api/invoices/${id}`);
+
+// Manual invoice creation
+export const createManualInvoice = (invoice: any) => apiCall('/api/invoices/manual', {
+  method: 'POST',
+  body: JSON.stringify(invoice),
+});
+
+// Line items
+export const getInvoiceLineItems = (invoiceId: string) => apiCall(`/api/invoices/${invoiceId}/line-items`);
+export const addLineItems = (invoiceId: string, items: any[]) => apiCall(`/api/invoices/${invoiceId}/line-items`, {
+  method: 'POST',
+  body: JSON.stringify(items),
+});
+
+export async function apiInvoiceLineItems(id: string) {
+  const res = await fetch(`${BASE_URL}/api/invoices/${id}/line-items`);
+  if (!res.ok) throw new Error("line items load failed");
+  return res.json(); // {items:[...]}
+}
+
+export async function apiRescanInvoice(id: string) {
+  const res = await fetch(`${BASE_URL}/api/invoices/${id}/rescan`, { method: "POST" });
+  if (!res.ok) throw new Error("rescan failed");
+  return res.json();
+}
+
+export async function apiUpdateLineItem(invoiceId: string, lineId: number | string, body: any) {
+  const res = await fetch(`${BASE_URL}/api/invoices/${invoiceId}/line-items/${lineId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("update line item failed");
+  return res.json();
+}
+
+export async function apiDeleteLineItem(invoiceId: string, lineId: number | string) {
+  const res = await fetch(`${BASE_URL}/api/invoices/${invoiceId}/line-items/${lineId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("delete line item failed");
+  return res.json();
+}
+
+export async function apiListInvoices() {
+  const r = await fetch(`${BASE_URL}/api/invoices`);
+  if (!r.ok) throw new Error("list invoices failed");
+  return r.json(); // {items:[{id,supplier,...,pages, page_count}]}
+}
+
+export async function apiGetInvoice(id: string) {
+  const r = await fetch(`${BASE_URL}/api/invoices/${id}`);
+  if (!r.ok) throw new Error("get invoice failed");
   return r.json();
+}
+
+export async function apiExportInvoices(ids: string[]) {
+  const r = await fetch(`${BASE_URL}/api/exports/invoices`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ invoice_ids: ids })
+  });
+  if (!r.ok) throw new Error("export failed");
+  return r.json(); // {ok, zip_path}
+}
+
+// Legacy upload operations (for backward compatibility)
+export const uploadInvoice = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return postForm('/api/upload?kind=invoice', fd);
 };
 
-// Enhanced types for the new API structure
-export type Invoice = {
-  id: string;
-  document_id: string | null;
-  supplier: string | null;
-  invoice_date: string | null;
-  total_value: number | null;
-  matched_delivery_note_id: string | null;
-  status: 'queued' | 'scanned' | 'matched' | 'manual' | null;
-  filename?: string;
+export const uploadDN = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return postForm('/api/upload?kind=delivery_note', fd);
 };
 
-export type LineItem = {
-  sku?: string;
-  name?: string;
-  description?: string;
-  qty?: number;
-  unit?: number;
-  unit_price?: number;
-  price?: number;
-  total?: number;
-};
+// Delivery note operations
+export const getDeliveryNotes = () => apiCall('/api/delivery-notes');
+export const getDeliveryNote = (id: string) => apiCall(`/api/delivery-notes/${id}`);
 
-export type DeliveryNote = {
-  id: string;
-  document_id?: string | null;
-  supplier: string;
-  delivery_date: string;
-  total_value?: number | null;
-  filename?: string;
-};
+// Pairing suggestions
+export const getPairingSuggestions = (invoiceId: string) => apiCall(`/api/pairing/suggestions?invoice_id=${invoiceId}`);
 
-// Canonical API functions
-export const getInvoices = () => getJSON('/api/invoices');
-export const getInvoiceLines = (id: string) => getJSON(`/api/invoices/${id}/line-items`);
-export const getDeliveryNotes = () => getJSON('/api/delivery-notes');
-export const getDeliveryNoteLines = (id: string) => getJSON(`/api/delivery-notes/${id}/line-items`);
-export const createManualInvoice = (b: any) => postJSON('/api/invoices/manual', b);
-export const createManualDN = (b: any) => postJSON('/api/delivery-notes/manual', b);
-export const uploadInvoice = (file: File) => { const fd = new FormData(); fd.append('file', file); fd.append('doc_type', 'invoice'); return postForm('/api/uploads', fd); };
-export const uploadDN = (file: File) => { const fd = new FormData(); fd.append('file', file); fd.append('doc_type', 'delivery_note'); return postForm('/api/uploads', fd); };
-export const pairingSuggestions = (id: string) => getJSON(`/api/pairing/suggestions?invoice_id=${id}`);
-export const pairingConfirm = (i: string, d: string) => postJSON(`/api/pairing/confirm?invoice_id=${i}&delivery_note_id=${d}`, {});
-
-// Legacy aliases for backward compatibility
-export const getDNs = getDeliveryNotes;
+// Supplier operations
+export const getSuppliers = () => apiCall('/api/suppliers');
+export const getSupplierScorecards = () => apiCall('/api/suppliers/scorecards');
