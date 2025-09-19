@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { apiGetInvoice, apiInvoiceLineItems, apiRescanInvoice, getPageThumbnailUrl } from '@/lib/api';
-import LineItemsTable from './LineItemsTable';
+import { apiGetInvoice, apiInvoiceLineItems, apiRescanInvoice } from '@/lib/api';
+import LineItemsTable from '../LineItemsTable';
 
 interface InvoiceCardEnhancedProps {
   item: {
@@ -17,6 +17,11 @@ export default function InvoiceCardEnhanced({ item }: InvoiceCardEnhancedProps) 
   const [confidence, setConfidence] = useState<number | undefined>();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const getPageThumbnailUrl = (invoiceId: string, pageNo: number) => {
+    const base = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL || "";
+    return `${base}/api/invoices/${invoiceId}/pages/${pageNo}/thumb`;
+  };
 
   useEffect(() => {
     loadInvoiceData();

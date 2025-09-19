@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
-import { apiUpload, apiGetInvoice } from '@/lib/api';
+import React, { useRef, useState } from "react";
+import type { InvoiceDTO } from "@/types/invoice";
+import { apiUpload, apiGetInvoice } from "@/lib/api";
 
 interface UploadGlassProps {
   docType?: "invoice" | "delivery_note";
-  onCreated: (items: any[]) => void;
+  onCreated: (items: InvoiceDTO[]) => void;
 }
 
 export default function UploadGlass({ docType = "invoice", onCreated }: UploadGlassProps) {
@@ -58,7 +59,7 @@ export default function UploadGlass({ docType = "invoice", onCreated }: UploadGl
             if (["parsed", "scanned", "manual"].includes(d.status ?? "")) {
               done = true;
               setUploadStatus("Grouped");
-              onCreated([{ id: newId, pages: d.pages ?? [0], page_count: d.page_count ?? 1 }]);
+              onCreated([{ id: newId, pages: d.pages ?? [0], page_count: d.page_count ?? 1, status: 'ocr' }]);
             } else {
               setUploadStatus(d.status === "ocr" ? "OCR..." : "Parsing...");
             }
@@ -70,7 +71,7 @@ export default function UploadGlass({ docType = "invoice", onCreated }: UploadGl
         
         if (!done) {
           setUploadStatus("Complete");
-          onCreated([{ id: newId, pages: [0], page_count: 1 }]);
+          onCreated([{ id: newId, pages: [0], page_count: 1, status: 'ocr' }]);
         }
       } else {
         onCreated(result.items || []);

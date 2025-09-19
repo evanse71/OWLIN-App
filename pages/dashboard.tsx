@@ -1,5 +1,5 @@
 import React from 'react';
-import { getJSON } from '@/lib/api';
+import { fetchJSON } from '@/lib/api';
 
 type Metrics = {
   total_spend: number;
@@ -27,8 +27,8 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       const [metricsData, timeSeriesData] = await Promise.all([
-        getJSON<Metrics>('/api/dashboard/metrics'),
-        getJSON<TimeSeries>('/api/dashboard/spend_timeseries')
+        fetchJSON<Metrics>('/api/dashboard/metrics'),
+        fetchJSON<TimeSeries>('/api/dashboard/spend_timeseries')
       ]);
       setMetrics(metricsData);
       setTimeSeries(timeSeriesData);

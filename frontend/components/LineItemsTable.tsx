@@ -1,19 +1,26 @@
-import React, { useState } from 'react';
-import { apiUpdateLineItem, apiDeleteLineItem } from '@/lib/api';
+import React, { useState } from "react";
+import type { LineItemDTO, UpdateLineItemRequest } from "@/types/invoice";
+import { apiUpdateLineItem, apiDeleteLineItem } from "@/lib/api";
 
 interface LineItemsTableProps {
   invoiceId: string;
-  items: any[];
+  items: LineItemDTO[];
   onChange: () => void;
 }
 
 export default function LineItemsTable({ invoiceId, items, onChange }: LineItemsTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editData, setEditData] = useState<any>({});
+  const [editData, setEditData] = useState<UpdateLineItemRequest>({
+    description: '',
+    quantity: 0,
+    unit_price: 0,
+    uom: '',
+    vat_rate: 0,
+  });
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleEdit = (item: any) => {
-    setEditingId(item.id || item.line_id);
+  const handleEdit = (item: LineItemDTO) => {
+    setEditingId(item.id);
     setEditData({
       description: item.description || '',
       quantity: item.quantity || 0,
@@ -42,14 +49,20 @@ export default function LineItemsTable({ invoiceId, items, onChange }: LineItems
 
   const handleCancel = () => {
     setEditingId(null);
-    setEditData({});
+    setEditData({
+      description: '',
+      quantity: 0,
+      unit_price: 0,
+      uom: '',
+      vat_rate: 0,
+    });
   };
 
-  const handleDelete = async (item: any) => {
+  const handleDelete = async (item: LineItemDTO) => {
     if (!confirm('Are you sure you want to delete this line item?')) return;
     
     try {
-      await apiDeleteLineItem(invoiceId, item.id || item.line_id);
+      await apiDeleteLineItem(invoiceId, item.id);
       onChange();
     } catch (error) {
       console.error('Failed to delete line item:', error);
@@ -57,10 +70,10 @@ export default function LineItemsTable({ invoiceId, items, onChange }: LineItems
     }
   };
 
-  const calculateTotal = (item: any) => {
-    const quantity = parseFloat(item.quantity || 0);
-    const unitPrice = parseFloat(item.unit_price || 0);
-    const vatRate = parseFloat(item.vat_rate || 0);
+  const calculateTotal = (item: LineItemDTO) => {
+    const quantity = parseFloat(String(item.quantity || 0));
+    const unitPrice = parseFloat(String(item.unit_price || 0));
+    const vatRate = parseFloat(String(item.vat_rate || 0));
     
     const subtotal = quantity * unitPrice;
     const vat = subtotal * (vatRate / 100);
@@ -91,11 +104,11 @@ export default function LineItemsTable({ invoiceId, items, onChange }: LineItems
         </thead>
         <tbody>
           {items.map((item, index) => {
-            const isEditing = editingId === (item.id || item.line_id);
+            const isEditing = editingId === item.id;
             const total = calculateTotal(item);
             
             return (
-              <tr key={item.id || item.line_id || index} className="border-b">
+              <tr key={item.id || index} className="border-b">
                 <td className="py-2">
                   {isEditing ? (
                     <input
@@ -112,9 +125,9 @@ export default function LineItemsTable({ invoiceId, items, onChange }: LineItems
                 <td className="py-2 text-right">
                   {isEditing ? (
                     <>
-                      <label htmlFor={`qty-${item.id || item.line_id || index}`} className="sr-only">Quantity</label>
+                      <label htmlFor={`qty-${item.id || index}`} className="sr-only">Quantity</label>
                       <input
-                        id={`qty-${item.id || item.line_id || index}`}
+                        id={`qty-${item.id || index}`}
                         type="number"
                         step="0.01"
                         value={editData.quantity}
@@ -130,9 +143,9 @@ export default function LineItemsTable({ invoiceId, items, onChange }: LineItems
                 <td className="py-2 text-right">
                   {isEditing ? (
                     <>
-                      <label htmlFor={`price-${item.id || item.line_id || index}`} className="sr-only">Unit price</label>
+                      <label htmlFor={`price-${item.id || index}`} className="sr-only">Unit price</label>
                       <input
-                        id={`price-${item.id || item.line_id || index}`}
+                        id={`price-${item.id || index}`}
                         type="number"
                         step="0.01"
                         value={editData.unit_price}
@@ -142,7 +155,7 @@ export default function LineItemsTable({ invoiceId, items, onChange }: LineItems
                       />
                     </>
                   ) : (
-                    item.unit_price ? `£${parseFloat(item.unit_price).toFixed(2)}` : '—'
+                    item.unit_price ? `£${parseFloat(String(item.unit_price)).toFixed(2)}` : '—'
                   )}
                 </td>
                 <td className="py-2">

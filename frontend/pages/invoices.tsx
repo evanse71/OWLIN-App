@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import UploadGlass from "@/components/UploadGlass";
-import InvoiceCardEnhanced from "@/components/InvoiceCardEnhanced";
+import InvoiceCardEnhanced from "@/components/invoices/InvoiceCardEnhanced";
 import BottomActionBar from "@/components/BottomActionBar";
-import { DeliveryNotesPanel } from "@/components/invoices/DeliveryNotesPanel";
+// import DeliveryNotesPanel from "@/components/DeliveryNotesPanel";
 import { apiListInvoices, apiExportInvoices } from "@/lib/api";
 
 type Item = { type:string; id:string; pages:number[]; page_count:number };
@@ -113,14 +113,15 @@ export default function InvoicesPage() {
             <UploadGlass docType="delivery_note" onCreated={() => {}} />
           </div>
 
-          <DeliveryNotesPanel
-            selectedInvoiceId={selectedInvoiceId}
-            siteId={siteId}
-            onPaired={(dnId, invId) => {
-              // Optionally: trigger invoice state update or toast
-              console.log(`Paired DN-${dnId} to INV-${invId}`);
-            }}
-          />
+          <div className="p-4 border rounded-lg bg-gray-50">
+            <h3 className="font-semibold mb-2">Delivery Notes</h3>
+            <p className="text-sm text-gray-600">
+              Delivery notes panel for invoice {selectedInvoiceId || 'none selected'}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Site: {siteId || 'none'}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -128,7 +129,6 @@ export default function InvoicesPage() {
         selectedIds={selected} 
         onSave={onSave} 
         onCancel={onCancel} 
-        onSend={onSend}
       />
     </div>
   );

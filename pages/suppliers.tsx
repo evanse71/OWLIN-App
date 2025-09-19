@@ -1,5 +1,5 @@
 import React from 'react';
-import { getJSON } from '@/lib/api';
+import { fetchJSON } from '@/lib/api';
 import { useRouter } from 'next/router';
 
 type SupplierScorecard = {
@@ -23,7 +23,7 @@ export default function SuppliersPage() {
   const loadData = React.useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getJSON<SuppliersData>('/api/suppliers/scorecards');
+      const data = await fetchJSON<SuppliersData>('/api/suppliers/scorecards');
       setSuppliers(data.items);
     } catch (error) {
       console.error('Failed to load suppliers data:', error);
