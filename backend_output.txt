@@ -1,0 +1,28 @@
+Starting OWLIN Test Backend...
+Server will be available at: http://localhost:8000
+Health check: http://localhost:8000/api/health
+Upload: http://localhost:8000/api/upload
+OCR: Disabled (uploads will work without OCR)
+Starting on port 8000...
+INFO:     127.0.0.1:59441 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64014 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59874 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64274 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55438 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63498 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63505 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59396 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56857 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56869 - "GET /api/invoices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63515 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64654 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63525 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62986 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64767 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56491 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49601 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62367 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54940 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54362 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64778 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56598 - "GET /api/health HTTP/1.1" 200 OK

@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+date: Sun, 19 Oct 2025 12:46:12 GMT
+server: uvicorn
+content-type: text/html; charset=utf-8
+accept-ranges: bytes
+content-length: 1030
+last-modified: Sat, 18 Oct 2025 16:22:14 GMT
+etag: "5a1f74974ee0f7eefad4d5e807a95fe1"
+x-content-type-options: nosniff
+referrer-policy: no-referrer
+permissions-policy: geolocation=(), camera=(), microphone=()
+content-security-policy: default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';
+x-request-id: 1a4ff9f7251844cd8fccdbcfbfc61443
+x-ratelimit-limit: 10
+x-ratelimit-remaining: 10
+

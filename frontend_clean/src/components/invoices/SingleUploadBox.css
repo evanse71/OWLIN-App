@@ -1,0 +1,96 @@
+.single-upload-box {
+  background: #FFFFFF;
+  border: 2px dashed #CBD5E1;
+  border-radius: 12px;
+  padding: 48px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.single-upload-box:hover {
+  border-color: #38BDF8;
+  background: #F8FAFC;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.single-upload-box.dragging {
+  border-color: #38BDF8;
+  background: #EFF6FF;
+  transform: scale(1.02);
+}
+
+.single-upload-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.single-upload-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1E293B;
+  margin: 0 0 8px;
+}
+
+.single-upload-subtitle {
+  font-size: 14px;
+  color: #64748B;
+  margin: 0 0 8px;
+}
+
+.single-upload-formats {
+  font-size: 12px;
+  color: #94A3B8;
+  margin: 0 0 16px;
+}
+
+.single-upload-hint {
+  font-size: 12px;
+  color: #94A3B8;
+  font-style: italic;
+  margin: 16px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid #F1F5F9;
+}
+
+/* Compact version */
+.single-upload-box-compact {
+  padding: 10px 14px;
+  min-height: auto;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border-width: 1.5px;
+}
+
+.single-upload-box-compact svg {
+  width: 20px;
+  height: 20px;
+  color: #64748B;
+  flex-shrink: 0;
+}
+
+.single-upload-box-compact span {
+  font-size: 14px;
+  font-weight: 500;
+  color: #64748B;
+}
+
+.single-upload-box-compact:hover {
+  border-color: #38BDF8;
+  background: #EFF6FF;
+}
+
+.single-upload-box-compact:hover svg,
+.single-upload-box-compact:hover span {
+  color: #1E293B;
+}
+

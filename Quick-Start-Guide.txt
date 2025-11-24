@@ -1,0 +1,61 @@
+OWLIN Application Quick Start Guide
+
+This folder contains your Owlin application backup and several one-click scripts to manage it.
+
+---
+
+🚀 To Start the Application (Recommended - Single Port):
+1. Double-click: Start-Owlin-From-Backup.bat
+2. A browser window will open automatically to: http://127.0.0.1:8000/invoices
+3. The header venue should display "Royal Oak Hotel".
+
+---
+
+💻 To Start in Development Mode (Two Windows - for UI changes):
+1. Double-click: Start-Owlin-Dev-TwoWindows.bat
+2. Two terminal windows will open (one for backend, one for frontend).
+3. A browser window will open automatically to: http://localhost:5173/invoices
+
+---
+
+📦 To Create a New Backup:
+1. Double-click: Backup-Now.bat
+2. A timestamped ZIP file of your current backup folder will be created in the 'backups\' subfolder.
+3. Explorer will open, highlighting the new backup file.
+
+---
+
+🔎 To Verify Royal Oak Hotel Data:
+1. Double-click: Verify-Royal-Oak-Data.bat
+2. A PowerShell window will open, showing if the backend is reachable, a list of venues (should include "Royal Oak Hotel"), and the count of documents.
+
+---
+
+🛑 To Stop All Owlin Services:
+1. Double-click: Stop-Owlin.bat
+2. This will forcefully close all running Python (backend) and Node (frontend) processes.
+
+---
+
+📂 To Open Your Latest Backup:
+1. Double-click: Open-Latest-Backup.bat
+2. This will open File Explorer and select your most recently created backup ZIP file.
+
+---
+
+⏰ To Set Up Nightly Backups (Windows Scheduled Task):
+1. Right-click 'Setup-Nightly-Backup.bat' and select 'Run as Administrator'.
+2. This will create a scheduled task to run 'Backup-Now.bat' daily at 23:30.
+
+---
+
+Troubleshooting Quickies:
+
+*   Page looks old: Press Ctrl + Shift + R (hard refresh) in your browser.
+*   Demo data shows: Close all terminal windows, then re-run a 'Start-Owlin-*.bat' script.
+*   403 on dev endpoints: Ensure you are running the backend with OWLIN_ENV=dev (the scripts handle this).
+*   Port in use: Close old terminal windows or run 'Stop-Owlin.bat' then re-run your desired 'Start-Owlin-*.bat' script.
+
+---
+
+Enjoy your Owlin application with your Royal Oak Hotel data!

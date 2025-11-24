@@ -1,0 +1,59 @@
+.health-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.health-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.health-status-indicator.status-healthy {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.health-status-indicator.status-healthy .health-status-dot {
+  background: #10B981;
+}
+
+.health-status-indicator.status-unhealthy {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.health-status-indicator.status-unhealthy .health-status-dot {
+  background: #EF4444;
+}
+
+.health-status-indicator.status-checking {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.health-status-indicator.status-checking .health-status-dot {
+  background: #F59E0B;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.health-status-text {
+  font-size: 13px;
+}
+

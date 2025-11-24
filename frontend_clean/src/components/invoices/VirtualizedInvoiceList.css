@@ -1,0 +1,19 @@
+.virtualized-invoice-list {
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.virtualized-invoice-list-content {
+  position: relative;
+}
+
+.virtualized-list-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+

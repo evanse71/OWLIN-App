@@ -1,0 +1,22 @@
+{
+  "status": "ok",
+  "db_wal": true,
+  "ocr_v2_enabled": false,
+  "ocr_inflight": 0,
+  "ocr_queue": 0,
+  "ocr_max_concurrency": 4,
+  "total_processed": 0,
+  "total_errors": 0,
+  "build_sha": "unknown",
+  "last_doc_id": null,
+  "db_path_abs": "C:\\Users\\tedev\\FixPack_2025-11-02_133105\\data\\owlin.db",
+  "app_version": "1.2.0",
+  "timestamp": "2025-11-02T14:20:54.005262",
+  "env": {
+    "python_version": "3.13.7 (tags/v3.13.7:bcee1c3, Aug 14 2025, 14:15:11) [MSC v.1944 64 bit (AMD64)]",
+    "working_dir": "C:\\Users\\tedev\\FixPack_2025-11-02_133105",
+    "db_path_abs": "C:\\Users\\tedev\\FixPack_2025-11-02_133105\\data\\owlin.db",
+    "db_exists": true,
+    "db_size_bytes": 40960
+  }
+}

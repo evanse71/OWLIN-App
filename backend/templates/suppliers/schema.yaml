@@ -1,0 +1,99 @@
+# Supplier Template Schema
+# This file defines the structure and validation rules for supplier templates
+
+schema_version: "1.0"
+description: "Supplier template schema for invoice processing overrides"
+
+template_structure:
+  # Basic template metadata
+  name: "string (required)"  # Human-readable template name
+  version: "string (required)"  # Template version
+  description: "string (optional)"  # Template description
+  
+  # Supplier identification
+  supplier:
+    name: "string (required)"  # Primary supplier name
+    aliases: "array of strings (optional)"  # Alternative names
+    vat_ids: "array of strings (optional)"  # VAT registration numbers
+    header_tokens: "array of strings (optional)"  # Key tokens in header
+    
+  # Field override patterns
+  field_overrides:
+    # Date extraction patterns
+    date:
+      patterns: "array of regex patterns (optional)"
+      format: "string (optional)"  # Expected date format
+      
+    # Total amount extraction
+    total:
+      patterns: "array of regex patterns (optional)"
+      currency_symbols: "array of strings (optional)"
+      
+    # VAT total extraction  
+    vat_total:
+      patterns: "array of regex patterns (optional)"
+      currency_symbols: "array of strings (optional)"
+      
+    # Line item processing rules
+    line_items:
+      quantity_patterns: "array of regex patterns (optional)"
+      unit_price_patterns: "array of regex patterns (optional)"
+      total_patterns: "array of regex patterns (optional)"
+      
+  # Processing rules
+  processing:
+    fuzzy_threshold: "float (optional, default: 0.8)"  # Fuzzy matching threshold
+    case_sensitive: "boolean (optional, default: false)"  # Case sensitivity
+    priority: "integer (optional, default: 0)"  # Template priority (higher = more important)
+
+validation_rules:
+  required_fields:
+    - name
+    - version
+    - supplier.name
+    
+  optional_fields:
+    - description
+    - supplier.aliases
+    - supplier.vat_ids
+    - supplier.header_tokens
+    - field_overrides
+    - processing
+    
+  field_types:
+    name: "string"
+    version: "string"
+    description: "string"
+    supplier.name: "string"
+    supplier.aliases: "array"
+    supplier.vat_ids: "array"
+    supplier.header_tokens: "array"
+    field_overrides: "object"
+    processing: "object"
+
+example_template:
+  name: "Brakes Food Service"
+  version: "1.0"
+  description: "Template for Brakes food service invoices"
+  
+  supplier:
+    name: "Brakes Food Service"
+    aliases: ["Brakes", "Brakes Food", "Brakes Group"]
+    vat_ids: ["GB123456789"]
+    header_tokens: ["Brakes", "Food Service", "Invoice"]
+    
+  field_overrides:
+    total:
+      patterns: ["Total.*?£([0-9,]+\\\\.?[0-9]*)", "Amount.*?£([0-9,]+\\\\.?[0-9]*)"]
+      currency_symbols: ["£", "GBP"]
+    vat_total:
+      patterns: ["VAT.*?£([0-9,]+\\\\.?[0-9]*)", "Tax.*?£([0-9,]+\\\\.?[0-9]*)"]
+      currency_symbols: ["£", "GBP"]
+    date:
+      patterns: ["Date.*?([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", "Invoice Date.*?([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})"]
+      format: "DD/MM/YYYY"
+      
+  processing:
+    fuzzy_threshold: 0.8
+    case_sensitive: false
+    priority: 10

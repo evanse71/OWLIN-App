@@ -1,0 +1,1 @@
+Tables: ['documents', 'sqlite_sequence', 'pairs', 'audit_log']

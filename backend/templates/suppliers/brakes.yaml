@@ -1,0 +1,62 @@
+name: "Brakes Food Service"
+version: "1.0"
+description: "Template for Brakes food service invoices - UK's leading food service company"
+
+supplier:
+  name: "Brakes Food Service"
+  aliases: 
+    - "Brakes"
+    - "Brakes Food"
+    - "Brakes Group"
+    - "Brakes Food Service Ltd"
+    - "Brakes Foodservice"
+  vat_ids: 
+    - "GB123456789"
+    - "GB987654321"
+  header_tokens: 
+    - "Brakes"
+    - "Food Service"
+    - "Invoice"
+    - "Delivery Note"
+    - "Order"
+
+field_overrides:
+  total:
+    patterns:
+      - "Total.*?£([0-9,]+\\.?[0-9]*)"
+      - "Amount.*?£([0-9,]+\\.?[0-9]*)"
+      - "Net Total.*?£([0-9,]+\\.?[0-9]*)"
+      - "Invoice Total.*?£([0-9,]+\\.?[0-9]*)"
+    currency_symbols: ["£", "GBP"]
+    
+  vat_total:
+    patterns:
+      - "VAT.*?£([0-9,]+\\.?[0-9]*)"
+      - "Tax.*?£([0-9,]+\\.?[0-9]*)"
+      - "VAT @ 20%.*?£([0-9,]+\\.?[0-9]*)"
+      - "VAT Amount.*?£([0-9,]+\\.?[0-9]*)"
+    currency_symbols: ["£", "GBP"]
+    
+  date:
+    patterns:
+      - "Date.*?([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})"
+      - "Invoice Date.*?([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})"
+      - "Due Date.*?([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})"
+      - "Order Date.*?([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})"
+    format: "DD/MM/YYYY"
+    
+  line_items:
+    quantity_patterns:
+      - "Qty.*?([0-9]+\\.?[0-9]*)"
+      - "Quantity.*?([0-9]+\\.?[0-9]*)"
+    unit_price_patterns:
+      - "Unit Price.*?£([0-9,]+\\.?[0-9]*)"
+      - "Price.*?£([0-9,]+\\.?[0-9]*)"
+    total_patterns:
+      - "Line Total.*?£([0-9,]+\\.?[0-9]*)"
+      - "Total.*?£([0-9,]+\\.?[0-9]*)"
+
+processing:
+  fuzzy_threshold: 0.8
+  case_sensitive: false
+  priority: 10

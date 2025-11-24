@@ -1,0 +1,56 @@
+.stats-widget {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: #FFFFFF;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.stats-widget-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 80px;
+}
+
+.stats-widget-label {
+  font-size: 11px;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.stats-widget-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1E293B;
+  line-height: 1.2;
+}
+
+.stats-widget-value-success {
+  color: #065F46;
+}
+
+.stats-widget-value-info {
+  color: #1E40AF;
+}
+
+.stats-widget-value-warning {
+  color: #991B1B;
+}
+
+.stats-widget-value-primary {
+  color: #1E293B;
+}
+
+.stats-widget-divider {
+  width: 1px;
+  height: 32px;
+  background: #E5E7EB;
+  flex-shrink: 0;
+}
+

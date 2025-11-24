@@ -1,0 +1,1 @@
+import sqlite3; import json; h = json.load(open("health.json")); db = h["db_path_abs"]; conn = sqlite3.connect(db); cursor = conn.cursor(); cursor.execute("SELECT name FROM sqlite_master WHERE type=\"table\";"); tables = cursor.fetchall(); print("Tables:", [t[0] for t in tables]); conn.close()

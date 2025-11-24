@@ -1,0 +1,75 @@
+.dual-upload-boxes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 0;
+  width: 100%;
+}
+
+.upload-box {
+  background: #FFFFFF;
+  border: 2px dashed #CBD5E1;
+  border-radius: 16px;
+  padding: 48px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+.upload-box:hover {
+  border-color: #38BDF8;
+  background: #F8FAFC;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.upload-box.dragging {
+  border-color: #38BDF8;
+  background: #EFF6FF;
+  transform: scale(1.02);
+}
+
+.upload-box-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.upload-box-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1E293B;
+  margin: 0 0 8px;
+}
+
+.upload-box-subtitle {
+  font-size: 14px;
+  color: #64748B;
+  margin: 0 0 8px;
+}
+
+.upload-box-formats {
+  font-size: 12px;
+  color: #94A3B8;
+  margin: 0 0 16px;
+}
+
+.upload-box-hint {
+  font-size: 12px;
+  color: #94A3B8;
+  font-style: italic;
+  margin: 16px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid #F1F5F9;
+}
+
+@media (max-width: 768px) {
+  .dual-upload-boxes {
+    grid-template-columns: 1fr;
+  }
+}
+

@@ -1,0 +1,19 @@
+[Unit]
+Description=OWLIN Single-Port Application
+After=network.target
+
+[Service]
+Type=simple
+User=owlin
+Group=owlin
+WorkingDirectory=/opt/owlin
+Environment=OWLIN_SINGLE_PORT=1
+Environment=VITE_API_BASE_URL=http://127.0.0.1:8000
+ExecStart=/usr/bin/uvicorn test_backend_simple:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

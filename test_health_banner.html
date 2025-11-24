@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Health Banner Test</title>
+</head>
+<body>
+    <h1>Health Banner Test</h1>
+    <div id="status">Testing...</div>
+    
+    <script>
+        async function testHealthBanner() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                // Test same-origin health check (single-port mode)
+                const response = await fetch('/api/health', { cache: 'no-store' });
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.innerHTML = `
+                        <div style="color: green;">
+                            ✅ Health Banner Test PASSED<br>
+                            Status: ${data.status}<br>
+                            Version: ${data.version}<br>
+                            SHA: ${data.sha}
+                        </div>
+                    `;
+                } else {
+                    statusDiv.innerHTML = `
+                        <div style="color: red;">
+                            ❌ Health Banner Test FAILED<br>
+                            Status: ${response.status} ${response.statusText}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div style="color: red;">
+                        ❌ Health Banner Test FAILED<br>
+                        Error: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // Run test when page loads
+        testHealthBanner();
+    </script>
+</body>
+</html>

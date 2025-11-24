@@ -1,0 +1,15 @@
+[Unit]
+Description=OWLIN Weekly Database VACUUM
+After=network.target
+
+[Service]
+Type=oneshot
+User=owlin
+Group=owlin
+WorkingDirectory=/opt/owlin
+ExecStart=/usr/bin/python -c "import sqlite3; conn=sqlite3.connect('data/owlin.db'); conn.execute('VACUUM'); conn.close(); print('Database VACUUM completed')"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

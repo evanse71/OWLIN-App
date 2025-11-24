@@ -1,0 +1,155 @@
+.invoice-card-receipt {
+  background: #FFFFFF;
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid #E5E7EB;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+}
+
+.invoice-card-receipt:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.invoice-card-receipt.selected {
+  border-color: #94A3B8;
+  border-width: 2px;
+  box-shadow: 0 2px 8px rgba(148, 163, 184, 0.2);
+}
+
+.invoice-card-receipt.submitted {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.invoice-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.invoice-card-id {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #94A3B8;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.invoice-card-date {
+  font-size: 11px;
+  color: #64748B;
+}
+
+.invoice-card-middle {
+  margin-bottom: 10px;
+  flex: 1;
+}
+
+.invoice-card-supplier {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1E293B;
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.invoice-card-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1E293B;
+  margin-bottom: 4px;
+}
+
+.invoice-card-vat {
+  font-size: 12px;
+  color: #64748B;
+}
+
+.invoice-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.invoice-card-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.invoice-card-status-badge.status-yellow {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.invoice-card-status-badge.status-green {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.invoice-card-status-badge.status-blue {
+  background: #DBEAFE;
+  color: #1E40AF;
+}
+
+.invoice-card-status-badge.status-red {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.invoice-card-status-badge.status-gray {
+  background: #F1F5F9;
+  color: #475569;
+}
+
+.invoice-card-confidence-badge,
+.invoice-card-page-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: #F1F5F9;
+  color: #475569;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.invoice-card-progress {
+  height: 10px;
+  background: #F1F5F9;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.invoice-card-progress-bar {
+  height: 100%;
+  background: #38BDF8;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+

@@ -1,0 +1,49 @@
+# Build artifacts & deps
+dist/
+build/
+node_modules/
+**/.venv/
+.venv/
+.env
+.env.*
+
+# Local data & binaries
+data/
+uploads/
+backups/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Large assets
+**/*.pdf
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.tif
+**/*.tiff
+**/*.gif
+assets/**
+
+# Tooling noise
+.coverage
+coverage/
+.cache/
+.pnp.*
+package-lock.json
+npm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+
+# Editor caches
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated evidence files
+*.log
+*.txt
+*.har

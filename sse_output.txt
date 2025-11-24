@@ -1,0 +1,2 @@
+data: {"type": "error", "message": "'CodeReader' object has no attribute '_cache_misses'"}
+

@@ -1,0 +1,11 @@
+2025-11-06 21:15:07,005 INFO: Logging to data/logs/app.log with rotation
+2025-11-06 21:15:07,006 WARNING: [OCR disabled] No module named 'backend'
+2025-11-06 21:15:07,016 INFO: Single-port mode: Serving frontend from tmp_lovable/dist
+2025-11-06 21:15:07,016 INFO: Static files directory contents: ['assets', 'favicon.ico', 'index.html', 'placeholder.svg', 'robots.txt']
+INFO:     Started server process [28928]
+INFO:     Waiting for application startup.
+2025-11-06 21:15:07,073 INFO: Created uploads directory: data/uploads
+2025-11-06 21:15:07,075 INFO: Pairs migration completed
+2025-11-06 21:15:07,076 INFO: Pairing system initialized
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

@@ -1,0 +1,93 @@
+# Phase 3 Supplier Templates
+# Invoice patterns for template matching and auto-acceptance
+# Based on common UK/EU hospitality suppliers
+
+- supplier: "ACME SUPPLIES LTD"
+  logo_hint: "ACME"
+  invoice_no: ["Invoice #", "Invoice No", "INV-", "Invoice Number"]
+  date: ["Date:", "Invoice Date:", "Date of Invoice"]
+  table_headers: ["Item", "Qty", "Price", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "FARM FRESH PRODUCE"
+  logo_hint: "FARM FRESH"
+  invoice_no: ["Invoice:", "No.", "Invoice Number", "Ref"]
+  date: ["Date:", "Invoice Date", "Date of Supply"]
+  table_headers: ["Description", "Quantity", "Unit Price", "Line Total", "Product", "Qty", "Price", "Total"]
+  currency: ["€", "EUR"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "ROYAL OAK HOTEL SUPPLIERS"
+  logo_hint: "ROYAL OAK"
+  invoice_no: ["Invoice #", "Invoice No", "INV-", "Invoice Number"]
+  date: ["Date:", "Invoice Date:", "Date of Invoice"]
+  table_headers: ["Item", "Qty", "Price", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "CHEF'S PANTRY"
+  logo_hint: "CHEF'S PANTRY"
+  invoice_no: ["Invoice:", "No.", "Invoice Number", "Ref"]
+  date: ["Date:", "Invoice Date", "Date of Supply"]
+  table_headers: ["Description", "Quantity", "Unit Price", "Line Total", "Product", "Qty", "Price", "Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "PREMIUM BEVERAGES LTD"
+  logo_hint: "PREMIUM BEVERAGES"
+  invoice_no: ["Invoice #", "Invoice No", "INV-", "Invoice Number"]
+  date: ["Date:", "Invoice Date:", "Date of Invoice"]
+  table_headers: ["Item", "Qty", "Price", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "CLEANING SUPPLIES CO"
+  logo_hint: "CLEANING SUPPLIES"
+  invoice_no: ["Invoice:", "No.", "Invoice Number", "Ref"]
+  date: ["Date:", "Invoice Date", "Date of Supply"]
+  table_headers: ["Description", "Quantity", "Unit Price", "Line Total", "Product", "Qty", "Price", "Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "OFFICE EQUIPMENT LTD"
+  logo_hint: "OFFICE EQUIPMENT"
+  invoice_no: ["Invoice #", "Invoice No", "INV-", "Invoice Number"]
+  date: ["Date:", "Invoice Date:", "Date of Invoice"]
+  table_headers: ["Item", "Qty", "Price", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "SECURITY SERVICES"
+  logo_hint: "SECURITY SERVICES"
+  invoice_no: ["Invoice:", "No.", "Invoice Number", "Ref"]
+  date: ["Date:", "Invoice Date", "Date of Service"]
+  table_headers: ["Service", "Hours", "Rate", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "MAINTENANCE CONTRACTORS"
+  logo_hint: "MAINTENANCE"
+  invoice_no: ["Invoice #", "Invoice No", "INV-", "Invoice Number"]
+  date: ["Date:", "Invoice Date:", "Date of Work"]
+  table_headers: ["Work Item", "Hours", "Rate", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]
+
+- supplier: "UTILITY SERVICES"
+  logo_hint: "UTILITY SERVICES"
+  invoice_no: ["Invoice:", "No.", "Invoice Number", "Ref"]
+  date: ["Date:", "Invoice Date", "Billing Date"]
+  table_headers: ["Service", "Usage", "Rate", "Total", "Description", "Quantity", "Unit Price", "Line Total"]
+  currency: ["£", "GBP"]
+  total_keywords: ["Total", "Amount Due", "Grand Total", "Net Total"]
+  tax_keywords: ["VAT", "Tax", "VAT @", "Tax @"]

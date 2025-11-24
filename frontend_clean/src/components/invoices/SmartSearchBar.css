@@ -1,0 +1,126 @@
+.smart-search-container {
+  position: relative;
+  width: 100%;
+}
+
+.smart-search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--spacing-md);
+  transition: all var(--transition-base);
+}
+
+.smart-search-input-wrapper:hover {
+  border-color: var(--color-border-hover);
+}
+
+.smart-search-input-wrapper.focused {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.smart-search-icon {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  margin-right: var(--spacing-sm);
+}
+
+.smart-search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  padding: 12px 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  background: transparent;
+}
+
+.smart-search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.smart-search-clear {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  margin-left: var(--spacing-sm);
+}
+
+.smart-search-clear:hover {
+  background: var(--color-neutral-light);
+  color: var(--color-text-primary);
+}
+
+.smart-search-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  max-height: 300px;
+  overflow-y: auto;
+  animation: slideDown var(--transition-base);
+}
+
+.smart-search-suggestion {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: 12px var(--spacing-md);
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  transition: all var(--transition-fast);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.smart-search-suggestion:last-child {
+  border-bottom: none;
+}
+
+.smart-search-suggestion:hover,
+.smart-search-suggestion.selected {
+  background: var(--color-bg-hover);
+  color: var(--color-primary);
+}
+
+.smart-search-suggestion svg {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.smart-search-suggestion:hover svg,
+.smart-search-suggestion.selected svg {
+  color: var(--color-primary);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

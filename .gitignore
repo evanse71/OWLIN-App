@@ -1,0 +1,58 @@
+.env
+env.local
+
+# Logs
+*.log
+*.log.*
+logs/
+backend_stdout.log*
+
+# Backups
+backups/
+_backup_*/
+*.zip
+*.tar.gz
+source_extracted/
+support_extracted/
+
+# Build artifacts
+out/
+dist/
+build/
+.next/
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Data and uploads
+data/
+uploads/
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+health.json
+validation_output/
+FixPack_*/

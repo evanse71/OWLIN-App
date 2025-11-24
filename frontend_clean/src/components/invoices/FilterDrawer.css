@@ -1,0 +1,92 @@
+.filter-drawer {
+  background: #FFFFFF;
+  border-top: 1px solid #E5E7EB;
+  padding: 16px 24px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.filter-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.filter-drawer-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1E293B;
+  margin: 0;
+}
+
+.filter-drawer-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 0.2s;
+}
+
+.filter-drawer-close:hover {
+  background: #F1F5F9;
+  color: #1E293B;
+}
+
+.filter-drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.filter-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.filter-drawer-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #1E293B;
+}
+
+.filter-drawer-label {
+  font-weight: 500;
+}
+
+.filter-drawer-label.filter-gray {
+  color: #475569;
+}
+
+.filter-drawer-label.filter-green {
+  color: #065F46;
+}
+
+.filter-drawer-label.filter-blue {
+  color: #1E40AF;
+}
+
+.filter-drawer-label.filter-red {
+  color: #991B1B;
+}
+
