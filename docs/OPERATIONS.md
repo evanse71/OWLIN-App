@@ -431,6 +431,55 @@ curl "http://127.0.0.1:8000/api/audit/export?from=$FROM&to=$TO" > audit_export.c
 
 ---
 
+## Pairing System
+
+### Schema Highlights
+
+- `invoices.delivery_note_id` enforces one-to-one links to `documents.id`.
+- `invoices.pairing_status`, `pairing_confidence`, `pairing_model_version` capture current decision state.
+- `documents.invoice_id` mirrors the invoice link for delivery notes (unique partial index keeps it 1 ↔ 1).
+- `pairing_events` logs every action (`auto_paired`, `suggested`, `confirmed_manual`, `rejected`, `unpaired`, `reassigned`) along with serialized feature vectors and model version.
+- `supplier_stats` stores cadence data (typical weekdays, average/std days between deliveries) keyed by supplier + venue, enabling adaptive windows.
+
+### Service Flow
+
+- Implemented in `backend/services/pairing_service.py`.
+- Candidate filter: same venue + supplier, delivery note unpaired (unless reassign), total difference ≤ 30%, date difference within ±10 days baseline (expanded via supplier stats). Delivery notes without totals are allowed but flagged in features.
+- Feature vector includes amount/date deltas, supplier-string similarity, OCR confidence, line-item similarity, cadence deltas, and document age. Each feature is serialized for downstream audit/LLM use.
+- Scoring:
+  - Loads `data/models/pairing_prl_v1.pkl` (LogisticRegression). The wrapper auto-falls back to a deterministic heuristic when the model or `joblib` is missing and logs the downgrade once per boot.
+- Decision thresholds:
+  - Auto-pair if probability ≥ 0.95, clear gap ≥ 0.10 vs second candidate, and both invoice + DN are currently unpaired.
+  - Suggest if probability ≥ 0.40 (invoice stays unpaired but `pairing_status='suggested'` with stored confidence).
+  - Otherwise mark invoice `unpaired`.
+- Manual invoice creation now triggers a best-effort evaluation (`mode="normal"`) immediately after insert to catch obvious matches early.
+
+### API Endpoints (`/api/pairing`)
+
+| Method | Description |
+| --- | --- |
+| `GET /invoice/{invoice_id}?mode=normal|review` | Returns `PairingResult` (status + ranked candidates + feature summaries). `mode=normal` may auto-pair; `mode=review` is read-only. |
+| `POST /invoice/{invoice_id}/confirm` | Manually pair invoice ↔ delivery note (`pairing_status='manual_paired'`). |
+| `POST /invoice/{invoice_id}/reject` | Clear suggestion state, log rejection (optionally include `delivery_note_id`). |
+| `POST /invoice/{invoice_id}/unpair` | Break existing link and log `unpaired`. |
+| `POST /invoice/{invoice_id}/reassign` | Swap invoice to a new delivery note (old link cleared, `action='reassigned'`). |
+
+All mutation endpoints accept `actor_type` (`user`/`system`/`llm_suggestion`) and optional `user_id` for audit attribution.
+
+### Model Training Stub
+
+- Script: `python backend/scripts/train_pairing_model.py --min-samples 200`
+- Pulls labeled rows from `pairing_events` (`auto_paired`/`confirmed_manual` → positive, `rejected` → negative).
+- Writes the pickle model to `data/models/pairing_prl_v1.pkl`, which the service hot-loads on next evaluation.
+
+### Operational Tips
+
+- Check `pairing_events` when debugging: `feature_vector_json` shows the exact payload used for each decision.
+- Supplier cadence drifts? refresh `supplier_stats` (planned management command) so adaptive windows stay accurate.
+- Missing model file? Expect log entry (`pairing model not found`) and conservative heuristic behavior until a trained model is supplied.
+
+---
+
 ## Alerting Recommendations
 
 ### Critical Alerts
