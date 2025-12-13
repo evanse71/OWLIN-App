@@ -1,0 +1,66 @@
+{
+  "start_dir": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean",
+  "candidates_considered": 24,
+  "top5": [
+    {
+      "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean",
+      "score": 14,
+      "found": [
+        "app",
+        "requirements.txt",
+        "data/owlin.db",
+        "license",
+        "scripts",
+        "README.md"
+      ],
+      "hints": [
+        "app/main.py"
+      ]
+    },
+    {
+      "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/data",
+      "score": 3,
+      "found": [
+        "owlin.db"
+      ],
+      "hints": []
+    },
+    {
+      "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/cpp_preprocessing",
+      "score": 1,
+      "found": [
+        "README.md"
+      ],
+      "hints": []
+    },
+    {
+      "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/tesseract_bin",
+      "score": 1,
+      "found": [
+        "README.md"
+      ],
+      "hints": []
+    },
+    {
+      "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean/app",
+      "score": 0,
+      "found": [],
+      "hints": []
+    }
+  ],
+  "chosen": {
+    "path": "/Users/glennevans/owlin-app-clean/OWLIN-App-clean",
+    "score": 14,
+    "found": [
+      "app",
+      "requirements.txt",
+      "data/owlin.db",
+      "license",
+      "scripts",
+      "README.md"
+    ],
+    "hints": [
+      "app/main.py"
+    ]
+  }
+}

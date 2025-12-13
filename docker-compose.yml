@@ -1,0 +1,59 @@
+# OWLIN - Docker Compose Configuration
+# Complete stack with Owlin + Ollama
+
+version: '3.8'
+
+services:
+  # Owlin Application
+  owlin:
+    build: .
+    container_name: owlin-app
+    ports:
+      - "8001:8001"
+    environment:
+      - OWLIN_PORT=8001
+      - LLM_BASE=http://ollama:11434
+      - OWLIN_DB_URL=sqlite:///./data/owlin.db
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - owlin_data:/app/data
+      - owlin_logs:/app/logs
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: owlin-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  owlin_data:
+    driver: local
+  owlin_logs:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  default:
+    name: owlin-network

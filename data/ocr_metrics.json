@@ -1,0 +1,156 @@
+[
+  {
+    "timestamp": "2025-08-06T22:20:28.401295",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpaa4jq874.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.5160751342773438,
+    "confidence": 0.9425000000000002,
+    "word_count": 12,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:20:28.683943",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpaa4jq874.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.282181978225708,
+    "confidence": 0.9433333333333334,
+    "word_count": 12,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:20:29.480087",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmp19euaad5.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.7240951061248779,
+    "confidence": 0.943023255813954,
+    "word_count": 43,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:20:30.000621",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpz6yqvs84.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.2812540531158447,
+    "confidence": 0.9583333333333334,
+    "word_count": 6,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:27.226032",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpnp68hxjw.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.5749032497406006,
+    "confidence": 0.9425000000000002,
+    "word_count": 12,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:27.501306",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpnp68hxjw.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.27468204498291016,
+    "confidence": 0.9433333333333334,
+    "word_count": 12,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:27.870720",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpnximmuj0.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.30993080139160156,
+    "confidence": 0.943023255813954,
+    "word_count": 43,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:28.190268",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmp1by2ojfx.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.22171497344970703,
+    "confidence": 0.9460000000000001,
+    "word_count": 5,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:28.194128",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmp0f0b7ahb.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.22530198097229004,
+    "confidence": 0.9280000000000002,
+    "word_count": 5,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:28.370673",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpz9agazjj.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.17950105667114258,
+    "confidence": 0.908,
+    "word_count": 5,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-06T22:21:28.597944",
+    "file_path": "/var/folders/q5/t54l8nxd2j9_hxyv__cmdcwc0000gn/T/tmpf7aro5do.png",
+    "engine_used": "tesseract",
+    "processing_time": 0.19165897369384766,
+    "confidence": 0.9583333333333334,
+    "word_count": 6,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-07T09:52:57.452570",
+    "file_path": "data/uploads/0dcf1c48-1b3d-4f5c-b38a-70ba96011e01_20250807_095247.pdf",
+    "engine_used": "tesseract",
+    "processing_time": 1.781580924987793,
+    "confidence": 0.8692045454545461,
+    "word_count": 176,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-07T09:54:01.618206",
+    "file_path": "data/uploads/548afdbf-41c3-4ed1-ad72-7864d6a3616f_20250807_095400.pdf",
+    "engine_used": "tesseract",
+    "processing_time": 0.9680891036987305,
+    "confidence": 0.8692045454545461,
+    "word_count": 176,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  },
+  {
+    "timestamp": "2025-08-07T09:54:04.164636",
+    "file_path": "data/uploads/013ff7f3-43c5-40a4-8bfc-61f67b8f04e3_20250807_095403.pdf",
+    "engine_used": "tesseract",
+    "processing_time": 0.7664139270782471,
+    "confidence": 0.8717204301075271,
+    "word_count": 93,
+    "success": true,
+    "document_type": "invoice",
+    "error_message": null
+  }
+]

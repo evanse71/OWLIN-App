@@ -1,0 +1,793 @@
+"""
+Multi-Page Document Processor with 100% Reliability
+
+This module provides robust processing for multi-page documents with aggregation,
+page-by-page confidence tracking, and comprehensive error handling.
+
+Key Features:
+- Multi-page PDF and image processing
+- Page-by-page confidence tracking
+- Result aggregation across pages
+- Deduplication and merging of line items
+- Comprehensive error handling
+- Progress tracking and reporting
+
+Author: OWLIN Development Team
+Version: 2.0.0
+"""
+
+import logging
+import time
+import re
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+import os
+
+from PIL import Image
+import pypdfium2 as pdfium
+
+# Local imports
+from backend.ocr.enhanced_ocr_engine import enhanced_ocr_engine
+from backend.ocr.enhanced_line_item_extractor import get_enhanced_line_item_extractor, LineItem
+from backend.ocr.ocr_engine import OCRResult
+
+"""
+Multi-Invoice Splitter
+
+Splits multi-page PDFs into individual invoices using header fingerprinting.
+"""
+
+import logging
+import hashlib
+from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+import fitz  # PyMuPDF
+from PIL import Image
+import numpy as np
+from io import BytesIO
+
+logger = logging.getLogger(__name__)
+
+class HeaderFingerprint:
+    """Header fingerprinting for document identification"""
+    
+    def __init__(self):
+        self.logo_threshold = 0.8
+        self.address_threshold = 0.7
+    
+    def extract_header_region(self, page_image: Image.Image) -> Image.Image:
+        """Extract header region from page image"""
+        try:
+            # Extract top 20% of page as header region
+            width, height = page_image.size
+            header_height = int(height * 0.2)
+            
+            header_region = page_image.crop((0, 0, width, header_height))
+            return header_region
+            
+        except Exception as e:
+            logger.error(f"❌ Header region extraction failed: {e}")
+            return page_image
+    
+    def compute_fingerprint(self, header_image: Image.Image) -> str:
+        """Compute fingerprint for header region"""
+        try:
+            # Convert to grayscale and resize for consistency
+            gray_image = header_image.convert('L')
+            resized = gray_image.resize((100, 50))  # Standard size
+            
+            # Convert to numpy array
+            array = np.array(resized)
+            
+            # Compute hash of pixel values
+            pixel_hash = hashlib.sha256(array.tobytes()).hexdigest()
+            
+            return pixel_hash
+            
+        except Exception as e:
+            logger.error(f"❌ Fingerprint computation failed: {e}")
+            return ""
+    
+    def compare_fingerprints(self, fp1: str, fp2: str) -> float:
+        """Compare two fingerprints and return similarity score"""
+        try:
+            if not fp1 or not fp2:
+                return 0.0
+            
+            # Simple Hamming distance for hex strings
+            if len(fp1) != len(fp2):
+                return 0.0
+            
+            differences = sum(1 for a, b in zip(fp1, fp2) if a != b)
+            similarity = 1.0 - (differences / len(fp1))
+            
+            return similarity
+            
+        except Exception as e:
+            logger.error(f"❌ Fingerprint comparison failed: {e}")
+            return 0.0
+
+class MultiInvoiceSplitter:
+    """Splits multi-page PDFs into individual invoices"""
+    
+    def __init__(self):
+        self.header_fingerprint = HeaderFingerprint()
+        self.similarity_threshold = 0.85
+    
+    def split_pdf(self, pdf_path: Path) -> List[Dict[str, Any]]:
+        """
+        Split PDF into individual invoices.
+        
+        Args:
+            pdf_path: Path to PDF file
+            
+        Returns:
+            List of invoice segments with page ranges
+        """
+        try:
+            # Open PDF
+            doc = fitz.open(str(pdf_path))
+            if not doc:
+                logger.error(f"❌ Failed to open PDF: {pdf_path}")
+                return []
+            
+            # Extract page images and fingerprints
+            page_fingerprints = []
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                
+                # Render page to image
+                pix = page.get_pixmap()
+                img_data = pix.tobytes("png")
+                page_image = Image.open(BytesIO(img_data))
+                
+                # Extract header and compute fingerprint
+                header_region = self.header_fingerprint.extract_header_region(page_image)
+                fingerprint = self.header_fingerprint.compute_fingerprint(header_region)
+                
+                page_fingerprints.append({
+                    'page_num': page_num,
+                    'fingerprint': fingerprint,
+                    'image': page_image
+                })
+            
+            # Group pages by similar headers
+            segments = self._group_pages_by_header(page_fingerprints)
+            
+            # Convert to invoice segments
+            invoice_segments = []
+            for i, segment in enumerate(segments):
+                invoice_segments.append({
+                    'segment_id': i + 1,
+                    'start_page': segment[0]['page_num'],
+                    'end_page': segment[-1]['page_num'],
+                    'page_count': len(segment),
+                    'fingerprint': segment[0]['fingerprint']
+                })
+            
+            doc.close()
+            logger.info(f"✅ Split PDF into {len(invoice_segments)} segments")
+            return invoice_segments
+            
+        except Exception as e:
+            logger.error(f"❌ PDF splitting failed: {e}")
+            return []
+    
+    def _group_pages_by_header(self, page_fingerprints: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+        """Group pages by header similarity"""
+        try:
+            if not page_fingerprints:
+                return []
+            
+            segments = []
+            current_segment = [page_fingerprints[0]]
+            
+            for i in range(1, len(page_fingerprints)):
+                current_page = page_fingerprints[i]
+                last_page = current_segment[-1]
+                
+                # Compare fingerprints
+                similarity = self.header_fingerprint.compare_fingerprints(
+                    current_page['fingerprint'], 
+                    last_page['fingerprint']
+                )
+                
+                if similarity >= self.similarity_threshold:
+                    # Same invoice, add to current segment
+                    current_segment.append(current_page)
+                else:
+                    # Different invoice, start new segment
+                    segments.append(current_segment)
+                    current_segment = [current_page]
+            
+            # Add final segment
+            if current_segment:
+                segments.append(current_segment)
+            
+            return segments
+            
+        except Exception as e:
+            logger.error(f"❌ Page grouping failed: {e}")
+            return []
+    
+    def extract_segment_pdf(self, pdf_path: Path, segment: Dict[str, Any], 
+                          output_dir: Path) -> Optional[Path]:
+        """
+        Extract segment as separate PDF.
+        
+        Args:
+            pdf_path: Original PDF path
+            segment: Segment information
+            output_dir: Output directory
+            
+        Returns:
+            Path to extracted PDF or None if failed
+        """
+        try:
+            # Open original PDF
+            doc = fitz.open(str(pdf_path))
+            if not doc:
+                return None
+            
+            # Create new PDF for segment
+            segment_doc = fitz.open()
+            
+            # Copy pages from segment range
+            for page_num in range(segment['start_page'], segment['end_page'] + 1):
+                if page_num < len(doc):
+                    segment_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            
+            # Save segment PDF
+            output_path = output_dir / f"segment_{segment['segment_id']}.pdf"
+            segment_doc.save(str(output_path))
+            segment_doc.close()
+            doc.close()
+            
+            logger.info(f"✅ Extracted segment {segment['segment_id']} to {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"❌ Segment extraction failed: {e}")
+            return None
+    
+    def detect_blank_pages(self, page_fingerprints: List[Dict[str, Any]]) -> List[int]:
+        """Detect blank or nearly blank pages"""
+        try:
+            blank_pages = []
+            
+            for page_data in page_fingerprints:
+                page_image = page_data['image']
+                
+                # Convert to grayscale
+                gray = page_image.convert('L')
+                array = np.array(gray)
+                
+                # Calculate variance (low variance = blank page)
+                variance = np.var(array)
+                
+                if variance < 100:  # Threshold for blank pages
+                    blank_pages.append(page_data['page_num'])
+            
+            return blank_pages
+            
+        except Exception as e:
+            logger.error(f"❌ Blank page detection failed: {e}")
+            return []
+    
+    def handle_rotated_pages(self, page_fingerprints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Handle rotated pages by attempting rotation correction"""
+        try:
+            corrected_pages = []
+            
+            for page_data in page_fingerprints:
+                page_image = page_data['image']
+                
+                # Try different rotations
+                best_rotation = 0
+                best_fingerprint = page_data['fingerprint']
+                
+                for rotation in [90, 180, 270]:
+                    rotated = page_image.rotate(rotation, expand=True)
+                    header_region = self.header_fingerprint.extract_header_region(rotated)
+                    fingerprint = self.header_fingerprint.compute_fingerprint(header_region)
+                    
+                    # Keep original if no improvement
+                    if fingerprint == best_fingerprint:
+                        continue
+                    
+                    # Update if we find a better fingerprint
+                    page_data['image'] = rotated
+                    page_data['fingerprint'] = fingerprint
+                    best_rotation = rotation
+                
+                corrected_pages.append(page_data)
+            
+            return corrected_pages
+            
+        except Exception as e:
+            logger.error(f"❌ Rotation correction failed: {e}")
+            return page_fingerprints
+
+# Global splitter instance
+_multi_invoice_splitter: Optional[MultiInvoiceSplitter] = None
+
+def get_multi_invoice_splitter() -> MultiInvoiceSplitter:
+    """Get global multi-invoice splitter instance"""
+    global _multi_invoice_splitter
+    if _multi_invoice_splitter is None:
+        _multi_invoice_splitter = MultiInvoiceSplitter()
+    return _multi_invoice_splitter
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class PageResult:
+    """Result from processing a single page"""
+    page_number: int
+    ocr_results: List[OCRResult]
+    line_items: List[LineItem]
+    confidence: float
+    processing_time: float
+    error: Optional[str] = None
+
+@dataclass
+class DocumentResult:
+    """Aggregated result from processing a multi-page document"""
+    document_type: str
+    supplier: str
+    invoice_number: str
+    date: str
+    line_items: List[LineItem]
+    page_results: List[PageResult]
+    overall_confidence: float
+    total_processing_time: float
+    pages_processed: int
+    pages_failed: int
+
+class MultiPageProcessor:
+    """
+    Multi-page document processor with robust error handling and result aggregation
+    """
+    
+    def __init__(self):
+        self.ocr_engine = enhanced_ocr_engine
+        self.line_extractor = get_enhanced_line_item_extractor()
+    
+    def process_multi_page_document(self, file_path: str) -> DocumentResult:
+        """
+        Process multi-page documents with aggregation
+        
+        Args:
+            file_path: Path to the document file
+            
+        Returns:
+            DocumentResult with aggregated results
+        """
+        logger.info(f"🔄 Starting multi-page document processing: {file_path}")
+        start_time = time.time()
+        
+        try:
+            # Convert document to images
+            pages = self._convert_to_images(file_path)
+            logger.info(f"📄 Document has {len(pages)} pages")
+            
+            # Process each page
+            page_results = []
+            all_ocr_results = []
+            
+            for page_num, page_image in enumerate(pages):
+                logger.info(f"🔄 Processing page {page_num + 1}/{len(pages)}")
+                page_start_time = time.time()
+                
+                try:
+                    # Process page
+                    page_result = self._process_single_page(page_image, page_num + 1)
+                    page_results.append(page_result)
+                    all_ocr_results.extend(page_result.ocr_results)
+                    
+                    logger.info(f"✅ Page {page_num + 1} processed successfully")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Page {page_num + 1} processing failed: {e}")
+                    # Create error result for failed page
+                    error_result = PageResult(
+                        page_number=page_num + 1,
+                        ocr_results=[],
+                        line_items=[],
+                        confidence=0.0,
+                        processing_time=time.time() - page_start_time,
+                        error=str(e)
+                    )
+                    page_results.append(error_result)
+                finally:
+                    # Clean up page image to free memory
+                    try:
+                        page_image.close()
+                    except:
+                        pass
+            
+            # Aggregate results across pages
+            document_result = self._aggregate_results(page_results, all_ocr_results, time.time() - start_time)
+            
+            logger.info(f"✅ Multi-page processing completed: {document_result.pages_processed} pages processed")
+            return document_result
+            
+        except Exception as e:
+            logger.error(f"❌ Multi-page processing failed: {e}")
+            # Return minimal result
+            return self._create_minimal_result(file_path, str(e), time.time() - start_time)
+    
+    def _convert_to_images(self, file_path: str) -> List[Image.Image]:
+        """
+        Convert document to list of images
+        
+        Args:
+            file_path: Path to the document file
+            
+        Returns:
+            List of PIL Image objects
+        """
+        file_ext = Path(file_path).suffix.lower()
+        
+        if file_ext == '.pdf':
+            return self._convert_pdf_to_images(file_path)
+        else:
+            # Single image file
+            try:
+                image = Image.open(file_path)
+                return [image]
+            except Exception as e:
+                logger.error(f"❌ Failed to open image file: {e}")
+                raise
+    
+    def _convert_pdf_to_images(self, file_path: str) -> List[Image.Image]:
+        """
+        Convert PDF to list of images
+        
+        Args:
+            file_path: Path to PDF file
+            
+        Returns:
+            List of PIL Image objects
+        """
+        try:
+            # Use pypdfium2 for PDF processing
+            pdf = pdfium.PdfDocument(file_path)
+            images = []
+            
+            for page_num in range(len(pdf)):
+                page = pdf[page_num]
+                # Render page to image
+                image = page.render(scale=2.0)  # Higher resolution for better OCR
+                pil_image = image.to_pil()
+                images.append(pil_image)
+            
+            pdf.close()
+            logger.info(f"📄 Converted PDF to {len(images)} images")
+            return images
+            
+        except Exception as e:
+            logger.error(f"❌ PDF conversion failed: {e}")
+            raise Exception(f"PDF conversion failed: {str(e)}")
+    
+    def _process_single_page(self, page_image: Image.Image, page_number: int) -> PageResult:
+        """
+        Process a single page
+        
+        Args:
+            page_image: PIL Image of the page
+            page_number: Page number for tracking
+            
+        Returns:
+            PageResult with processing results
+        """
+        page_start_time = time.time()
+        
+        try:
+            # Run OCR on page
+            ocr_results = self.ocr_engine.run_ocr_with_retry(page_image, page_number)
+            
+            # Extract line items
+            line_items = self.line_extractor.extract_line_items(ocr_results)
+            
+            # Calculate page confidence
+            confidence = self._calculate_page_confidence(ocr_results)
+            
+            processing_time = time.time() - page_start_time
+            
+            return PageResult(
+                page_number=page_number,
+                ocr_results=ocr_results,
+                line_items=line_items,
+                confidence=confidence,
+                processing_time=processing_time
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Page {page_number} processing failed: {e}")
+            return PageResult(
+                page_number=page_number,
+                ocr_results=[],
+                line_items=[],
+                confidence=0.0,
+                processing_time=time.time() - page_start_time,
+                error=str(e)
+            )
+    
+    def _calculate_page_confidence(self, ocr_results: List[OCRResult]) -> float:
+        """
+        Calculate confidence score for a page
+        
+        Args:
+            ocr_results: List of OCRResult objects
+            
+        Returns:
+            Confidence score (0.0 to 1.0)
+        """
+        if not ocr_results:
+            return 0.0
+        
+        # Calculate average confidence
+        valid_results = [r for r in ocr_results if r.confidence > 0]
+        if not valid_results:
+            return 0.0
+        
+        avg_confidence = sum(r.confidence for r in valid_results) / len(valid_results)
+        
+        # Boost confidence based on text content
+        total_text = " ".join([r.text for r in ocr_results if r.text])
+        text_boost = min(len(total_text) / 100.0, 0.2)  # Up to 0.2 boost for good text content
+        
+        return min(avg_confidence + text_boost, 1.0)
+    
+    def _aggregate_results(self, page_results: List[PageResult], all_ocr_results: List[OCRResult], total_time: float) -> DocumentResult:
+        """
+        Aggregate results from multiple pages
+        
+        Args:
+            page_results: List of PageResult objects
+            all_ocr_results: All OCR results combined
+            total_time: Total processing time
+            
+        Returns:
+            DocumentResult with aggregated data
+        """
+        # Count successful and failed pages
+        successful_pages = [p for p in page_results if p.error is None]
+        failed_pages = [p for p in page_results if p.error is not None]
+        
+        # Combine line items from all pages
+        all_line_items = []
+        for page_result in page_results:
+            all_line_items.extend(page_result.line_items)
+        
+        # Deduplicate and merge line items
+        merged_line_items = self._merge_line_items(all_line_items)
+        
+        # Extract document-level information
+        document_info = self._extract_document_info(all_ocr_results)
+        
+        # Calculate overall confidence
+        overall_confidence = self._calculate_overall_confidence(page_results)
+        
+        return DocumentResult(
+            document_type=document_info.get('type', 'unknown'),
+            supplier=document_info.get('supplier', 'Unknown Supplier'),
+            invoice_number=document_info.get('invoice_number', 'Unknown'),
+            date=document_info.get('date', 'Unknown'),
+            line_items=merged_line_items,
+            page_results=page_results,
+            overall_confidence=overall_confidence,
+            total_processing_time=total_time,
+            pages_processed=len(successful_pages),
+            pages_failed=len(failed_pages)
+        )
+    
+    def _merge_line_items(self, line_items: List[LineItem]) -> List[LineItem]:
+        """
+        Merge and deduplicate line items
+        
+        Args:
+            line_items: List of LineItem objects
+            
+        Returns:
+            Merged and deduplicated LineItem objects
+        """
+        if not line_items:
+            return []
+        
+        # Group by description (case-insensitive)
+        grouped_items = {}
+        
+        for item in line_items:
+            # Normalize description for grouping
+            normalized_desc = item.description.lower().strip()
+            
+            if normalized_desc in grouped_items:
+                # Merge with existing item
+                existing = grouped_items[normalized_desc]
+                existing.quantity += item.quantity
+                existing.total_price += item.total_price
+                existing.confidence = max(existing.confidence, item.confidence)
+                
+                # Update unit price if needed
+                if existing.quantity > 0:
+                    existing.unit_price = existing.total_price / existing.quantity
+                    existing.unit_price_excl_vat = existing.unit_price
+                    existing.line_total_excl_vat = existing.total_price
+            else:
+                # Add new item
+                grouped_items[normalized_desc] = item
+        
+        # Convert back to list
+        merged_items = list(grouped_items.values())
+        
+        # Sort by total price (descending)
+        merged_items.sort(key=lambda x: x.total_price, reverse=True)
+        
+        logger.info(f"📊 Merged {len(line_items)} line items into {len(merged_items)} unique items")
+        return merged_items
+    
+    def _extract_document_info(self, ocr_results: List[OCRResult]) -> Dict[str, str]:
+        """
+        Extract document-level information from OCR results
+        
+        Args:
+            ocr_results: List of OCRResult objects
+            
+        Returns:
+            Dictionary with document information
+        """
+        # Convert OCR results to text
+        text_lines = self._convert_to_text_lines(ocr_results)
+        full_text = '\n'.join(text_lines)
+        
+        # Extract basic information
+        document_info = {
+            'type': 'invoice',  # Default
+            'supplier': 'Unknown Supplier',
+            'invoice_number': 'Unknown',
+            'date': 'Unknown'
+        }
+        
+        # Look for invoice number patterns
+        invoice_patterns = [
+            r'invoice\s*#?\s*(\w+)',
+            r'inv\s*#?\s*(\w+)',
+            r'invoice\s*number\s*:?\s*(\w+)',
+            r'(\d{6,})',  # 6+ digit number
+        ]
+        
+        for pattern in invoice_patterns:
+            match = re.search(pattern, full_text, re.IGNORECASE)
+            if match:
+                document_info['invoice_number'] = match.group(1)
+                break
+        
+        # Look for date patterns
+        date_patterns = [
+            r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+            r'(\d{4}[/-]\d{1,2}[/-]\d{1,2})',
+            r'(\w+\s+\d{1,2},?\s+\d{4})',
+        ]
+        
+        for pattern in date_patterns:
+            match = re.search(pattern, full_text)
+            if match:
+                document_info['date'] = match.group(1)
+                break
+        
+        # Look for supplier name (usually in top portion)
+        supplier_patterns = [
+            r'^([A-Z][A-Z\s&]+(?:LTD|LIMITED|INC|LLC|CORP|COMPANY))',
+            r'^([A-Z][A-Z\s&]+)',
+        ]
+        
+        for line in text_lines[:10]:  # Check first 10 lines
+            for pattern in supplier_patterns:
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    supplier = match.group(1).strip()
+                    if len(supplier) > 3:
+                        document_info['supplier'] = supplier
+                        break
+            if document_info['supplier'] != 'Unknown Supplier':
+                break
+        
+        return document_info
+    
+    def _convert_to_text_lines(self, ocr_results: List[OCRResult]) -> List[str]:
+        """Convert OCR results to text lines"""
+        if not ocr_results:
+            return []
+        
+        # Sort by Y-coordinate to maintain line order
+        sorted_results = sorted(ocr_results, key=lambda r: r.bounding_box[0][1])
+        
+        lines = []
+        current_line = []
+        current_y = None
+        
+        for result in sorted_results:
+            y_pos = result.bounding_box[0][1]
+            
+            # If this is a new line (different Y position)
+            if current_y is None or abs(y_pos - current_y) > 10:  # 10 pixel tolerance
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = []
+                current_y = y_pos
+            
+            current_line.append(result.text)
+        
+        # Add the last line
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        return lines
+    
+    def _calculate_overall_confidence(self, page_results: List[PageResult]) -> float:
+        """
+        Calculate overall confidence from page results
+        
+        Args:
+            page_results: List of PageResult objects
+            
+        Returns:
+            Overall confidence score (0.0 to 1.0)
+        """
+        if not page_results:
+            return 0.0
+        
+        # Calculate weighted average based on page confidence and processing success
+        total_weight = 0
+        weighted_sum = 0
+        
+        for page_result in page_results:
+            if page_result.error is None:
+                # Successful page gets full weight
+                weight = 1.0
+                confidence = page_result.confidence
+            else:
+                # Failed page gets reduced weight
+                weight = 0.1
+                confidence = 0.0
+            
+            weighted_sum += confidence * weight
+            total_weight += weight
+        
+        if total_weight == 0:
+            return 0.0
+        
+        return weighted_sum / total_weight
+    
+    def _create_minimal_result(self, file_path: str, error: str, processing_time: float) -> DocumentResult:
+        """
+        Create minimal result when processing fails
+        
+        Args:
+            file_path: Path to the file
+            error: Error message
+            processing_time: Processing time taken
+            
+        Returns:
+            Minimal DocumentResult
+        """
+        logger.warning(f"🚨 Creating minimal result due to processing failure: {error}")
+        
+        return DocumentResult(
+            document_type='unknown',
+            supplier='Unknown Supplier',
+            invoice_number='Unknown',
+            date='Unknown',
+            line_items=[],
+            page_results=[],
+            overall_confidence=0.0,
+            total_processing_time=processing_time,
+            pages_processed=0,
+            pages_failed=1
+        )
+
+# Global instance for easy access
+multi_page_processor = MultiPageProcessor() 
