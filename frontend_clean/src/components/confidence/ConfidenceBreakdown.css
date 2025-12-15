@@ -1,0 +1,126 @@
+.confidence-breakdown {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.confidence-breakdown__header {
+  margin-bottom: 20px;
+}
+
+.confidence-breakdown__band {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.confidence-breakdown__band-label {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.confidence-breakdown__overall {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.confidence-breakdown__factors {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.confidence-breakdown__factor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confidence-breakdown__factor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.confidence-breakdown__factor-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.confidence-breakdown__factor-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.confidence-breakdown__factor-bar {
+  height: 8px;
+  background: var(--color-surface-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.confidence-breakdown__factor-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.confidence-breakdown__factor-weight {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.confidence-breakdown__issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 3px solid var(--color-error);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.confidence-breakdown__issue-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--color-error);
+}
+
+.confidence-breakdown__issue-text {
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.confidence-breakdown__hints {
+  padding: 12px;
+  background: var(--color-surface-secondary);
+  border-radius: 4px;
+}
+
+.confidence-breakdown__hints-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-text-primary);
+}
+
+.confidence-breakdown__hints-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.confidence-breakdown__hints-list li {
+  margin-bottom: 4px;
+}
+

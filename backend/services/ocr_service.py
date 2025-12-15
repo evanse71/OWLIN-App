@@ -169,6 +169,15 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
     _log_lifecycle("UPLOAD_SAVED", doc_id, file=file_path)
     
     try:
+        # Check OCR readiness before processing
+        from backend.services.ocr_readiness import check_ocr_readiness
+        readiness = check_ocr_readiness()
+        if not readiness.ready:
+            error_msg = f"OCR prerequisites not met. Missing: {', '.join(readiness.missing_required)}"
+            logger.error(f"[OCR_NOT_READY] {error_msg} for doc_id={doc_id}")
+            update_document_status(doc_id, "error", "ocr_not_ready", error=error_msg)
+            raise Exception(error_msg)
+        
         # Update status to processing
         update_document_status(doc_id, "processing", "ocr_enqueue")
         _log_lifecycle("OCR_ENQUEUE", doc_id)
@@ -960,22 +969,25 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             # If no invoices were created (empty document_groups), fall through to single-page processing
             logger.warning(f"[MULTI_INVOICE] No invoices created from document_groups, falling back to single-page processing")
     
-    # Fallback: treat as single document (use first page) - either no page_results or empty document_groups
+    # Multi-page processing: Extract headers from page 1, aggregate line items and totals from all pages
     if not page_results or not document_groups or not created_invoice_ids:
-        # Fallback: treat as single document (use first page)
-        logger.warning(f"[MULTI_INVOICE] No LLM results found, falling back to single-page processing")
+        logger.info(f"[MULTI_PAGE] Processing {len(pages)} pages as single document with cross-page aggregation")
         # #region agent log
         import json
         log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         try:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:536", "message": "fallback to single-page processing", "data": {"doc_id": doc_id, "pages_count": len(pages)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:536", "message": "multi-page processing with cross-page aggregation", "data": {"doc_id": doc_id, "pages_count": len(pages)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        page = pages[0]
         
-        # Continue with existing single-page processing logic below
-        # (keeping the rest of the function as-is for backward compatibility)
+        # Use page 1 for header/metadata extraction, but aggregate line items from all pages
+        page = pages[0] if pages else None
+        if not page:
+            raise Exception(f"No pages available for processing doc_id={doc_id}")
+        
+        # Continue with existing processing logic, but we'll aggregate line items from all pages later
+        # (keeping the rest of the function as-is, but line item extraction will be enhanced)
     if isinstance(page, dict):
         logger.info(f"[OCR_V2] Page keys: {list(page.keys())}")
         logger.info(f"[OCR_V2] Page has 'blocks': {'blocks' in page}")
@@ -1213,17 +1225,75 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     _log_lifecycle("PARSE_START", doc_id, doc_type=doc_type, doc_type_confidence=doc_type_confidence)
     
-    # Extract and normalize line items (pass parsed_data so STORI items can be reused)
-    logger.info(f"[LINE_ITEMS] Starting line item extraction for doc_id={doc_id}")
+    # Extract and normalize line items from ALL pages (multi-page aggregation)
+    logger.info(f"[LINE_ITEMS] Starting cross-page line item extraction for doc_id={doc_id} ({len(pages)} pages)")
     # #region agent log
     import json
     log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:284", "message": "before line item extraction", "data": {"doc_id": doc_id, "page_has_blocks": "blocks" in page if isinstance(page, dict) else hasattr(page, "blocks")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:284", "message": "before cross-page line item extraction", "data": {"doc_id": doc_id, "pages_count": len(pages), "page_has_blocks": "blocks" in page if isinstance(page, dict) else hasattr(page, "blocks")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
     except: pass
     # #endregion
-    line_items = _extract_line_items_from_page(page, parsed_data)
+    
+    # Aggregate line items from all pages and collect per-page metrics
+    all_line_items = []
+    page_metrics = []
+    for page_idx, page_item in enumerate(pages):
+        page_line_items = _extract_line_items_from_page(page_item, parsed_data)
+        logger.info(f"[LINE_ITEMS] Page {page_idx + 1}/{len(pages)}: extracted {len(page_line_items)} line items")
+        all_line_items.extend(page_line_items)
+        
+        # Calculate per-page metrics
+        page_text_parts = []
+        if hasattr(page_item, 'blocks'):
+            for block in page_item.blocks if hasattr(page_item, 'blocks') and page_item.blocks else []:
+                if hasattr(block, 'ocr_text'):
+                    text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
+                else:
+                    text = block.get("ocr_text", block.get("text", ""))
+                if text:
+                    page_text_parts.append(text)
+        else:
+            for block in page_item.get("blocks", []):
+                text = block.get("ocr_text", block.get("text", ""))
+                if text:
+                    page_text_parts.append(text)
+        
+        page_text = "\n".join(page_text_parts)
+        page_word_count = len(page_text.split()) if page_text else 0
+        page_confidence = getattr(page_item, 'confidence', None) or page_item.get('confidence', 0.0) if isinstance(page_item, dict) else 0.0
+        
+        page_metrics.append({
+            "page_number": page_idx + 1,
+            "confidence": page_confidence,
+            "word_count": page_word_count,
+            "line_items_count": len(page_line_items),
+            "text_length": len(page_text)
+        })
+    
+    line_items = all_line_items
+    logger.info(f"[LINE_ITEMS] Total line items across all pages: {len(line_items)}")
+    logger.info(f"[MULTI_PAGE] Per-page metrics: {page_metrics}")
+    
+    # Update OCR report with per-page metrics
+    try:
+        from backend.app.db import store_ocr_report
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT ocr_report_json FROM documents WHERE id = ?", (doc_id,))
+        row = cursor.fetchone()
+        if row and row[0]:
+            report_dict = json.loads(row[0])
+            report_dict['page_metrics'] = page_metrics
+            updated_report = json.dumps(report_dict, indent=2, ensure_ascii=False)
+            store_ocr_report(doc_id, updated_report)
+            logger.info(f"[MULTI_PAGE] Updated OCR report with {len(page_metrics)} page metrics")
+        conn.close()
+    except Exception as e:
+        logger.warning(f"[MULTI_PAGE] Failed to update OCR report with page metrics: {e}")
+    
     # #region agent log
     try:
         with open(log_path, "a", encoding="utf-8") as f:
@@ -1249,12 +1319,33 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Store invoice in database
     invoice_id = doc_id  # Use doc_id as invoice_id
-    # Use overall_confidence from OCR result (comes from chosen path if dual-path was used)
-    confidence = ocr_result.get("overall_confidence", ocr_result.get("confidence", parsed_data.get("confidence", 0.9)))
+    
+    # Calculate multi-factor confidence using new calculator
+    from backend.services.confidence_calculator import ConfidenceCalculator
+    confidence_calc = ConfidenceCalculator()
+    confidence_breakdown = confidence_calc.calculate_confidence(
+        ocr_result=ocr_result,
+        parsed_data=parsed_data,
+        line_items=line_items,
+        ocr_text_length=ocr_text_length
+    )
+    
+    # Use overall confidence from breakdown (0-1 scale)
+    confidence = confidence_breakdown.overall_confidence
+    # Convert to 0-100 scale for backward compatibility
+    confidence_percent = confidence * 100.0
+    
+    logger.info(
+        f"[CONFIDENCE] Calculated confidence: {confidence_percent:.1f}% "
+        f"(OCR: {confidence_breakdown.ocr_quality*100:.1f}%, "
+        f"Extraction: {confidence_breakdown.extraction_quality*100:.1f}%, "
+        f"Validation: {confidence_breakdown.validation_quality*100:.1f}%) "
+        f"Band: {confidence_breakdown.band.value}"
+    )
     
     # Low-confidence gate: If OCR confidence is too low, mark as unusable and clear line items
     from backend.config import MIN_USABLE_OCR_CONFIDENCE
-    ocr_unusable = confidence < MIN_USABLE_OCR_CONFIDENCE
+    ocr_unusable = confidence_breakdown.ocr_quality < MIN_USABLE_OCR_CONFIDENCE
     # #region agent log
     import json
     log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
@@ -1280,22 +1371,33 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             parsed_data = {}
         parsed_data["ocr_unusable"] = False
     
-    # NEW: Check if invoice needs review (from LLM validation)
-    needs_review = False
+    # Check if invoice needs review (from LLM validation)
+    needs_review_from_llm = False
     if "pages" in ocr_result and ocr_result["pages"]:
         # Check first page's table_data for needs_review flag
         first_page = ocr_result["pages"][0]
         for block in first_page.get("blocks", []):
             table_data = block.get("table_data")
             if table_data and table_data.get("needs_review"):
-                needs_review = True
+                needs_review_from_llm = True
                 validation_errors = table_data.get("metadata", {}).get("validation_errors", [])
                 if validation_errors:
                     logger.warning(f"[VALIDATION] Invoice {doc_id} marked for review: {validation_errors}")
                 break
     
-    # Set status based on needs_review flag
-    invoice_status = 'needs_review' if needs_review else 'scanned'
+    # Set status based on confidence band
+    # High → "ready" (or "scanned" if pairing needed)
+    # Medium → "needs_review" with priority="low"
+    # Low → "needs_review" with priority="medium"
+    # Critical → "needs_review" with priority="high"
+    if confidence_breakdown.band.value == "high" and not needs_review_from_llm and not needs_manual_review:
+        invoice_status = 'ready'
+    elif confidence_breakdown.band.value == "medium":
+        invoice_status = 'needs_review'
+    elif confidence_breakdown.band.value == "low":
+        invoice_status = 'needs_review'
+    else:  # critical or needs_manual_review
+        invoice_status = 'needs_review'
     
     # DEBUG: Log what we're storing
     supplier = parsed_data.get("supplier", "Unknown Supplier")
@@ -1316,7 +1418,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     logger.info(
         f"[STORE] Storing document in invoices table: supplier='{supplier}', "
         f"invoice_no='{invoice_number or doc_id}', date='{date}', total={total}, "
-        f"doc_type={doc_type}, confidence={confidence}, status={invoice_status}"
+        f"doc_type={doc_type}, confidence={confidence_percent:.1f}%, status={invoice_status}, band={confidence_breakdown.band.value}"
     )
     
     # #region agent log - Check if we're in fallback path
@@ -1338,7 +1440,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                    subtotal=parsed_data.get("subtotal"),
                    vat=parsed_data.get("vat"),
                    line_items_count=len(line_items),
-                   confidence=confidence,
+                   confidence=confidence_percent,
+                   confidence_band=confidence_breakdown.band.value,
                    doc_type=doc_type)
     
     # Log first 3 line items for inspection
@@ -1357,16 +1460,68 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             })
         _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", doc_id, items_sample=items_summary)
     
+    # Extract OCR text length from all pages for validation
+    ocr_text_length = 0
+    if pages:
+        for page_item in pages:
+            page_text_parts = []
+            if hasattr(page_item, 'blocks'):
+                for block in page_item.blocks if hasattr(page_item, 'blocks') and page_item.blocks else []:
+                    if hasattr(block, 'ocr_text'):
+                        text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
+                    else:
+                        text = block.get("ocr_text", block.get("text", ""))
+                    if text:
+                        page_text_parts.append(text)
+            else:
+                for block in page_item.get("blocks", []):
+                    text = block.get("ocr_text", block.get("text", ""))
+                    if text:
+                        page_text_parts.append(text)
+            ocr_text_length += len("\n".join(page_text_parts))
+    
+    def validate_minimum_viable_parse(ocr_text_length: int, supplier: str, total: float, line_items_count: int) -> Tuple[bool, Optional[str]]:
+        """
+        Validate that extraction meets minimum viable parse requirements.
+        
+        Returns:
+            Tuple of (is_valid, error_reason)
+            - is_valid: True if parse meets minimum requirements
+            - error_reason: None if valid, otherwise reason for failure
+        """
+        MIN_OCR_TEXT_LENGTH = 50  # Minimum characters of OCR text
+        
+        # Check 1: OCR text length threshold
+        if ocr_text_length < MIN_OCR_TEXT_LENGTH:
+            return False, f"OCR text too short ({ocr_text_length} chars < {MIN_OCR_TEXT_LENGTH} minimum)"
+        
+        # Check 2: Supplier known AND (total > 0 OR line_items > 0)
+        if supplier == "Unknown Supplier" or supplier == "Unknown":
+            if total == 0.0 and line_items_count == 0:
+                return False, f"Supplier unknown ({supplier}) and no financial data (total=0, line_items=0)"
+        
+        # If we get here, parse is viable
+        return True, None
+    
+    # Validate minimum viable parse
+    is_viable, validation_error = validate_minimum_viable_parse(
+        ocr_text_length=ocr_text_length,
+        supplier=supplier,
+        total=total,
+        line_items_count=len(line_items)
+    )
+    
     # Check for extraction failure (empty data)
     has_empty_data = (supplier == "Unknown Supplier" and total == 0.0 and len(line_items) == 0)
-    if has_empty_data:
-        error_msg = "Extraction produced empty data: supplier=Unknown Supplier, total=0, line_items=0"
-        logger.error(f"[EXTRACTION_FAILURE] {error_msg} for doc_id={doc_id}")
+    if has_empty_data or not is_viable:
+        error_msg = validation_error or "Extraction produced empty data: supplier=Unknown Supplier, total=0, line_items=0"
+        logger.error(f"[EXTRACTION_FAILURE] {error_msg} for doc_id={doc_id} (OCR text length: {ocr_text_length})")
         _log_lifecycle("EXTRACTION_FAILURE", doc_id, 
                       error=error_msg,
                       supplier=supplier,
                       total=total,
-                      line_items_count=len(line_items))
+                      line_items_count=len(line_items),
+                      ocr_text_length=ocr_text_length)
         # Mark for manual review instead of raising - allows tracking in DB
         needs_manual_review = True
         llm_error_message = error_msg
@@ -1383,14 +1538,17 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     _log_lifecycle("DB_WRITE_START", doc_id)
     try:
+        # Store confidence breakdown in database
+        breakdown_dict = confidence_breakdown.to_dict()
         upsert_invoice(
             doc_id=doc_id,
             supplier=supplier,
             date=date,
             value=total,
             invoice_number=invoice_number,  # Pass extracted invoice number
-            confidence=confidence,
-            status=invoice_status  # NEW: Pass status (needs_review or scanned)
+            confidence=confidence_percent,  # Use percent for backward compatibility
+            status=invoice_status,
+            confidence_breakdown=breakdown_dict
         )
         # #region agent log
         try:
@@ -1493,33 +1651,69 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                         llm_error_message = llm_error_message or table_data.get('error', 'LLM extraction failed')
                         logger.warning(f"[LLM_FAILURE] LLM extraction method failed")
     
-    # Update document status: ready or needs_review
+    # Update document status: ready or needs_review based on confidence band
     # CRITICAL: Never mark as "ready" if data is empty (supplier=Unknown, total=0, no items)
     if needs_manual_review or has_empty_data:
         # Mark for manual review - either LLM failed or extraction produced empty data
         review_reason = "llm_extraction_failed" if needs_manual_review else "extraction_empty_data"
+        # Create structured review metadata
+        review_metadata = {
+            "review_reason": review_reason,
+            "review_priority": "high" if has_empty_data else "medium",
+            "fixable_fields": [],
+            "suggested_actions": confidence_breakdown.remediation_hints if 'confidence_breakdown' in locals() else []
+        }
+        error_msg = llm_error_message or "Extraction produced empty data"
+        if 'confidence_breakdown' in locals() and confidence_breakdown.primary_issue:
+            error_msg = f"{error_msg}. {confidence_breakdown.primary_issue}"
         update_document_status(
             doc_id, 
             "needs_review", 
             review_reason, 
             confidence=0.0,
-            error=llm_error_message or "Extraction produced empty data"
+            error=json.dumps(review_metadata) if 'json' in globals() else error_msg
         )
         doc_type = parsed_data.get("doc_type", "invoice")
         _log_lifecycle("REVIEW_NEEDED", doc_id,
-                      error=llm_error_message or "Extraction produced empty data",
+                      error=error_msg,
                       reason=review_reason,
                       supplier=supplier,
                       total=total,
                       line_items_count=len(line_items),
-                      doc_type=doc_type)
+                      doc_type=doc_type,
+                      confidence_band=confidence_breakdown.band.value if 'confidence_breakdown' in locals() else None)
         logger.warning(
             f"[REVIEW_NEEDED] Document {doc_id} marked for manual review. "
-            f"Reason: {review_reason}, Error: {llm_error_message or 'Extraction produced empty data'}"
+            f"Reason: {review_reason}, Band: {confidence_breakdown.band.value if 'confidence_breakdown' in locals() else 'unknown'}, "
+            f"Error: {error_msg}"
         )
     else:
-        # Normal success path - only mark as ready if we have valid data
-        update_document_status(doc_id, "ready", "doc_ready", confidence=confidence)
+        # Normal success path - use confidence band to determine status
+        # High band → ready, others → needs_review
+        if confidence_breakdown.band.value == "high":
+            final_status = "ready"
+            final_stage = "doc_ready"
+            update_document_status(doc_id, final_status, final_stage, confidence=confidence_percent)
+        else:
+            final_status = "needs_review"
+            final_stage = confidence_breakdown.band.value  # Use band as stage
+            # Create structured review metadata
+            review_metadata = {
+                "review_reason": confidence_breakdown.primary_issue or "confidence_below_threshold",
+                "review_priority": "low" if confidence_breakdown.band.value == "medium" else "medium",
+                "fixable_fields": ["supplier", "date", "total"] if supplier == "Unknown Supplier" else [],
+                "suggested_actions": confidence_breakdown.remediation_hints
+            }
+            error_msg = json.dumps(review_metadata) if 'json' in globals() else confidence_breakdown.primary_issue or ""
+            update_document_status(doc_id, final_status, final_stage, confidence=confidence_percent, error=error_msg)
+            logger.info(
+                f"[STATUS] Document {doc_id} marked as {final_status} (band: {confidence_breakdown.band.value}, "
+                f"confidence: {confidence_percent:.1f}%)"
+            )
+            # Continue with rest of processing even for needs_review
+            # (line items still need to be stored)
+        
+        # Continue with ready path for high confidence
         doc_type = parsed_data.get("doc_type", "invoice")
         
         # Trigger auto-backup if needed (after successful processing)
@@ -1534,7 +1728,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                   supplier=parsed_data.get('supplier'), 
                   total=parsed_data.get('total'), 
                   items=len(line_items), 
-                  confidence=confidence,
+                  confidence=confidence_percent,
+                  confidence_band=confidence_breakdown.band.value,
                   doc_type=doc_type)
     
     # Clear any previous errors since processing succeeded
@@ -1621,7 +1816,9 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     return {
         "status": "ok",
         "doc_id": doc_id,
-        "confidence": confidence,
+        "confidence": confidence_percent,  # Use percent for backward compatibility
+        "confidence_breakdown": confidence_breakdown.to_dict(),
+        "confidence_band": confidence_breakdown.band.value,
         "ocr_unusable": ocr_unusable,  # Flag indicating if OCR confidence is too low
         "supplier": supplier,
         "supplier_name": supplier,  # Alias for frontend compatibility

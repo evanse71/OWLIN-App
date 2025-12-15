@@ -71,3 +71,25 @@
   color: var(--color-error-dark);
 }
 
+.confidence-meter-band {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.confidence-meter-band.success {
+  color: var(--color-success);
+}
+
+.confidence-meter-band.warning {
+  color: var(--color-warning);
+}
+
+.confidence-meter-band.error {
+  color: var(--color-error);
+}
+

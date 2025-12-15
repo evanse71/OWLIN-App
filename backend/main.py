@@ -204,6 +204,10 @@ app.include_router(pairing_router)
 from backend.routes.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
 
+# Include Review router
+from backend.routes.review_router import router as review_router
+app.include_router(review_router)
+
 # Include Chat router
 logger.info("[ROUTER] Attempting to import chat router...")
 _chat_router_loaded = False
@@ -377,10 +381,26 @@ def health(request: Request):
     try:
         correlation_id = getattr(request.state, "correlation_id", None) or request.headers.get("X-Request-Id") or str(uuid.uuid4())
         
+        # Get feature flag status
+        from backend.config import (
+            FEATURE_OCR_PIPELINE_V2, FEATURE_OCR_V2_LAYOUT, FEATURE_OCR_V2_PREPROC,
+            FEATURE_OCR_V3_TABLES, FEATURE_LLM_EXTRACTION, validate_feature_flags
+        )
+        feature_flags = {
+            "FEATURE_OCR_PIPELINE_V2": FEATURE_OCR_PIPELINE_V2,
+            "FEATURE_OCR_V2_LAYOUT": FEATURE_OCR_V2_LAYOUT,
+            "FEATURE_OCR_V2_PREPROC": FEATURE_OCR_V2_PREPROC,
+            "FEATURE_OCR_V3_TABLES": FEATURE_OCR_V3_TABLES,
+            "FEATURE_LLM_EXTRACTION": FEATURE_LLM_EXTRACTION
+        }
+        flag_warnings = validate_feature_flags()
+        
         # Return immediately - audit logging is non-critical and can be async
         response = {
             "status": "ok", 
             "ocr_v2_enabled": FEATURE_OCR_PIPELINE_V2,
+            "feature_flags": feature_flags,
+            "feature_flag_warnings": flag_warnings,
             "request_id": correlation_id
         }
         
@@ -469,6 +489,22 @@ def health_details():
         "env": env_info
     }
 
+@app.get("/api/health/ocr")
+def health_ocr():
+    """OCR readiness check endpoint - returns dependency status and blocks if prerequisites missing"""
+    from backend.services.ocr_readiness import get_readiness_summary
+    from fastapi import status
+    
+    summary = get_readiness_summary()
+    
+    # Return 503 Service Unavailable if not ready, 200 if ready
+    status_code = status.HTTP_200_OK if summary["ready"] else status.HTTP_503_SERVICE_UNAVAILABLE
+    
+    return JSONResponse(
+        content=summary,
+        status_code=status_code
+    )
+
 @app.get("/api/venues")
 def list_venues():
     return {"venues": [{"id": "royal-oak-1", "name": "Royal Oak Hotel"}]}
@@ -552,9 +588,10 @@ def invoices(
         date_col = 'i.invoice_date' if has_invoice_date else ('i.date' if has_date else 'NULL')
         total_col = 'COALESCE(i.total_p, i.total_amount_pennies, 0)' if (has_total_p or has_total_amount_pennies) else ('i.value' if has_value else '0')
         
-        # Check if subtotal_p, vat_total_p, total_p columns exist
+        # Check if subtotal_p, vat_total_p, total_p, confidence_breakdown columns exist
         has_subtotal_p = 'subtotal_p' in column_names
         has_vat_total_p = 'vat_total_p' in column_names
+        has_confidence_breakdown = 'confidence_breakdown' in column_names
         
         # Build optional column selections
         optional_cols = []
@@ -564,6 +601,8 @@ def invoices(
             optional_cols.append("i.vat_total_p")
         if has_total_p:
             optional_cols.append("i.total_p")
+        if has_confidence_breakdown:
+            optional_cols.append("i.confidence_breakdown")
         optional_cols_str = ", " + ", ".join(optional_cols) if optional_cols else ""
         
         query = f"""
@@ -638,6 +677,7 @@ def invoices(
             subtotal_p = None
             vat_total_p = None
             total_p = None
+            confidence_breakdown = None
             current_idx = base_col_count
             if has_subtotal_p and len(row) > current_idx:
                 subtotal_p = row[current_idx]
@@ -647,6 +687,18 @@ def invoices(
                 current_idx += 1
             if has_total_p and len(row) > current_idx:
                 total_p = row[current_idx]
+                current_idx += 1
+            if has_confidence_breakdown and len(row) > current_idx:
+                confidence_breakdown_raw = row[current_idx]
+                # Parse JSON if it's a string
+                if confidence_breakdown_raw:
+                    try:
+                        if isinstance(confidence_breakdown_raw, str):
+                            confidence_breakdown = json.loads(confidence_breakdown_raw)
+                        else:
+                            confidence_breakdown = confidence_breakdown_raw
+                    except (json.JSONDecodeError, TypeError):
+                        confidence_breakdown = None
                 current_idx += 1
             
             # Convert pennies to pounds for display if needed
@@ -668,6 +720,7 @@ def invoices(
                 "vat_total_p": vat_total_p,
                 "currency": "GBP",  # Default currency
                 "confidence": float(row[7]) if row[7] is not None else 0.0,
+                "confidence_breakdown": confidence_breakdown,  # Include confidence breakdown if available
                 "status": row[6] or "scanned",
                 "venue": row[8] or "Main Restaurant",
                 "issues_count": int(row[9]) if row[9] is not None else 0,
@@ -2240,6 +2293,23 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
     with open(r'c:\Users\tedev\FixPack_2025-11-02_133105\.cursor\debug.log', 'a', encoding='utf-8') as f:
         f.write('{"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:2148","message":"Upload endpoint called","data":{"filename":"' + str(file.filename) + '"},"timestamp":' + str(int(time.time() * 1000)) + '}\n')
     # #endregion
+    
+    # Check OCR readiness before accepting upload
+    from backend.services.ocr_readiness import check_ocr_readiness
+    readiness = check_ocr_readiness()
+    if not readiness.ready:
+        error_msg = f"OCR prerequisites not met. Missing: {', '.join(readiness.missing_required)}"
+        logger.error(f"[OCR_NOT_READY] {error_msg}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "OCR service unavailable",
+                "message": error_msg,
+                "missing_required": readiness.missing_required,
+                "warnings": readiness.warnings
+            }
+        )
+    
     try:
         # File size limit: 25MB per spec (UPLOAD_MAX_MB=25)
         MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB in bytes
@@ -3191,6 +3261,25 @@ def get_version_info() -> Dict[str, Any]:
 async def startup_event():
     """Startup event handler to log version information"""
     logger.info(f"[BUILD] backend.main startup at {datetime.now().isoformat()}")
+    
+    # Check OCR readiness and log warnings
+    try:
+        from backend.services.ocr_readiness import check_ocr_readiness
+        readiness = check_ocr_readiness()
+        
+        if not readiness.ready:
+            logger.warning(f"[STARTUP] OCR prerequisites not met. Missing: {', '.join(readiness.missing_required)}")
+            for dep in readiness.dependencies:
+                if not dep.available and dep.required:
+                    logger.warning(f"[STARTUP] Missing required dependency: {dep.name} - {dep.error}")
+        else:
+            logger.info("[STARTUP] OCR system ready - all prerequisites met")
+        
+        # Log warnings about disabled critical features
+        for warning in readiness.warnings:
+            logger.warning(f"[STARTUP] {warning}")
+    except Exception as e:
+        logger.error(f"[STARTUP] Failed to check OCR readiness: {e}")
     
     # Import ocr_service to trigger its version logging
     try:

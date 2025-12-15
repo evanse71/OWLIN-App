@@ -176,6 +176,7 @@ def init_db():
     )
     _add_column_if_missing(cursor, "invoices", "pairing_confidence", "REAL")
     _add_column_if_missing(cursor, "invoices", "pairing_model_version", "TEXT")
+    _add_column_if_missing(cursor, "invoices", "confidence_breakdown", "TEXT")
     if _table_has_column(cursor, "invoices", "pairing_status"):
         cursor.execute("""
             UPDATE invoices
@@ -407,9 +408,9 @@ def list_recent_documents(limit=10):
     
     return documents
 
-def upsert_invoice(doc_id, supplier, date, value, invoice_number=None, confidence=0.9, status='scanned'):
+def upsert_invoice(doc_id, supplier, date, value, invoice_number=None, confidence=0.9, status='scanned', confidence_breakdown=None):
     """
-    Insert or update an invoice with optional invoice_number, confidence, and status.
+    Insert or update an invoice with optional invoice_number, confidence, status, and confidence breakdown.
     
     Args:
         doc_id: Document ID
@@ -419,6 +420,7 @@ def upsert_invoice(doc_id, supplier, date, value, invoice_number=None, confidenc
         invoice_number: Optional invoice number
         confidence: OCR/LLM confidence score (default 0.9)
         status: Invoice status ('scanned', 'needs_review', 'ready', 'submitted', 'error')
+        confidence_breakdown: Optional confidence breakdown dict or JSON string
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -428,19 +430,38 @@ def upsert_invoice(doc_id, supplier, date, value, invoice_number=None, confidenc
     if status not in valid_statuses:
         status = 'scanned'  # Default to scanned if invalid
     
-    # Check if invoice_number column exists (for backward compatibility)
+    # Check if invoice_number and confidence_breakdown columns exist (for backward compatibility)
     cursor.execute("PRAGMA table_info(invoices)")
     columns = [row[1] for row in cursor.fetchall()]
     has_invoice_number_column = 'invoice_number' in columns
+    has_confidence_breakdown_column = 'confidence_breakdown' in columns
     
-    if has_invoice_number_column:
+    # Serialize confidence_breakdown if it's a dict
+    breakdown_json = None
+    if confidence_breakdown:
+        if isinstance(confidence_breakdown, dict):
+            breakdown_json = json.dumps(confidence_breakdown)
+        elif isinstance(confidence_breakdown, str):
+            breakdown_json = confidence_breakdown
+    
+    if has_invoice_number_column and has_confidence_breakdown_column:
         # Use doc_id as invoice id for simplicity
+        cursor.execute("""
+            INSERT OR REPLACE INTO invoices (id, doc_id, supplier, date, value, invoice_number, confidence, status, created_at, confidence_breakdown)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (doc_id, doc_id, supplier, date, value, invoice_number, confidence, status, datetime.now().isoformat(), breakdown_json))
+    elif has_invoice_number_column:
         cursor.execute("""
             INSERT OR REPLACE INTO invoices (id, doc_id, supplier, date, value, invoice_number, confidence, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (doc_id, doc_id, supplier, date, value, invoice_number, confidence, status, datetime.now().isoformat()))
+    elif has_confidence_breakdown_column:
+        cursor.execute("""
+            INSERT OR REPLACE INTO invoices (id, doc_id, supplier, date, value, confidence, status, created_at, confidence_breakdown)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (doc_id, doc_id, supplier, date, value, confidence, status, datetime.now().isoformat(), breakdown_json))
     else:
-        # Fallback for databases without invoice_number column
+        # Fallback for databases without invoice_number or confidence_breakdown columns
         cursor.execute("""
             INSERT OR REPLACE INTO invoices (id, doc_id, supplier, date, value, confidence, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)

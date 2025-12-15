@@ -128,3 +128,27 @@ OCR_ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
 DB_PATH      = DATA_DIR / "owlin.db"
 UPLOADS_DIR  = DATA_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# --- Runtime Feature Flag Validation ---
+def validate_feature_flags() -> list[str]:
+    """
+    Validate feature flags and return list of warnings for disabled critical features.
+    
+    Returns:
+        List of warning messages for disabled critical features
+    """
+    warnings = []
+    
+    # Critical features that should be enabled for production
+    critical_flags = {
+        "FEATURE_OCR_V2_LAYOUT": FEATURE_OCR_V2_LAYOUT,
+        "FEATURE_OCR_V2_PREPROC": FEATURE_OCR_V2_PREPROC,
+        "FEATURE_OCR_V3_TABLES": FEATURE_OCR_V3_TABLES,
+        "FEATURE_OCR_PIPELINE_V2": FEATURE_OCR_PIPELINE_V2
+    }
+    
+    for flag_name, flag_value in critical_flags.items():
+        if not flag_value:
+            warnings.append(f"{flag_name} is disabled - this may reduce OCR quality and functionality")
+    
+    return warnings

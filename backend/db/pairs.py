@@ -1,13 +1,22 @@
 """
 Database operations for Invoice ↔ Delivery-Note pairing
+
+This module uses the unified schema from backend/app/db.py:
+- documents table: stores file metadata (id, filename, stored_path, status, etc.)
+- invoices table: stores extracted invoice data (supplier, date, value, etc.)
+- Both tables are linked via documents.invoice_id or invoices.doc_id
 """
 import sqlite3
 import json
 from datetime import datetime, date
 from typing import List, Dict, Optional, Tuple
 import os
+from pathlib import Path
 
-DB_PATH = "data/owlin.db"
+# Use same DB_PATH as app/db.py
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_PROJECT_ROOT = _BACKEND_DIR.parent
+DB_PATH = str(_PROJECT_ROOT / "data" / "owlin.db")
 
 def get_db_connection():
     """Get database connection with proper configuration"""
@@ -136,20 +145,50 @@ def db_upsert_pair_suggest(invoice_doc: Dict, delivery_id: int, confidence: floa
         conn.close()
 
 def db_list_pairs(status: str = "suggested", limit: int = 50, invoice_id: Optional[int] = None) -> List[Dict]:
-    """List pairs with document details"""
+    """
+    List pairs with document details using unified schema.
+    
+    Uses documents table for file metadata and invoices table for extracted data.
+    """
     conn = get_db_connection()
     try:
-        query = """
-            SELECT 
-                p.id, p.invoice_id, p.delivery_id, p.confidence, p.status, p.created_at,
-                i.filename as invoice_filename, i.supplier as invoice_supplier,
-                i.invoice_no, i.doc_date as invoice_date, i.total as invoice_total,
-                d.filename as delivery_filename, d.delivery_no, d.doc_date as delivery_date
-            FROM pairs p
-            JOIN documents i ON p.invoice_id = i.id
-            JOIN documents d ON p.delivery_id = d.id
-            WHERE p.status = ?
-        """
+        # Check if pairs table exists and has the expected schema
+        cursor = conn.execute("PRAGMA table_info(pairs)")
+        pairs_columns = [row[1] for row in cursor.fetchall()]
+        
+        # Check if documents table has the old schema (supplier column) or new schema
+        cursor.execute("PRAGMA table_info(documents)")
+        doc_columns = [row[1] for row in cursor.fetchall()]
+        has_old_schema = 'supplier' in doc_columns
+        
+        if has_old_schema:
+            # Old schema: documents table has supplier, invoice_no, etc.
+            query = """
+                SELECT 
+                    p.id, p.invoice_id, p.delivery_id, p.confidence, p.status, p.created_at,
+                    i.filename as invoice_filename, i.supplier as invoice_supplier,
+                    i.invoice_no, i.doc_date as invoice_date, i.total as invoice_total,
+                    d.filename as delivery_filename, d.delivery_no, d.doc_date as delivery_date
+                FROM pairs p
+                JOIN documents i ON p.invoice_id = i.id
+                JOIN documents d ON p.delivery_id = d.id
+                WHERE p.status = ?
+            """
+        else:
+            # New unified schema: join documents with invoices table
+            query = """
+                SELECT 
+                    p.id, p.invoice_id, p.delivery_id, p.confidence, p.status, p.created_at,
+                    di.filename as invoice_filename, inv.supplier as invoice_supplier,
+                    inv.date as invoice_date, inv.value as invoice_total,
+                    dd.filename as delivery_filename, dd.uploaded_at as delivery_date
+                FROM pairs p
+                JOIN documents di ON p.invoice_id = di.id
+                LEFT JOIN invoices inv ON di.id = inv.doc_id
+                JOIN documents dd ON p.delivery_id = dd.id
+                WHERE p.status = ?
+            """
+        
         params = [status]
         
         if invoice_id is not None:
