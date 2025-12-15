@@ -16,7 +16,13 @@ import os
 import datetime
 import logging
 import time
-from pdf2image import convert_from_path
+# Optional pdf2image import for PDF processing
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    convert_from_path = None  # type: ignore
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 

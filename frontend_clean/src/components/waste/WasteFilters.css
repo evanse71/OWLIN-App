@@ -1,0 +1,107 @@
+/**
+ * Waste Filters Styles
+ * Following Owlin UI Design Contract
+ */
+
+.waste-filters {
+  padding: 16px;
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.waste-filters-section {
+  margin-bottom: 16px;
+}
+
+.waste-filters-section:last-child {
+  margin-bottom: 0;
+}
+
+.waste-filters-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.waste-filters-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.waste-filter-pill {
+  padding: 6px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.waste-filter-pill:hover {
+  border-color: rgba(43, 58, 85, 0.2);
+  background: rgba(43, 58, 85, 0.05);
+}
+
+.waste-filter-pill-active {
+  background: #2B3A55;
+  border-color: #2B3A55;
+  color: white;
+}
+
+.waste-filter-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.waste-filter-select:hover {
+  border-color: rgba(43, 58, 85, 0.2);
+}
+
+.waste-filter-select:focus {
+  outline: none;
+  border-color: #3A5A87;
+  box-shadow: 0 0 0 2px rgba(58, 90, 135, 0.1);
+}
+
+.waste-filter-search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.8);
+  transition: all 150ms ease-out;
+}
+
+.waste-filter-search::placeholder {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.waste-filter-search:hover {
+  border-color: rgba(43, 58, 85, 0.2);
+}
+
+.waste-filter-search:focus {
+  outline: none;
+  border-color: #3A5A87;
+  box-shadow: 0 0 0 2px rgba(58, 90, 135, 0.1);
+}
+

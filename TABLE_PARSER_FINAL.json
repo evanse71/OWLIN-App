@@ -1,0 +1,197 @@
+{
+  "status": "ok",
+  "test_file": "C:\\Users\\tedev\\FixPack_2025-11-02_133105\\data\\uploads\\112be37d-afe1-4fe6-8eed-723ccbd70b58__Storiinvoiceonly1.pdf",
+  "doc_id": "test_86436a59",
+  "ocr_result": {
+    "status": "ok",
+    "confidence": 0.9715455609482605,
+    "supplier": "Stori Beer & Wine CYF",
+    "date": "2025-08-21",
+    "total": 289.17,
+    "line_items_count": 5,
+    "line_items": [
+      {
+        "desc": "PRODUCT .% S 8",
+        "qty": 20.0,
+        "unit_price": 198.32,
+        "total": 24.79,
+        "uom": "",
+        "confidence": 0.8999999999999999
+      },
+      {
+        "desc": "Gwynt Black Dragon case of . S 2",
+        "qty": 12.0,
+        "unit_price": 42.66,
+        "total": 21.33,
+        "uom": "",
+        "confidence": 0.8999999999999999
+      },
+      {
+        "desc": "Barti Spiced 70cl.",
+        "qty": 240.0,
+        "unit_price": 0.0,
+        "total": 240.98,
+        "uom": "",
+        "confidence": 0.75
+      },
+      {
+        "desc": "DALANCE DUE",
+        "qty": 8289.0,
+        "unit_price": 0.0,
+        "total": 8289.17,
+        "uom": "",
+        "confidence": 0.75
+      },
+      {
+        "desc": "RATE VAT @",
+        "qty": 48.0,
+        "unit_price": 48.1,
+        "total": 240.98,
+        "uom": "",
+        "confidence": 0.8999999999999999
+      }
+    ]
+  },
+  "raw_ocr_text_sample": "Stori Beer & Wine CYF\n101 High Street.\nBala\nGD\nLL23 7AE\ntrade@storibeers.wales\nSIOR!\nVAT Registration No.: 236268595\nCompany Registration No. 09374164\nVAT Invoice\nINVOICE NO. 852021_162574\nINVOICE TO\nDATE 21/08/2025\nSam Roberts\nDUE DATE 28/08/2025\nY Stablau\nTERMS 7 Days\nSnowdonia Hospitality &\nLeisure Ltd\nt/a Royal Oak Hotel\nBetws Y Coed, Conwy LL24\nOAY\nWales\nVAT\nAMOUNT\nQTy\nRATE\nPRODUCT\n20.0% S\n198.32\n24.79\n8\nGwynt Black Dragon case of 12.\n42.66\n20.0% S\n2\n21.33\nBarti Spiced 70cl.\n240.98\nSUBTOTAL\n48.19\nVAT TOTAL\n289.17\nTOTAL\nDALANCE DUE\n8289.17\nVAT SUMMARY\nNET\nYAT\nRATE\n48.10\n240.98\nVAT @ 20%\nWe appreciate your business, should you have any queries please contact us (contact details at\ntop). Many ihanks.\nPayment by BACS please.\nSiori Seer and Wine cyf\nSori Code: 60 83 71\nAccouni number: 57546610\nAWRS No XFAW00000106331\nWe appreciate your business, should you have any queries please contact us (contact details at\ntop). Many thanks.\nPayment by BAcS please.\nSiori Beer and Wine cyf\nSort Code",
+  "raw_paddleocr_pages": [
+    {
+      "page_num": 1,
+      "confidence": 0.9715455609482605,
+      "preprocessed_image_path": "data\\uploads\\112be37d-afe1-4fe6-8eed-723ccbd70b58__storiinvoiceonly1\\pages\\page_001.pre.png",
+      "blocks": [
+        {
+          "type": "header",
+          "bbox": [
+            0,
+            0,
+            7675,
+            2261
+          ],
+          "ocr_text": "Stori Beer & Wine CYF\n101 High Street.\nBala\nGD\nLL23 7AE",
+          "confidence": 0.9830066680908203,
+          "table_data": null
+        },
+        {
+          "type": "table",
+          "bbox": [
+            383,
+            2487,
+            7291,
+            8142
+          ],
+          "ocr_text": "trade@storibeers.wales\nSIOR!\nVAT Registration No.: 236268595\nCompany Registration No. 09374164\nVAT Invoice\nINVOICE NO. 852021_162574\nINVOICE TO\nDATE 21/08/2025\nSam Roberts\nDUE DATE 28/08/2025\nY Stablau\nTERMS 7 Days\nSnowdonia Hospitality &\nLeisure Ltd\nt/a Royal Oak Hotel\nBetws Y Coed, Conwy LL24\nOAY\nWales\nVAT\nAMOUNT\nQTy\nRATE\nPRODUCT\n20.0% S\n198.32\n24.79\n8\nGwynt Black Dragon case of 12.\n42.66\n20.0% S\n2\n21.33\nBarti Spiced 70cl.\n240.98\nSUBTOTAL\n48.19\nVAT TOTAL\n289.17\nTOTAL\nDALANCE DUE\n8289.17\nVAT SUMMARY\nNET\nYAT\nRATE\n48.10\n240.98\nVAT @ 20%\nWe appreciate your business, should you have any queries please contact us (contact details at\ntop). Many ihanks.\nPayment by BACS please.\nSiori Seer and Wine cyf\nSori Code: 60 83 71\nAccouni number: 57546610\nAWRS No XFAW00000106331",
+          "confidence": 0.9603016029704701,
+          "table_data": {
+            "type": "table",
+            "bbox": [
+              383,
+              2487,
+              7291,
+              8142
+            ],
+            "line_items": [
+              {
+                "description": "PRODUCT .% S 8",
+                "quantity": "20",
+                "unit_price": "198.32",
+                "total_price": "24.79",
+                "vat": "20.0%",
+                "confidence": 0.8999999999999999,
+                "row_index": 0,
+                "cell_data": {
+                  "raw_line": "PRODUCT 20.0% S 198.32 24.79 8",
+                  "prices_found": 2,
+                  "numbers_found": 7
+                }
+              },
+              {
+                "description": "Gwynt Black Dragon case of . S 2",
+                "quantity": "12",
+                "unit_price": "42.66",
+                "total_price": "21.33",
+                "vat": "20.0%",
+                "confidence": 0.8999999999999999,
+                "row_index": 1,
+                "cell_data": {
+                  "raw_line": "Gwynt Black Dragon case of 12. 42.66 20.0% S 2 21.33",
+                  "prices_found": 2,
+                  "numbers_found": 8
+                }
+              },
+              {
+                "description": "Barti Spiced 70cl.",
+                "quantity": "240",
+                "unit_price": "",
+                "total_price": "240.98",
+                "vat": "",
+                "confidence": 0.75,
+                "row_index": 2,
+                "cell_data": {
+                  "raw_line": "Barti Spiced 70cl. 240.98",
+                  "prices_found": 1,
+                  "numbers_found": 2
+                }
+              },
+              {
+                "description": "DALANCE DUE",
+                "quantity": "8289",
+                "unit_price": "",
+                "total_price": "8289.17",
+                "vat": "",
+                "confidence": 0.75,
+                "row_index": 3,
+                "cell_data": {
+                  "raw_line": "DALANCE DUE 8289.17",
+                  "prices_found": 1,
+                  "numbers_found": 2
+                }
+              },
+              {
+                "description": "RATE VAT @",
+                "quantity": "48",
+                "unit_price": "48.10",
+                "total_price": "240.98",
+                "vat": "20%",
+                "confidence": 0.8999999999999999,
+                "row_index": 4,
+                "cell_data": {
+                  "raw_line": "RATE 48.10 240.98 VAT @ 20%",
+                  "prices_found": 2,
+                  "numbers_found": 5
+                }
+              }
+            ],
+            "confidence": 0.8399999999999999,
+            "method_used": "text_based_parsing",
+            "processing_time": 0.005614042282104492,
+            "fallback_used": false,
+            "cell_count": 0,
+            "row_count": 5
+          }
+        },
+        {
+          "type": "footer",
+          "bbox": [
+            0,
+            8481,
+            7675,
+            11309
+          ],
+          "ocr_text": "We appreciate your business, should you have any queries please contact us (contact details at\ntop). Many thanks.\nPayment by BAcS please.\nSiori Beer and Wine cyf\nSort Code: 60 83 71\nAccount number: 57546610\nAWRS No XFAW00000106337",
+          "confidence": 0.9713284117834908,
+          "table_data": null
+        }
+      ]
+    }
+  ],
+  "feature_flags": {
+    "preproc": false,
+    "layout": true,
+    "tables": true
+  },
+  "page_count": 1,
+  "raster_dpi_used": 300,
+  "multi_invoice_detected": false,
+  "extraction_method": "v2_pipeline",
+  "errors": null
+}

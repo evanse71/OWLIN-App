@@ -1,0 +1,218 @@
+/**
+ * Notes & Audit Tab Styles
+ */
+
+.notes-audit-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.notes-audit-tab-loading {
+  padding: 48px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.notes-audit-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notes-audit-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.notes-audit-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  margin: 0;
+}
+
+.notes-audit-add-note {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notes-audit-note-input {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.87);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.notes-audit-note-input:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.notes-audit-note-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.notes-audit-save-button {
+  align-self: flex-start;
+  padding: 10px 20px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  border-radius: 6px;
+  color: rgba(59, 130, 246, 1);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.notes-audit-save-button:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.7);
+}
+
+.notes-audit-save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notes-audit-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notes-audit-note {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.notes-audit-note-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.notes-audit-note-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.notes-audit-note-role {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 400;
+}
+
+.notes-audit-note-date {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.notes-audit-note-content {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.87);
+  line-height: 1.6;
+}
+
+.notes-audit-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  padding-left: 24px;
+}
+
+.notes-audit-timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.notes-audit-timeline-entry {
+  display: flex;
+  gap: 16px;
+  position: relative;
+}
+
+.notes-audit-timeline-dot {
+  position: absolute;
+  left: -20px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 1);
+  border: 2px solid #1a1a1a;
+  flex-shrink: 0;
+}
+
+.notes-audit-timeline-content {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.notes-audit-timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.notes-audit-timeline-actor {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.notes-audit-timeline-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.notes-audit-timeline-action {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.87);
+  margin-bottom: 4px;
+}
+
+.notes-audit-timeline-details {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+}
+
+.notes-audit-attachments {
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.notes-audit-empty {
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+

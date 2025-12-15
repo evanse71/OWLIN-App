@@ -39,7 +39,16 @@ import cv2
 from .ocr_utils import detect_document_type, preprocess_image
 import tempfile
 import re
-from pdf2image import convert_from_bytes, convert_from_path
+# Optional pdf2image import for PDF processing
+try:
+    from pdf2image import convert_from_bytes, convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    convert_from_bytes = None  # type: ignore
+    convert_from_path = None  # type: ignore
+    logger = logging.getLogger(__name__)
+    logger.warning("pdf2image not available - PDF processing will be limited")
 from difflib import get_close_matches
 import traceback  # Add this import for detailed error logging
 import fitz  # PyMuPDF
@@ -167,6 +176,8 @@ def convert_pdf_to_images(file_content: bytes, filename: str) -> List[Image.Imag
             raise ValueError("File does not appear to be a valid PDF")
         
         # Convert PDF bytes to images
+        if not PDF2IMAGE_AVAILABLE or convert_from_bytes is None:
+            raise HTTPException(status_code=500, detail="PDF processing requires pdf2image module. Please install it: pip install pdf2image")
         images = convert_from_bytes(file_content, dpi=300)
         
         # Validate conversion results
@@ -2124,7 +2135,7 @@ async def parse_receipt_document_alias(file: UploadFile = File(...), confidence_
 async def classify_document(file: UploadFile = File(...), confidence_threshold: int = 70):
     """
     Classify document type and extract data using OCR.
-    Returns document type (invoice, delivery_note, unknown) with confidence score.
+    Returns document type (invoice, delivery_note, unknown) with confidence score and reasons.
     """
     logger.info(f"Received document classification request for file: {file.filename}")
     
@@ -2135,40 +2146,35 @@ async def classify_document(file: UploadFile = File(...), confidence_threshold: 
         # Parse document with OCR
         result = await parse_with_ocr(file, confidence_threshold)
         
-        # Determine document type and confidence
-        doc_type = result.get('document_type', 'unknown')
-        confidence = result.get('confidence_score', 0)
+        # Use new deterministic classifier
+        from backend.ocr.document_type_classifier import classify_document_type
         
-        # Classification confidence logic
-        classification_confidence = confidence
+        # Extract text from OCR result
+        raw_text = result.get('raw_lines', [])
+        full_text = "\n".join(raw_text) if raw_text else ""
         
-        # Boost confidence if we have good field extraction
-        parsed_data = result.get('parsed_data', {})
-        if doc_type == 'invoice':
-            # Check if we extracted key invoice fields
-            key_fields = ['supplier_name', 'invoice_number', 'total_amount']
-            extracted_fields = sum(1 for field in key_fields if parsed_data.get(field) and parsed_data.get(field) != "Unknown")
-            if extracted_fields >= 2:
-                classification_confidence = min(100, confidence + 20)
-        elif doc_type == 'delivery_note':
-            # Check if we extracted key delivery note fields
-            key_fields = ['supplier_name', 'delivery_note_number']
-            extracted_fields = sum(1 for field in key_fields if parsed_data.get(field) and parsed_data.get(field) != "Unknown")
-            if extracted_fields >= 1:
-                classification_confidence = min(100, confidence + 15)
-        
-        # If confidence is too low, mark as unknown
-        if classification_confidence < 30:
+        # Classify using new classifier
+        if full_text:
+            classification = classify_document_type(full_text)
+            doc_type = classification.doc_type
+            classification_confidence = classification.confidence
+            doc_type_reasons = classification.reasons
+        else:
             doc_type = 'unknown'
+            classification_confidence = 0.0
+            doc_type_reasons = ["No text extracted from document"]
+        
+        parsed_data = result.get('parsed_data', {})
         
         logger.info(f"Document classification completed: {doc_type} with confidence {classification_confidence}")
         
         return {
             "type": doc_type,
             "confidence": classification_confidence,
+            "reasons": doc_type_reasons,
             "parsed_data": parsed_data,
-            "raw_text": result.get('raw_lines', []),
-            "ocr_confidence": confidence
+            "raw_text": raw_text,
+            "ocr_confidence": result.get('confidence_score', 0)
         }
         
     except ValueError as e:

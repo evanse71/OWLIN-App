@@ -1,4 +1,36 @@
-<!-- dacb957e-51cd-4dfc-a066-9b6ce22e340d 332347e3-a604-4fd4-b25f-67874440fba3 -->
+---
+name: Code Assistant Improvements Implementation Plan
+overview: ""
+todos:
+  - id: 62c047a8-1ab9-4e9e-b428-34d49083d15c
+    content: Create CodeExplorer service class with search_concept, grep_pattern, find_function_calls, trace_data_flow, find_related_files, read_function, and suggest_exploration_path methods
+    status: pending
+  - id: a2b17038-cce2-47e0-a0ac-81c38ae5ddd4
+    content: Fix _build_prompt() to respect file_specs max_lines from optimized_context instead of hardcoding 800
+    status: pending
+  - id: fb63c6f4-c010-44a0-96e7-d3ccc426634b
+    content: Modify _force_code_analysis() to include actual code snippets with line numbers instead of just file names
+    status: pending
+  - id: eec41139-8051-49c0-932f-c4f663bbe007
+    content: Implement _needs_exploration() helper to detect vague debugging questions that need exploration
+    status: pending
+  - id: 2a726377-f73e-408d-a39a-23f901e89702
+    content: Implement _agent_explore_and_analyze() method for single-turn exploration workflow
+    status: pending
+  - id: f663bc97-a37e-4237-8dd6-3955aa3a24fe
+    content: Integrate agent exploration into chat() method - route debugging questions through agent workflow when _needs_exploration() returns True
+    status: pending
+  - id: e66d90da-a737-4456-b270-567dfc343856
+    content: "Add helper methods: _parse_exploration_plan(), _format_findings(), _parse_agent_commands()"
+    status: pending
+  - id: 378bdefd-e550-4c29-b634-4685e77cab21
+    content: Implement _agent_conversation() method for multi-turn agent conversations with command parsing
+    status: pending
+  - id: f637ae7b-cb7b-4e49-8f4f-8c07b8256224
+    content: Add AGENT_SYSTEM_PROMPT and AGENT_DEBUGGING_PROMPT constants and integrate into agent workflows
+    status: pending
+---
+
 # Code Assistant Improvements Implementation Plan
 
 ## Overview
@@ -350,15 +382,3 @@ Implement all suggested improvements to enhance the code assistant's performance
 - Performance benchmarks
 - Memory profiling
 - Error scenario testing
-
-### To-dos
-
-- [ ] Create CodeExplorer service class with search_concept, grep_pattern, find_function_calls, trace_data_flow, find_related_files, read_function, and suggest_exploration_path methods
-- [ ] Fix _build_prompt() to respect file_specs max_lines from optimized_context instead of hardcoding 800
-- [ ] Modify _force_code_analysis() to include actual code snippets with line numbers instead of just file names
-- [ ] Implement _needs_exploration() helper to detect vague debugging questions that need exploration
-- [ ] Implement _agent_explore_and_analyze() method for single-turn exploration workflow
-- [ ] Integrate agent exploration into chat() method - route debugging questions through agent workflow when _needs_exploration() returns True
-- [ ] Add helper methods: _parse_exploration_plan(), _format_findings(), _parse_agent_commands()
-- [ ] Implement _agent_conversation() method for multi-turn agent conversations with command parsing
-- [ ] Add AGENT_SYSTEM_PROMPT and AGENT_DEBUGGING_PROMPT constants and integrate into agent workflows

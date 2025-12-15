@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import type { FileItem, RequestLogEntry } from '../../pages/Invoices'
 import { InvoiceDebugPanel } from '../InvoiceDebugPanel'
 import './InvoiceDetailPanelNew.css'
@@ -143,10 +144,24 @@ export const InvoiceDetailPanel = memo(function InvoiceDetailPanelNew({
                         )}
                       </td>
                       <td>
-                        {item.variance ? (
-                          <span className="status-badge flagged">Flagged</span>
-                        ) : (
-                          <span className="status-badge ok">OK</span>
+                        {/* Check if delivery note is paired - if metadata doesn't have deliveryNote, show Not Matched */}
+                        {!metadata.deliveryNote && !metadata.delivery_note && (
+                          <span className="status-badge" style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--accent-red)' }} title="No delivery note paired">
+                            Not Matched
+                          </span>
+                        )}
+                        {item.variance && (metadata.deliveryNote || metadata.delivery_note) && (
+                          <span 
+                            className="status-badge flagged" 
+                            title={`Quantity mismatch: ${item.variance}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <AlertTriangle size={14} />
+                            Flagged
+                          </span>
+                        )}
+                        {!item.variance && (metadata.deliveryNote || metadata.delivery_note) && (
+                          <span className="status-badge ok" title="Quantities match">OK</span>
                         )}
                       </td>
                     </tr>

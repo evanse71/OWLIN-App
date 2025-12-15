@@ -1,0 +1,47 @@
+name: E2E Upload Tests
+
+on:
+  push:
+    branches: [ main, develop, feat/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  e2e-upload-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install Python dependencies
+      run: |
+        python -m venv .venv
+        source .venv/bin/activate
+        pip install fastapi uvicorn python-multipart
+        
+    - name: Start backend server
+      run: |
+        source .venv/bin/activate
+        python test_backend_simple.py &
+        sleep 5
+        
+    - name: Assert OpenAPI routes
+      run: |
+        chmod +x scripts/assert_routes.sh
+        bash scripts/assert_routes.sh
+        
+    - name: Run E2E smoke tests
+      run: |
+        chmod +x scripts/smoke_e2e.sh
+        bash scripts/smoke_e2e.sh
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        pkill -f "python test_backend_simple.py" || true

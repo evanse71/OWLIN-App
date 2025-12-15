@@ -39,11 +39,11 @@ try {
 Write-Host ""
 Write-Host "[3/4] Starting frontend on port 5176..." -ForegroundColor Yellow
 
-$frontendDir = Join-Path $PSScriptRoot "source_extracted\tmp_lovable"
+$frontendDir = Join-Path $PSScriptRoot "frontend_clean"
 if (-not (Test-Path $frontendDir)) {
     Write-Host "  [ERROR] Frontend directory not found: $frontendDir" -ForegroundColor Red
-    Write-Host "  Trying alternative: frontend_clean" -ForegroundColor Yellow
-    $frontendDir = Join-Path $PSScriptRoot "frontend_clean"
+    Write-Host "  Trying alternative: source_extracted\tmp_lovable" -ForegroundColor Yellow
+    $frontendDir = Join-Path $PSScriptRoot "source_extracted\tmp_lovable"
 }
 
 if (Test-Path $frontendDir) {

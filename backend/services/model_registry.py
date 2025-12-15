@@ -15,6 +15,12 @@ logger = logging.getLogger("owlin.services.model_registry")
 
 # Model capabilities database
 MODEL_CAPABILITIES = {
+    "qwen2.5-coder:32b": {
+        "max_context": 128000,
+        "specialty": "code",
+        "speed": "slow",
+        "description": "Best quality for complex code analysis and deep understanding"
+    },
     "qwen2.5-coder:7b": {
         "max_context": 128000,
         "specialty": "code",

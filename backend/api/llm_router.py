@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from backend.config import env_bool, env_str
 from backend.llm.ocr_llm_integration import OCRLLMIntegration
 from backend.llm.local_llm import LLMConfig, LLMProvider, LLMDevice
+from backend.app.db import DB_PATH
 
 logger = logging.getLogger("owlin.api.llm")
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -41,7 +42,7 @@ class LLMRunResponse(BaseModel):
 def _get_document_by_id(doc_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve document information from database."""
     try:
-        con = sqlite3.connect("data/owlin.db", check_same_thread=False)
+        con = sqlite3.connect(DB_PATH, check_same_thread=False)
         cur = con.cursor()
         
         # Get document info

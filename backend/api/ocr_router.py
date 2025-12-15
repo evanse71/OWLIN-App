@@ -50,7 +50,7 @@ async def ocr_run(file: UploadFile = File(...)) -> JSONResponse:
 
     # Import lazily to keep cold-start cheap
     try:
-        from ocr.owlin_scan_pipeline import process_document
+        from backend.ocr.owlin_scan_pipeline import process_document
     except Exception as e:
         logger.exception("OCR pipeline import failed")
         raise HTTPException(status_code=500, detail=f"OCR pipeline unavailable: {e}")

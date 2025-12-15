@@ -345,5 +345,244 @@ class TestPerformanceAPI(unittest.TestCase):
         self.assertEqual(result["status"], "success")
 
 
+class TestCommandParsingPerformance(unittest.TestCase):
+    """Benchmark command parsing performance."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        with patch('backend.services.chat_service.CodeReader'), \
+             patch('backend.services.chat_service.CodeExplorer'), \
+             patch('backend.services.chat_service.CodeVerifier'), \
+             patch('backend.services.chat_service.ResponseValidator'), \
+             patch('backend.services.chat_service.RuntimeVerifier'), \
+             patch('backend.services.chat_service.ArchitectureAnalyzer'), \
+             patch('backend.services.chat_service.ResponseRewriter'), \
+             patch('backend.services.chat_service.get_config'), \
+             patch('backend.services.chat_service.RetryHandler'), \
+             patch('backend.services.chat_service.get_registry'), \
+             patch('backend.services.chat_service.ChatService._check_ollama_available', return_value=True):
+            from backend.services.chat_service import ChatService
+            self.chat_service = ChatService()
+    
+    def test_parse_large_response(self):
+        """Benchmark parsing large response with many commands."""
+        # Create a large response with 100 commands
+        commands = []
+        for i in range(100):
+            commands.append(f"READ backend/file{i}.py")
+            commands.append(f"SEARCH term{i}")
+            commands.append(f"GREP pattern{i}")
+        
+        response = "\n".join(commands)
+        
+        start_time = time.time()
+        parsed = self.chat_service._parse_agent_commands(response)
+        elapsed = time.time() - start_time
+        
+        self.assertEqual(len(parsed), 300)  # 100 * 3 commands
+        self.assertLess(elapsed, 1.0)  # Should complete in under 1 second
+        print(f"Parsed 300 commands in {elapsed:.3f}s ({elapsed*1000/300:.2f}ms per command)")
+
+
+class TestResultFormattingPerformance(unittest.TestCase):
+    """Benchmark result formatting performance."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        with patch('backend.services.chat_service.CodeReader'), \
+             patch('backend.services.chat_service.CodeExplorer'), \
+             patch('backend.services.chat_service.CodeVerifier'), \
+             patch('backend.services.chat_service.ResponseValidator'), \
+             patch('backend.services.chat_service.RuntimeVerifier'), \
+             patch('backend.services.chat_service.ArchitectureAnalyzer'), \
+             patch('backend.services.chat_service.ResponseRewriter'), \
+             patch('backend.services.chat_service.get_config'), \
+             patch('backend.services.chat_service.RetryHandler'), \
+             patch('backend.services.chat_service.get_registry'), \
+             patch('backend.services.chat_service.ChatService._check_ollama_available', return_value=True):
+            from backend.services.chat_service import ChatService
+            self.chat_service = ChatService()
+    
+    def test_format_large_result_set(self):
+        """Benchmark formatting large result set (1000+ results)."""
+        # Create 1000 results
+        results = []
+        for i in range(1000):
+            results.append({
+                "type": "search",
+                "file": f"backend/file{i}.py",
+                "line": i * 10,
+                "match": f"Found match {i}",
+                "context": f"Context for match {i}" * 10
+            })
+        
+        start_time = time.time()
+        formatted = self.chat_service._format_findings(results)
+        elapsed = time.time() - start_time
+        
+        self.assertIsNotNone(formatted)
+        self.assertLess(elapsed, 5.0)  # Should complete in under 5 seconds
+        print(f"Formatted 1000 results in {elapsed:.3f}s")
+    
+    def test_smart_truncate_large_content(self):
+        """Benchmark smart truncation of large content."""
+        # Create large content (100KB)
+        large_content = "def function():\n" * 5000
+        
+        start_time = time.time()
+        truncated = self.chat_service._smart_truncate_content(large_content, max_length=500)
+        elapsed = time.time() - start_time
+        
+        self.assertLess(len(truncated), 1000)  # Should be truncated
+        self.assertLess(elapsed, 0.5)  # Should complete quickly
+        print(f"Truncated 100KB content in {elapsed:.3f}s")
+    
+    def test_deduplicate_large_result_set(self):
+        """Benchmark deduplication of large result set."""
+        # Create 1000 results with many duplicates
+        results = []
+        for i in range(1000):
+            results.append({
+                "type": "grep",
+                "file": f"backend/file{i%10}.py",  # Only 10 unique files
+                "line": (i % 10) * 10 + (i // 10),
+                "match": f"Match {i}"
+            })
+        
+        start_time = time.time()
+        deduplicated = self.chat_service._deduplicate_results(results)
+        elapsed = time.time() - start_time
+        
+        self.assertLess(len(deduplicated), len(results))  # Should have fewer results
+        self.assertLess(elapsed, 2.0)  # Should complete in under 2 seconds
+        print(f"Deduplicated 1000 results to {len(deduplicated)} in {elapsed:.3f}s")
+
+
+class TestCachingPerformance(unittest.TestCase):
+    """Benchmark caching effectiveness."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        with patch('backend.services.chat_service.CodeReader'), \
+             patch('backend.services.chat_service.CodeExplorer'), \
+             patch('backend.services.chat_service.CodeVerifier'), \
+             patch('backend.services.chat_service.ResponseValidator'), \
+             patch('backend.services.chat_service.RuntimeVerifier'), \
+             patch('backend.services.chat_service.ArchitectureAnalyzer'), \
+             patch('backend.services.chat_service.ResponseRewriter'), \
+             patch('backend.services.chat_service.get_config'), \
+             patch('backend.services.chat_service.RetryHandler'), \
+             patch('backend.services.chat_service.get_registry'), \
+             patch('backend.services.chat_service.ChatService._check_ollama_available', return_value=True):
+            from backend.services.chat_service import ChatService
+            self.chat_service = ChatService()
+    
+    def test_path_resolution_cache_hit_rate(self):
+        """Benchmark path resolution cache hit rate."""
+        test_paths = ["backend/main.py"] * 100
+        
+        # First pass (cache miss)
+        start_time = time.time()
+        for path in test_paths:
+            with patch('os.path.exists', return_value=True):
+                self.chat_service._resolve_file_path(path)
+        first_pass_time = time.time() - start_time
+        
+        # Second pass (cache hit)
+        start_time = time.time()
+        for path in test_paths:
+            with patch('os.path.exists', return_value=True):
+                self.chat_service._resolve_file_path(path)
+        second_pass_time = time.time() - start_time
+        
+        # Cache should make second pass faster
+        self.assertLess(second_pass_time, first_pass_time)
+        speedup = first_pass_time / second_pass_time if second_pass_time > 0 else float('inf')
+        print(f"Path resolution cache speedup: {speedup:.2f}x (first: {first_pass_time:.3f}s, second: {second_pass_time:.3f}s)")
+    
+    def test_relevance_score_cache(self):
+        """Benchmark relevance score caching."""
+        result = {
+            "type": "search",
+            "file": "backend/main.py",
+            "match": "test match",
+            "line": 100
+        }
+        query = "test query"
+        
+        # First pass (cache miss)
+        start_time = time.time()
+        for _ in range(100):
+            self.chat_service._score_result_relevance(result, query)
+        first_pass_time = time.time() - start_time
+        
+        # Second pass (cache hit)
+        start_time = time.time()
+        for _ in range(100):
+            self.chat_service._score_result_relevance(result, query)
+        second_pass_time = time.time() - start_time
+        
+        # Cache should make second pass faster
+        if second_pass_time > 0:
+            speedup = first_pass_time / second_pass_time
+            print(f"Relevance score cache speedup: {speedup:.2f}x")
+
+
+class TestTimeoutHandlingPerformance(unittest.TestCase):
+    """Benchmark timeout handling performance."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        with patch('backend.services.chat_service.CodeReader'), \
+             patch('backend.services.chat_service.CodeExplorer'), \
+             patch('backend.services.chat_service.CodeVerifier'), \
+             patch('backend.services.chat_service.ResponseValidator'), \
+             patch('backend.services.chat_service.RuntimeVerifier'), \
+             patch('backend.services.chat_service.ArchitectureAnalyzer'), \
+             patch('backend.services.chat_service.ResponseRewriter'), \
+             patch('backend.services.chat_service.get_config'), \
+             patch('backend.services.chat_service.RetryHandler'), \
+             patch('backend.services.chat_service.get_registry'), \
+             patch('backend.services.chat_service.ChatService._check_ollama_available', return_value=True):
+            from backend.services.chat_service import ChatService
+            self.chat_service = ChatService()
+    
+    def test_timeout_execution(self):
+        """Benchmark timeout execution overhead."""
+        def slow_function():
+            time.sleep(0.1)
+            return "result"
+        
+        start_time = time.time()
+        result = self.chat_service._execute_with_timeout(
+            slow_function,
+            timeout=0.2,
+            timeout_message="Timeout"
+        )
+        elapsed = time.time() - start_time
+        
+        self.assertEqual(result, "result")
+        self.assertLess(elapsed, 0.15)  # Should complete before timeout
+        print(f"Timeout execution completed in {elapsed:.3f}s")
+    
+    def test_timeout_cancellation(self):
+        """Benchmark timeout cancellation overhead."""
+        def slow_function():
+            time.sleep(1.0)  # Will timeout
+            return "result"
+        
+        start_time = time.time()
+        result = self.chat_service._execute_with_timeout(
+            slow_function,
+            timeout=0.1,
+            timeout_message="Timeout"
+        )
+        elapsed = time.time() - start_time
+        
+        self.assertIn("Timeout", result)
+        self.assertLess(elapsed, 0.2)  # Should timeout quickly
+        print(f"Timeout cancellation completed in {elapsed:.3f}s")
+
+
 if __name__ == "__main__":
     unittest.main()

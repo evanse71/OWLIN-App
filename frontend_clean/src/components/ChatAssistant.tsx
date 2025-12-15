@@ -2,6 +2,68 @@ import { useState, useRef, useEffect } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { TaskList } from './TaskList'
 import { API_BASE_URL } from '../lib/config'
+import { useChatAssistant } from './ChatAssistantContext'
+import { Search, Sparkles, Code, CircleAlert, Network, Plus, Send, X, Bot } from 'lucide-react'
+
+// OWLIN Design System Tokens - Dark UI Palette
+const OWLIN_COLORS = {
+  // Dark backgrounds (matching invoice UI)
+  backgroundLevel1: '#101214', // Main background
+  backgroundLevel2: '#16191F', // Elevated cards
+  backgroundMenu: 'rgba(20, 23, 28, 0.96)', // Menu background
+  
+  // Primary accent
+  primary: '#4CA3FF', // Owlin blue
+  primaryHover: '#5DB0FF',
+  
+  // Secondary
+  secondary: '#2A2F38',
+  
+  // Borders
+  border: 'rgba(255, 255, 255, 0.05)',
+  borderSoft: 'rgba(255, 255, 255, 0.08)',
+  
+  // Text colors
+  textPrimary: 'rgba(255, 255, 255, 0.87)',
+  textSecondary: 'rgba(255, 255, 255, 0.6)',
+  textMuted: 'rgba(255, 255, 255, 0.4)',
+  textSlate: '#cbd5e1', // slate-300 equivalent
+  
+  // Interactive states
+  hover: 'rgba(255, 255, 255, 0.03)',
+  active: 'rgba(255, 255, 255, 0.05)',
+  
+  // Legacy (for compatibility)
+  navy: '#2B3A55',
+  sageGreen: '#7B9E87',
+  sageGreenLight: 'rgba(123, 158, 135, 0.15)',
+  sageGreenBorder: 'rgba(123, 158, 135, 0.2)',
+  navyDark: '#101214',
+  navyCard: '#16191F',
+  backgroundSoft: 'rgba(255, 255, 255, 0.03)',
+  backgroundCard: '#16191F',
+}
+
+const OWLIN_TYPOGRAPHY = {
+  fontFamily: 'Inter, "Work Sans", -apple-system, BlinkMacSystemFont, sans-serif',
+  weights: {
+    body: 400,
+    label: 500,
+    title: 600,
+  }
+}
+
+const OWLIN_SPACING = {
+  micro: '8px',
+  element: '16px',
+  section: '24px',
+}
+
+const OWLIN_TRANSITIONS = {
+  default: 'all 200ms ease-out',
+  fast: 'all 150ms ease-out',
+  slow: 'all 250ms ease-out',
+}
 
 interface Message {
   role: 'user' | 'assistant'
@@ -38,8 +100,19 @@ const TOKEN_SIZE_OPTIONS = [
   { value: 200000, label: 'Ultra (200k)', description: 'Extreme analysis (if model supports)' },
 ]
 
-export function ChatAssistant() {
-  const [isExpanded, setIsExpanded] = useState(false)
+interface ChatAssistantProps {
+  compactInputExternal?: boolean
+  renderAsWidget?: boolean // When true, renders as a widget in the layout instead of fixed positioning
+  useSharedState?: boolean // When true, uses shared state from context
+}
+
+export function ChatAssistant({ compactInputExternal = false, renderAsWidget = false, useSharedState = false }: ChatAssistantProps) {
+  // Always call the hook (React rules), but only use it if useSharedState is true
+  const [localIsExpanded, setLocalIsExpanded] = useState(false)
+  const sharedState = useChatAssistant() // Always call, but may return default if context not available
+  
+  const isExpanded = useSharedState ? sharedState.isExpanded : localIsExpanded
+  const setIsExpanded = useSharedState ? sharedState.setIsExpanded : setLocalIsExpanded
   const [isPinned, setIsPinned] = useState(true) // Pinned = fixed position, unpinned = draggable
   const [position, setPosition] = useState({ x: 0, y: 0 }) // Position when unpinned
   const [size, setSize] = useState({ width: 400, height: 600 }) // Resizable dimensions
@@ -100,8 +173,7 @@ export function ChatAssistant() {
     const saved = localStorage.getItem('chat_context_size')
     return saved ? parseInt(saved, 10) : 32000
   })
-  const [showExplorerTooltip, setShowExplorerTooltip] = useState(false)
-  const [showMultiTurnTooltip, setShowMultiTurnTooltip] = useState(false)
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -127,6 +199,46 @@ export function ChatAssistant() {
     }
   }, [isExpanded])
 
+  // Ref for the menu container
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        showOptionsMenu && 
+        menuRef.current && 
+        !menuRef.current.contains(target) &&
+        containerRef.current &&
+        !containerRef.current.contains(target)
+      ) {
+        setShowOptionsMenu(false)
+      }
+    }
+    
+    if (showOptionsMenu) {
+      // Use a small delay to avoid closing immediately when opening
+      const timeoutId = setTimeout(() => {
+        document.addEventListener('mousedown', handleClickOutside)
+      }, 0)
+      
+      return () => {
+        clearTimeout(timeoutId)
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [showOptionsMenu])
+
+  // When using external input and expanding, ensure panel is positioned at bottom-right
+  useEffect(() => {
+    if (compactInputExternal && isExpanded) {
+      // Always pin and reset position to ensure bottom-right placement
+      setIsPinned(true)
+      setPosition({ x: 0, y: 0 })
+    }
+  }, [compactInputExternal, isExpanded])
+
   // Handle pin/unpin toggle
   const handlePinToggle = () => {
     if (isPinned) {
@@ -141,6 +253,8 @@ export function ChatAssistant() {
 
   // Drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Don't allow dragging when using external input - always keep at bottom-right
+    if (compactInputExternal) return
     if (!isExpanded || isPinned) return
     if ((e.target as HTMLElement).closest('button, input, select, textarea')) return
     
@@ -185,6 +299,9 @@ export function ChatAssistant() {
       }
       
       if (isResizing && containerRef.current) {
+        // Don't allow resizing when using external input (keeps panel at bottom-right)
+        if (compactInputExternal) return
+        
         const deltaX = e.clientX - resizeStart.x
         const deltaY = e.clientY - resizeStart.y
         
@@ -218,7 +335,7 @@ export function ChatAssistant() {
         document.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [isDragging, isResizing, isPinned, dragStart, resizeStart, size])
+  }, [isDragging, isResizing, isPinned, dragStart, resizeStart, size, compactInputExternal])
 
   const checkStatus = async () => {
     try {
@@ -242,6 +359,11 @@ export function ChatAssistant() {
 
   const handleInputFocus = () => {
     if (!isExpanded) {
+      // When using external input, ensure panel appears at bottom-right
+      if (compactInputExternal) {
+        setIsPinned(true)
+        setPosition({ x: 0, y: 0 })
+      }
       setIsExpanded(true)
     }
   }
@@ -474,6 +596,11 @@ export function ChatAssistant() {
 
     const userMessage = inputValue.trim()
     setInputValue('')
+    // When using external input, ensure panel appears at bottom-right when expanding
+    if (compactInputExternal) {
+      setIsPinned(true)
+      setPosition({ x: 0, y: 0 })
+    }
     setIsExpanded(true)
 
     // Store the message for retry
@@ -1054,633 +1181,540 @@ export function ChatAssistant() {
     setIsExpanded(false)
   }
 
-  // Header state (compact input box) - Glassmorphism style
-  if (!isExpanded) {
-    return (
-      <form
-        onSubmit={handleSubmit}
+  // Compact input form component (reusable) - Owlin dark UI style
+  const CompactInputForm = () => (
+    <form
+      onSubmit={handleSubmit}
+      className="assistant-input-form"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: OWLIN_SPACING.micro,
+        width: compactInputExternal ? '100%' : '280px',
+        maxWidth: compactInputExternal ? '320px' : '280px',
+        minWidth: compactInputExternal ? '240px' : '280px',
+        height: '44px',
+        position: compactInputExternal ? 'relative' : 'fixed',
+        top: compactInputExternal ? 'auto' : OWLIN_SPACING.section,
+        right: compactInputExternal ? 'auto' : OWLIN_SPACING.section,
+        zIndex: compactInputExternal ? 'auto' : 999,
+        padding: '4px',
+        background: OWLIN_COLORS.backgroundLevel2,
+        borderRadius: '22px',
+        border: `1px solid ${OWLIN_COLORS.border}`,
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        transition: OWLIN_TRANSITIONS.default,
+        flexShrink: 1,
+        fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = OWLIN_COLORS.hover
+        e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
+        e.currentTarget.style.boxShadow = `0 0 0 2px ${OWLIN_COLORS.primary}40`
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = OWLIN_COLORS.backgroundLevel2
+        e.currentTarget.style.borderColor = OWLIN_COLORS.border
+        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)'
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        onKeyDown={handleKeyDown}
+        placeholder="Ask Owlin Assistant..."
+        disabled={isLoading}
         style={{
+          flex: 1,
+          height: '100%',
+          padding: `0 ${OWLIN_SPACING.element}`,
+          border: 'none',
+          borderRadius: '18px',
+          fontSize: '13px',
+          outline: 'none',
+          background: 'transparent',
+          color: OWLIN_COLORS.textPrimary,
+          fontWeight: OWLIN_TYPOGRAPHY.weights.body,
+          fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+        }}
+      />
+      <button
+        type="submit"
+        disabled={isLoading || !inputValue.trim()}
+        style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: '50%',
+          border: 'none',
+          background: isLoading || !inputValue.trim() 
+            ? OWLIN_COLORS.backgroundLevel2
+            : OWLIN_COLORS.primary,
+          color: '#fff',
+          cursor: isLoading || !inputValue.trim() ? 'not-allowed' : 'pointer',
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
-          width: '320px',
-          height: '48px',
-          position: 'fixed',
-          top: '24px',
-          right: '24px',
-          zIndex: 999,
-          padding: '4px',
-          background: 'rgba(255, 255, 255, 0.7)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-          borderRadius: '24px',
-          border: '1px solid rgba(255, 255, 255, 0.3)',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+          justifyContent: 'center',
+          transition: OWLIN_TRANSITIONS.default,
+          boxShadow: isLoading || !inputValue.trim() 
+            ? 'none'
+            : '0 2px 6px rgba(0, 0, 0, 0.2)',
+          opacity: isLoading || !inputValue.trim() ? 0.5 : 1,
+          fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+        }}
+        onMouseEnter={(e) => {
+          if (!isLoading && inputValue.trim()) {
+            e.currentTarget.style.transform = 'scale(1.05)'
+            e.currentTarget.style.background = OWLIN_COLORS.primaryHover
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(76, 163, 255, 0.3)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)'
+          e.currentTarget.style.background = isLoading || !inputValue.trim() 
+            ? OWLIN_COLORS.backgroundLevel2
+            : OWLIN_COLORS.primary
+          e.currentTarget.style.boxShadow = isLoading || !inputValue.trim() 
+            ? 'none'
+            : '0 2px 6px rgba(0, 0, 0, 0.2)'
         }}
       >
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={handleInputChange}
-          onFocus={handleInputFocus}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about your code..."
-          disabled={isLoading}
-          style={{
-            flex: 1,
-            height: '100%',
-            padding: '0 16px',
-            border: 'none',
-            borderRadius: '20px',
-            fontSize: '14px',
-            outline: 'none',
-            background: 'transparent',
-            color: '#1f2937',
-            fontWeight: 400,
-          }}
-        />
-        <button
-          type="submit"
-          disabled={isLoading || !inputValue.trim()}
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            border: 'none',
-            background: isLoading || !inputValue.trim() 
-              ? 'linear-gradient(135deg, rgba(156, 163, 175, 0.6), rgba(107, 114, 128, 0.6))'
-              : 'linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(37, 99, 235, 0.9))',
-            color: '#fff',
-            cursor: isLoading || !inputValue.trim() ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '18px',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            boxShadow: isLoading || !inputValue.trim() 
-              ? 'none'
-              : '0 4px 12px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
-            transform: 'scale(1)',
-          }}
-          onMouseEnter={(e) => {
-            if (!isLoading && inputValue.trim()) {
-              e.currentTarget.style.transform = 'scale(1.05)'
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'scale(1)'
-          }}
-        >
-          {isLoading ? '⏳' : '→'}
-        </button>
-      </form>
-    )
+        {isLoading ? (
+          <X size={16} strokeWidth={2} />
+        ) : (
+          <Send size={16} strokeWidth={1.5} />
+        )}
+      </button>
+    </form>
+  )
+
+
+  // When renderAsWidget is true, only show the widget when expanded
+  // The header input (compactInputExternal) will control the expansion
+  if (renderAsWidget) {
+    if (!isExpanded) {
+      return null // Don't render anything when collapsed - header input handles that
+    }
+    // Will render expanded panel below (after it's defined)
   }
 
-  // Expanded state (bottom-right panel or draggable)
-  const defaultStyle = isPinned
-    ? {
-        bottom: '20px',
-        right: '20px',
-        top: 'auto',
-        left: 'auto',
+  // When compactInputExternal is true and not expanded, render compact input for AppHeader
+  // When compactInputExternal is true and expanded, DON'T render expanded panel here - let the widget handle it
+  if (!isExpanded) {
+    if (compactInputExternal) {
+      // Render compact input for external use (AppHeader will handle positioning)
+      return <CompactInputForm />
+    } else {
+      // Render compact input with fixed positioning (legacy behavior)
+      return <CompactInputForm />
+    }
+  }
+  
+  // When compactInputExternal is true and expanded, but we're NOT in widget mode,
+  // we should still show the expanded panel (for pages without the widget)
+  // But if we're using shared state, the widget will handle the expanded view
+  if (compactInputExternal && useSharedState) {
+    // Don't render expanded panel in header when using shared state - widget handles it
+    return <CompactInputForm />
+  }
+
+  // Expanded state - render expanded panel
+  // When compactInputExternal is true, ALWAYS position at bottom-right corner
+  // When compactInputExternal is false, use normal positioning logic
+  const getPanelPosition = () => {
+    // Force bottom-right when using external input, regardless of other state
+    if (compactInputExternal) {
+      return {
+        bottom: OWLIN_SPACING.section,
+        right: OWLIN_SPACING.section,
+        top: 'auto' as const,
+        left: 'auto' as const,
       }
-    : {
+    }
+    
+    // Normal positioning logic for non-external mode
+    if (isPinned) {
+      return {
+        bottom: OWLIN_SPACING.section,
+        right: OWLIN_SPACING.section,
+        top: 'auto' as const,
+        left: 'auto' as const,
+      }
+    } else {
+      return {
         top: `${position.y}px`,
         left: `${position.x}px`,
-        bottom: 'auto',
-        right: 'auto',
+        bottom: 'auto' as const,
+        right: 'auto' as const,
       }
+    }
+  }
 
-  return (
+  const panelPosition = getPanelPosition()
+
+  // Render expanded panel as a variable (will be returned conditionally)
+  // When renderAsWidget is true, render as a widget in the layout (relative positioning)
+  // Otherwise, use fixed positioning at bottom-right
+  const expandedPanelStyle: React.CSSProperties = {
+    position: renderAsWidget ? 'relative' : 'fixed',
+    width: renderAsWidget ? '100%' : `${size.width}px`,
+    height: renderAsWidget ? '600px' : `${size.height}px`,
+    maxHeight: renderAsWidget ? '600px' : `${size.height}px`,
+    background: OWLIN_COLORS.backgroundLevel1,
+    borderRadius: '20px',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+    border: `1px solid ${OWLIN_COLORS.border}`,
+    display: 'flex',
+    flexDirection: 'column',
+    zIndex: renderAsWidget ? 1 : 9999,
+    cursor: compactInputExternal ? 'default' : (isDragging ? 'grabbing' : (isPinned ? 'default' : 'grab')),
+    userSelect: isDragging ? 'none' : 'auto',
+    overflow: 'hidden',
+    transition: 'all 200ms ease-out, transform 200ms ease-out',
+    fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+    // Position based on render mode
+    ...(renderAsWidget ? {
+      marginTop: OWLIN_SPACING.element,
+    } : {
+      bottom: OWLIN_SPACING.section,
+      right: OWLIN_SPACING.section,
+      top: 'auto',
+      left: 'auto',
+      animation: 'dropIn 200ms ease-out',
+    }),
+  }
+
+  const expandedPanel = (
     <div
       ref={containerRef}
       onMouseDown={handleMouseDown}
-      style={{
-        position: 'fixed',
-        ...defaultStyle,
-        width: `${size.width}px`,
-        height: `${size.height}px`,
-        maxHeight: `${size.height}px`,
-        background: 'rgba(255, 255, 255, 0.75)',
-        backdropFilter: 'blur(40px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-        borderRadius: '24px',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.6)',
-        border: '1px solid rgba(255, 255, 255, 0.3)',
-        display: 'flex',
-        flexDirection: 'column',
-        zIndex: 1000,
-        cursor: isDragging ? 'grabbing' : (isPinned ? 'default' : 'grab'),
-        userSelect: isDragging ? 'none' : 'auto',
-        overflow: 'hidden',
-      }}
+      style={expandedPanelStyle}
     >
-      {/* Header with glass effect */}
+      {/* Header with OWLIN styling - ChatGPT style (cleaner) */}
       <div
         style={{
-          padding: '16px 20px',
-          borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
-          background: 'linear-gradient(to bottom, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7))',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderRadius: '24px 24px 0 0',
+          padding: `${OWLIN_SPACING.element} ${OWLIN_SPACING.section}`,
+          borderBottom: `1px solid ${OWLIN_COLORS.border}`,
+          background: OWLIN_COLORS.backgroundLevel1,
+          borderRadius: '20px 20px 0 0',
           cursor: isPinned ? 'default' : 'grab',
+          minHeight: '56px',
+          display: 'flex',
+          alignItems: 'center',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <div>
-            <div style={{ 
-              fontWeight: 600, 
-              fontSize: '15px', 
-              color: '#1f2937',
-              letterSpacing: '-0.01em',
-            }}>
-              Code Assistant
-            </div>
-            {ollamaAvailable && currentModel !== 'Unknown' ? (
-              <div style={{ 
-                fontSize: '11px', 
-                color: '#10b981', 
-                marginTop: '6px',
-                fontWeight: 500,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '4px 8px',
-                background: 'rgba(16, 185, 129, 0.1)',
-                borderRadius: '6px',
-                border: '1px solid rgba(16, 185, 129, 0.2)',
-                width: 'fit-content',
-              }}>
-                <span style={{
-                  width: '8px',
-                  height: '8px',
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Back button (left) - Reference image style */}
+            {renderAsWidget && (
+              <button
+                onClick={handleMinimize}
+                style={{
+                  width: '32px',
+                  height: '32px',
                   borderRadius: '50%',
-                  background: '#10b981',
-                  display: 'inline-block',
-                  boxShadow: '0 0 8px rgba(16, 185, 129, 0.8), 0 0 16px rgba(16, 185, 129, 0.4)',
-                  animation: 'pulse 2s ease-in-out infinite',
-                }} />
-                <span style={{ fontWeight: 600 }}>{currentModel}</span>
-                <span style={{ opacity: 0.7 }}>•</span>
-                <span>{contextSize / 1000}k context</span>
-              </div>
-            ) : (
-              <div style={{ 
-                fontSize: '11px', 
-                color: '#6b7280', 
-                marginTop: '6px',
-                fontWeight: 400,
-                padding: '4px 8px',
-                background: 'rgba(107, 114, 128, 0.1)',
-                borderRadius: '6px',
-                border: '1px solid rgba(107, 114, 128, 0.2)',
-                width: 'fit-content',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}>
-                <span style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#9ca3af',
-                  display: 'inline-block',
-                }} />
-                Code reading mode (Ollama optional)
-              </div>
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  background: 'transparent',
+                  color: OWLIN_COLORS.textSecondary,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: OWLIN_TRANSITIONS.default,
+                  fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = OWLIN_COLORS.hover
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
+                  e.currentTarget.style.color = OWLIN_COLORS.textPrimary
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                  e.currentTarget.style.color = OWLIN_COLORS.textSecondary
+                }}
+                title="Close"
+              >
+                <X size={18} strokeWidth={1.5} />
+              </button>
             )}
-          </div>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            {/* Pin/Unpin button */}
-            <button
-              onClick={handlePinToggle}
-              style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '8px',
-                border: '1px solid rgba(0, 0, 0, 0.08)',
-                background: 'rgba(255, 255, 255, 0.6)',
-                backdropFilter: 'blur(10px)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '13px',
-                color: '#6b7280',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.9)'
-                e.currentTarget.style.transform = 'scale(1.05)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.6)'
-                e.currentTarget.style.transform = 'scale(1)'
-              }}
-              title={isPinned ? 'Unpin to move' : 'Pin to bottom right'}
-            >
-              {isPinned ? '📌' : '📍'}
-            </button>
-            {/* Minimize button */}
-            <button
-              onClick={handleMinimize}
-              style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '8px',
-                border: '1px solid rgba(0, 0, 0, 0.08)',
-                background: 'rgba(255, 255, 255, 0.6)',
-                backdropFilter: 'blur(10px)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '16px',
-                color: '#6b7280',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.9)'
-                e.currentTarget.style.transform = 'scale(1.05)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.6)'
-                e.currentTarget.style.transform = 'scale(1)'
-              }}
-              title="Minimize"
-            >
-              −
-            </button>
-          </div>
-        </div>
-        {/* Token Size Selector */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-          <label
-            htmlFor="context-size-select"
-            style={{
-              fontSize: '11px',
-              color: '#6b7280',
-              fontWeight: 500,
-            }}
-          >
-            Context:
-          </label>
-          <select
-            id="context-size-select"
-            value={contextSize}
-            onChange={handleContextSizeChange}
-            disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: '6px 12px',
-              border: '1px solid rgba(0, 0, 0, 0.08)',
-              borderRadius: '10px',
-              fontSize: '12px',
-              background: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(10px)',
-              color: '#1f2937',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              if (!isLoading) {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)'
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.8)'
-            }}
-            title="Select context window size"
-          >
-            {TOKEN_SIZE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label} - {option.description}
-              </option>
-            ))}
-          </select>
-        </div>
-        
-        {/* Exploration Controls */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '8px', 
-          alignItems: 'center',
-          padding: '8px 12px',
-          background: 'rgba(255, 255, 255, 0.4)',
-          backdropFilter: 'blur(10px)',
-          borderRadius: '10px',
-          border: '1px solid rgba(0, 0, 0, 0.05)',
-          position: 'relative',
-        }}>
-          {/* Search Mode Button with Tooltip */}
-          <div style={{ flex: 1, position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => setUseSearchMode(!useSearchMode)}
-              disabled={isLoading}
-              style={{
-                width: '100%',
-                padding: '8px 14px',
-                border: `1px solid ${useSearchMode ? 'rgba(59, 130, 246, 0.4)' : 'rgba(0, 0, 0, 0.08)'}`,
-                borderRadius: '10px',
-                fontSize: '12px',
-                background: useSearchMode 
-                  ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.2))'
-                  : 'rgba(255, 255, 255, 0.7)',
-                backdropFilter: 'blur(10px)',
-                color: useSearchMode ? '#1e40af' : '#6b7280',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                fontWeight: useSearchMode ? 600 : 500,
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                boxShadow: useSearchMode ? '0 2px 8px rgba(59, 130, 246, 0.2)' : 'none',
-              }}
-              onMouseEnter={(e) => {
-                if (!isLoading) {
-                  e.currentTarget.style.transform = 'scale(1.02)'
-                  e.currentTarget.style.background = useSearchMode
-                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(37, 99, 235, 0.25))'
-                    : 'rgba(255, 255, 255, 0.9)'
-                  e.currentTarget.style.boxShadow = useSearchMode 
-                    ? '0 4px 12px rgba(59, 130, 246, 0.3)'
-                    : '0 2px 8px rgba(0, 0, 0, 0.1)'
-                  setShowExplorerTooltip(true)
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)'
-                e.currentTarget.style.background = useSearchMode
-                  ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.2))'
-                  : 'rgba(255, 255, 255, 0.7)'
-                e.currentTarget.style.boxShadow = useSearchMode ? '0 2px 8px rgba(59, 130, 246, 0.2)' : 'none'
-                setShowExplorerTooltip(false)
-              }}
-            >
-              <span style={{ fontSize: '14px' }}>🔍</span>
-              Search
-            </button>
-            {/* Tooltip for Search Mode */}
-            {showExplorerTooltip && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '100%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                marginBottom: '8px',
-                padding: '10px 14px',
-                background: 'rgba(15, 23, 42, 0.95)',
-                backdropFilter: 'blur(20px)',
-                color: '#f8fafc',
-                fontSize: '12px',
-                borderRadius: '10px',
-                pointerEvents: 'none',
-                transition: 'opacity 0.2s, transform 0.2s',
-                transformOrigin: 'bottom',
-                zIndex: 10000,
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                maxWidth: '280px',
-                whiteSpace: 'normal',
-                textAlign: 'left',
-              }}
-              onMouseEnter={() => setShowExplorerTooltip(true)}
-              onMouseLeave={() => setShowExplorerTooltip(false)}
-            >
-              <div style={{ fontWeight: 600, marginBottom: '4px', color: '#60a5fa' }}>
-                🔍 Search Mode
+            
+            {/* Title with avatar - Reference image style */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: OWLIN_COLORS.backgroundLevel2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  flexShrink: 0,
+                }}
+              >
+                <Bot size={18} strokeWidth={1.5} color={OWLIN_COLORS.textSlate} />
               </div>
-              <div style={{ fontSize: '11px', lineHeight: '1.5', color: '#cbd5e1' }}>
-                Comprehensive information gathering. Searches your codebase extensively, reads relevant files, and provides a detailed summary of what exists. Perfect for discovering code and understanding structure.
+              <div style={{ 
+                fontWeight: OWLIN_TYPOGRAPHY.weights.title, 
+                fontSize: '17px', 
+                color: OWLIN_COLORS.textPrimary,
+                letterSpacing: '-0.01em',
+                fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+              }}>
+                Code Assistant
               </div>
             </div>
-            )}
           </div>
           
-          {/* Agent Mode Button with Tooltip */}
-          <div style={{ flex: 1, position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => setUseAgentMode(!useAgentMode)}
-              disabled={isLoading}
-              style={{
-                width: '100%',
-                padding: '8px 14px',
-                border: `1px solid ${useAgentMode ? 'rgba(16, 185, 129, 0.4)' : 'rgba(0, 0, 0, 0.08)'}`,
-                borderRadius: '10px',
-                fontSize: '12px',
-                background: useAgentMode
-                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.2))'
-                  : 'rgba(255, 255, 255, 0.7)',
-                backdropFilter: 'blur(10px)',
-                color: useAgentMode ? '#065f46' : '#6b7280',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                fontWeight: useAgentMode ? 600 : 500,
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                boxShadow: useAgentMode ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none',
-              }}
-              onMouseEnter={(e) => {
-                if (!isLoading) {
-                  e.currentTarget.style.transform = 'scale(1.02)'
-                  e.currentTarget.style.background = useAgentMode
-                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.25))'
-                    : 'rgba(255, 255, 255, 0.9)'
-                  e.currentTarget.style.boxShadow = useAgentMode
-                    ? '0 4px 12px rgba(16, 185, 129, 0.3)'
-                    : '0 2px 8px rgba(0, 0, 0, 0.1)'
-                  setShowMultiTurnTooltip(true)
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)'
-                e.currentTarget.style.background = useAgentMode
-                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.2))'
-                  : 'rgba(255, 255, 255, 0.7)'
-                e.currentTarget.style.boxShadow = useAgentMode ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none'
-                setShowMultiTurnTooltip(false)
-              }}
-            >
-              <span style={{ fontSize: '14px' }}>🤖</span>
-              Agent
-            </button>
-            {/* Tooltip for Agent Mode */}
-            {showMultiTurnTooltip && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '100%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                marginBottom: '8px',
-                padding: '10px 14px',
-                background: 'rgba(15, 23, 42, 0.95)',
-                backdropFilter: 'blur(20px)',
-                color: '#f8fafc',
-                fontSize: '12px',
-                borderRadius: '10px',
-                pointerEvents: 'none',
-                transition: 'opacity 0.2s, transform 0.2s',
-                transformOrigin: 'bottom',
-                zIndex: 10000,
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                maxWidth: '280px',
-                whiteSpace: 'normal',
-                textAlign: 'left',
-              }}
-              onMouseEnter={() => setShowMultiTurnTooltip(true)}
-              onMouseLeave={() => setShowMultiTurnTooltip(false)}
-            >
-              <div style={{ fontWeight: 600, marginBottom: '4px', color: '#34d399' }}>
-                🤖 Agent Mode
-              </div>
-              <div style={{ fontSize: '11px', lineHeight: '1.5', color: '#cbd5e1' }}>
-                Autonomous problem-solving agent. Breaks down problems into tasks, executes them sequentially, analyzes results, and provides solutions with root cause analysis and fixes. Perfect for debugging and problem-solving.
-              </div>
-            </div>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            {!renderAsWidget && (
+              <>
+                {/* Pin/Unpin button - Only show when not in widget mode */}
+                <button
+                  onClick={handlePinToggle}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '8px',
+                    border: `1px solid ${OWLIN_COLORS.border}`,
+                    background: OWLIN_COLORS.backgroundCard,
+                    backdropFilter: 'blur(10px)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '13px',
+                    color: OWLIN_COLORS.textSecondary,
+                    transition: OWLIN_TRANSITIONS.default,
+                    fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = OWLIN_COLORS.backgroundSoft
+                    e.currentTarget.style.borderColor = OWLIN_COLORS.sageGreenBorder
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                    e.currentTarget.style.color = OWLIN_COLORS.textPrimary
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = OWLIN_COLORS.backgroundCard
+                    e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                    e.currentTarget.style.transform = 'scale(1)'
+                    e.currentTarget.style.color = OWLIN_COLORS.textSecondary
+                  }}
+                  title={isPinned ? 'Unpin to move' : 'Pin to bottom right'}
+                >
+                  {isPinned ? '📌' : '📍'}
+                </button>
+                {/* Minimize button - Only show when not in widget mode */}
+                <button
+                  onClick={handleMinimize}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '8px',
+                    border: `1px solid ${OWLIN_COLORS.border}`,
+                    background: OWLIN_COLORS.backgroundCard,
+                    backdropFilter: 'blur(10px)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '16px',
+                    color: OWLIN_COLORS.textSecondary,
+                    transition: OWLIN_TRANSITIONS.default,
+                    fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = OWLIN_COLORS.backgroundSoft
+                    e.currentTarget.style.borderColor = OWLIN_COLORS.sageGreenBorder
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                    e.currentTarget.style.color = OWLIN_COLORS.textPrimary
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = OWLIN_COLORS.backgroundCard
+                    e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                    e.currentTarget.style.transform = 'scale(1)'
+                    e.currentTarget.style.color = OWLIN_COLORS.textSecondary
+                  }}
+                  title="Minimize"
+                >
+                  −
+                </button>
+              </>
             )}
           </div>
         </div>
+        
       </div>
 
-      {/* Messages area with subtle gradient */}
+      {/* Messages area with OWLIN styling - ChatGPT style (cleaner) */}
       <div
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px',
-          maxHeight: `${size.height - 200}px`,
-          background: 'linear-gradient(to bottom, rgba(255, 255, 255, 0.5), rgba(249, 250, 251, 0.3))',
+          padding: `40px ${OWLIN_SPACING.section} ${OWLIN_SPACING.section} ${OWLIN_SPACING.section}`,
+          background: OWLIN_COLORS.backgroundLevel1,
+          fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
         }}
       >
         {messages.length === 0 ? (
           <div
             style={{
               textAlign: 'center',
-              color: '#6b7280',
+              color: OWLIN_COLORS.textSecondary,
               fontSize: '14px',
               padding: '60px 20px',
+              fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
             }}
           >
             <div style={{ 
-              marginBottom: '16px', 
-              fontSize: '64px',
-              opacity: 0.5,
-              filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1))',
-            }}>💬</div>
+              fontWeight: OWLIN_TYPOGRAPHY.weights.title, 
+              fontSize: '24px',
+              marginBottom: '12px',
+              color: OWLIN_COLORS.textPrimary,
+              fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+              letterSpacing: '-0.02em',
+              lineHeight: '1.3',
+            }}>How can I help you today?</div>
             <div style={{ 
-              fontWeight: 600, 
-              fontSize: '18px',
-              marginBottom: '8px',
-              color: '#1f2937',
-            }}>Ask me about your code!</div>
-            <div style={{ 
-              marginTop: '12px', 
-              fontSize: '13px', 
-              opacity: 0.7,
-              marginBottom: '24px',
+              fontSize: '15px', 
+              marginBottom: '32px',
+              color: OWLIN_COLORS.textSecondary,
+              fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+              lineHeight: '1.6',
             }}>
               I can help you understand, debug, and explore your codebase.
             </div>
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '8px',
-              maxWidth: '300px',
+              gap: '12px',
+              maxWidth: '480px',
               margin: '0 auto',
             }}>
-              <div
+              <button
+                type="button"
                 onClick={() => {
                   setInputValue("Show me the upload code")
                   inputRef.current?.focus()
                 }}
                 style={{
-                  padding: '10px 16px',
-                  background: 'rgba(255, 255, 255, 0.6)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: '10px',
-                  fontSize: '12px',
+                  width: '100%',
+                  padding: '16px 20px',
+                  background: OWLIN_COLORS.backgroundLevel2,
+                  borderRadius: '12px',
+                  fontSize: '14px',
                   cursor: 'pointer',
-                  border: '1px solid rgba(0, 0, 0, 0.08)',
-                  transition: 'all 0.2s',
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  transition: OWLIN_TRANSITIONS.default,
                   textAlign: 'left',
+                  color: OWLIN_COLORS.textPrimary,
+                  fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.body,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.8)'
-                  e.currentTarget.style.transform = 'translateX(4px)'
+                  e.currentTarget.style.background = `linear-gradient(135deg, ${OWLIN_COLORS.backgroundLevel2} 0%, ${OWLIN_COLORS.hover} 100%)`
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.6)'
-                  e.currentTarget.style.transform = 'translateX(0)'
+                  e.currentTarget.style.background = OWLIN_COLORS.backgroundLevel2
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                💡 "Show me the upload code"
-              </div>
-              <div
+                <Code size={20} strokeWidth={1.5} color={OWLIN_COLORS.textSlate} style={{ flexShrink: 0 }} />
+                <span>Show me the upload code</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setInputValue("Why did my upload fail?")
                   inputRef.current?.focus()
                 }}
                 style={{
-                  padding: '10px 16px',
-                  background: 'rgba(255, 255, 255, 0.6)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: '10px',
-                  fontSize: '12px',
+                  width: '100%',
+                  padding: '16px 20px',
+                  background: OWLIN_COLORS.backgroundLevel2,
+                  borderRadius: '12px',
+                  fontSize: '14px',
                   cursor: 'pointer',
-                  border: '1px solid rgba(0, 0, 0, 0.08)',
-                  transition: 'all 0.2s',
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  transition: OWLIN_TRANSITIONS.default,
                   textAlign: 'left',
+                  color: OWLIN_COLORS.textPrimary,
+                  fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.body,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.8)'
-                  e.currentTarget.style.transform = 'translateX(4px)'
+                  e.currentTarget.style.background = `linear-gradient(135deg, ${OWLIN_COLORS.backgroundLevel2} 0%, ${OWLIN_COLORS.hover} 100%)`
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.6)'
-                  e.currentTarget.style.transform = 'translateX(0)'
+                  e.currentTarget.style.background = OWLIN_COLORS.backgroundLevel2
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                🔍 "Why did my upload fail?"
-              </div>
-              <div
+                <CircleAlert size={20} strokeWidth={1.5} color={OWLIN_COLORS.textSlate} style={{ flexShrink: 0 }} />
+                <span>Why did my upload fail?</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setInputValue("Find all API endpoints")
                   inputRef.current?.focus()
                 }}
                 style={{
-                  padding: '10px 16px',
-                  background: 'rgba(255, 255, 255, 0.6)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: '10px',
-                  fontSize: '12px',
+                  width: '100%',
+                  padding: '16px 20px',
+                  background: OWLIN_COLORS.backgroundLevel2,
+                  borderRadius: '12px',
+                  fontSize: '14px',
                   cursor: 'pointer',
-                  border: '1px solid rgba(0, 0, 0, 0.08)',
-                  transition: 'all 0.2s',
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  transition: OWLIN_TRANSITIONS.default,
                   textAlign: 'left',
+                  color: OWLIN_COLORS.textPrimary,
+                  fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.body,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.8)'
-                  e.currentTarget.style.transform = 'translateX(4px)'
+                  e.currentTarget.style.background = `linear-gradient(135deg, ${OWLIN_COLORS.backgroundLevel2} 0%, ${OWLIN_COLORS.hover} 100%)`
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.6)'
-                  e.currentTarget.style.transform = 'translateX(0)'
+                  e.currentTarget.style.background = OWLIN_COLORS.backgroundLevel2
+                  e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                🚀 "Find all API endpoints"
-              </div>
+                <Network size={20} strokeWidth={1.5} color={OWLIN_COLORS.textSlate} style={{ flexShrink: 0 }} />
+                <span>Find all API endpoints</span>
+              </button>
             </div>
           </div>
         ) : (
@@ -1703,16 +1737,17 @@ export function ChatAssistant() {
             {isLoading && useAgentMode && (
               <div
                 style={{
-                  padding: '16px 20px',
+                  padding: `${OWLIN_SPACING.element} ${OWLIN_SPACING.section}`,
                   margin: '12px 0',
                   background: 'transparent',
-                  borderRadius: '12px',
+                  borderRadius: '6px',
                   fontSize: '14px',
-                  color: '#6b7280',
+                  color: OWLIN_COLORS.textSecondary,
                   display: 'flex',
                   alignItems: 'center',
                   gap: '12px',
                   animation: 'fadeIn 0.3s ease-in',
+                  fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
                 }}
               >
                 {/* Pulsing dots animation (ChatGPT style) */}
@@ -1729,7 +1764,7 @@ export function ChatAssistant() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: '#9ca3af',
+                      background: 'rgba(255, 255, 255, 0.4)',
                       animation: 'pulseDot 1.4s ease-in-out infinite',
                       animationDelay: '0s',
                     }}
@@ -1739,7 +1774,7 @@ export function ChatAssistant() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: '#9ca3af',
+                      background: 'rgba(255, 255, 255, 0.4)',
                       animation: 'pulseDot 1.4s ease-in-out infinite',
                       animationDelay: '0.2s',
                     }}
@@ -1749,7 +1784,7 @@ export function ChatAssistant() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: '#9ca3af',
+                      background: 'rgba(255, 255, 255, 0.4)',
                       animation: 'pulseDot 1.4s ease-in-out infinite',
                       animationDelay: '0.4s',
                     }}
@@ -1760,7 +1795,8 @@ export function ChatAssistant() {
                   style={{
                     fontStyle: 'italic',
                     animation: 'textPulse 2s ease-in-out infinite',
-                    color: '#6b7280',
+                    color: OWLIN_COLORS.textSecondary,
+                    fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
                   }}
                 >
                   {currentTaskActivity || 'Planning tasks...'}
@@ -1774,13 +1810,14 @@ export function ChatAssistant() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '12px',
-                  padding: '16px',
-                  background: 'rgba(255, 255, 255, 0.6)',
+                  padding: OWLIN_SPACING.element,
+                  background: OWLIN_COLORS.backgroundCard,
                   backdropFilter: 'blur(10px)',
-                  borderRadius: '16px',
+                  borderRadius: '6px',
                   fontSize: '14px',
-                  color: '#6b7280',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
+                  color: OWLIN_COLORS.textSecondary,
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1788,8 +1825,8 @@ export function ChatAssistant() {
                     style={{
                       width: '20px',
                       height: '20px',
-                      border: '2.5px solid rgba(59, 130, 246, 0.2)',
-                      borderTopColor: '#3b82f6',
+                      border: `2.5px solid ${OWLIN_COLORS.sageGreenLight}`,
+                      borderTopColor: OWLIN_COLORS.sageGreen,
                       borderRadius: '50%',
                       animation: 'spin 0.8s linear infinite',
                     }}
@@ -1819,7 +1856,7 @@ export function ChatAssistant() {
                       style={{
                         width: '100%',
                         height: '6px',
-                        background: 'rgba(0, 0, 0, 0.05)',
+                        background: OWLIN_COLORS.backgroundCard,
                         borderRadius: '3px',
                         overflow: 'hidden',
                         backdropFilter: 'blur(10px)',
@@ -1829,14 +1866,14 @@ export function ChatAssistant() {
                         style={{
                           width: `${explorationProgress.percentage}%`,
                           height: '100%',
-                          background: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
+                          background: `linear-gradient(90deg, ${OWLIN_COLORS.navy}, ${OWLIN_COLORS.sageGreen})`,
                           borderRadius: '3px',
-                          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                          boxShadow: '0 0 10px rgba(59, 130, 246, 0.4)',
+                          transition: OWLIN_TRANSITIONS.default,
+                          boxShadow: `0 0 10px ${OWLIN_COLORS.sageGreen}40`,
                         }}
                       />
                     </div>
-                    <div style={{ fontSize: '11px', marginTop: '6px', color: '#9ca3af' }}>
+                    <div style={{ fontSize: '11px', marginTop: '6px', color: OWLIN_COLORS.textMuted, fontFamily: OWLIN_TYPOGRAPHY.fontFamily }}>
                       Step {explorationProgress.current} of {explorationProgress.total} ({explorationProgress.percentage}%)
                     </div>
                   </div>
@@ -1848,98 +1885,275 @@ export function ChatAssistant() {
         )}
       </div>
 
-      {/* Input area with glass effect */}
+      {/* Input area with OWLIN styling - Owlin dark UI style */}
       <form
         onSubmit={handleSubmit}
         style={{
-          padding: '16px 20px',
-          borderTop: '1px solid rgba(0, 0, 0, 0.06)',
-          background: 'linear-gradient(to top, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7))',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderRadius: '0 0 24px 24px',
+          padding: `${OWLIN_SPACING.element} ${OWLIN_SPACING.section}`,
+          borderTop: `1px solid ${OWLIN_COLORS.border}`,
+          background: OWLIN_COLORS.backgroundLevel1,
+          borderRadius: '0 0 20px 20px',
+          position: 'relative',
         }}
       >
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
+          {/* Plus icon button (left) - Opens options menu - Owlin style */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setShowOptionsMenu(!showOptionsMenu)
+              }}
+              style={{
+                width: '36px',
+                height: '36px',
+                minWidth: '36px',
+                borderRadius: '50%',
+                border: `1px solid ${OWLIN_COLORS.border}`,
+                background: OWLIN_COLORS.backgroundLevel2,
+                color: OWLIN_COLORS.textSecondary,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: OWLIN_TRANSITIONS.default,
+                fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = OWLIN_COLORS.hover
+                e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
+                e.currentTarget.style.color = OWLIN_COLORS.textPrimary
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = OWLIN_COLORS.backgroundLevel2
+                e.currentTarget.style.borderColor = OWLIN_COLORS.border
+                e.currentTarget.style.color = OWLIN_COLORS.textSecondary
+              }}
+              title="Options"
+            >
+              <Plus size={20} strokeWidth={1.5} />
+            </button>
+            
+            {/* Options Menu - Appears ABOVE the + button (Owlin dark UI style) */}
+            {showOptionsMenu && (
+              <div
+                ref={menuRef}
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: '0',
+                  marginBottom: '8px',
+                  padding: '8px 12px',
+                  background: OWLIN_COLORS.backgroundMenu,
+                  borderRadius: '16px',
+                  border: `1px solid ${OWLIN_COLORS.border}`,
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                  minWidth: '220px',
+                  zIndex: 1000,
+                  animation: 'menuFadeIn 0.15s ease-out',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+            {/* Search Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                setUseSearchMode(!useSearchMode)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '12px',
+                borderRadius: '8px',
+                border: 'none',
+                background: useSearchMode ? OWLIN_COLORS.hover : 'transparent',
+                cursor: 'pointer',
+                transition: OWLIN_TRANSITIONS.default,
+                fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = OWLIN_COLORS.hover
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = useSearchMode ? OWLIN_COLORS.hover : 'transparent'
+              }}
+            >
+              <Search 
+                size={20} 
+                strokeWidth={1.5} 
+                color={useSearchMode ? OWLIN_COLORS.primary : OWLIN_COLORS.textSlate}
+                style={{ flexShrink: 0, marginTop: '2px' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                <span style={{ 
+                  fontSize: '14px', 
+                  color: OWLIN_COLORS.textPrimary,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.label,
+                  lineHeight: '1.4',
+                }}>
+                  Search mode
+                </span>
+                <span style={{ 
+                  fontSize: '12px', 
+                  color: OWLIN_COLORS.textMuted,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.body,
+                  lineHeight: '1.4',
+                }}>
+                  Ask questions about code
+                </span>
+              </div>
+            </button>
+            
+            {/* Agent Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                setUseAgentMode(!useAgentMode)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '12px',
+                borderRadius: '8px',
+                border: 'none',
+                background: useAgentMode ? OWLIN_COLORS.hover : 'transparent',
+                cursor: 'pointer',
+                transition: OWLIN_TRANSITIONS.default,
+                fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = OWLIN_COLORS.hover
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = useAgentMode ? OWLIN_COLORS.hover : 'transparent'
+              }}
+            >
+              <Sparkles 
+                size={20} 
+                strokeWidth={1.5} 
+                color={useAgentMode ? OWLIN_COLORS.primary : OWLIN_COLORS.textSlate}
+                style={{ flexShrink: 0, marginTop: '2px' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                <span style={{ 
+                  fontSize: '14px', 
+                  color: OWLIN_COLORS.textPrimary,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.label,
+                  lineHeight: '1.4',
+                }}>
+                  Agent mode
+                </span>
+                <span style={{ 
+                  fontSize: '12px', 
+                  color: OWLIN_COLORS.textMuted,
+                  fontWeight: OWLIN_TYPOGRAPHY.weights.body,
+                  lineHeight: '1.4',
+                }}>
+                  Autonomous problem-solving
+                </span>
+              </div>
+            </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Message input field (center) - Owlin style */}
           <input
             ref={inputRef}
             type="text"
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about your code..."
+            placeholder="Ask anything"
             disabled={isLoading}
             style={{
               flex: 1,
               height: '44px',
-              padding: '0 16px',
-              border: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: `0 16px`,
+              border: `1px solid ${OWLIN_COLORS.border}`,
               borderRadius: '22px',
               fontSize: '14px',
               outline: 'none',
-              background: 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(10px)',
-              color: '#1f2937',
-              transition: 'all 0.2s',
+              background: OWLIN_COLORS.backgroundLevel2,
+              color: OWLIN_COLORS.textPrimary,
+              transition: OWLIN_TRANSITIONS.default,
+              fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
             }}
             onFocus={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)'
-              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)'
-              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+              e.currentTarget.style.background = OWLIN_COLORS.hover
+              e.currentTarget.style.borderColor = OWLIN_COLORS.borderSoft
             }}
             onBlur={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.8)'
-              e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)'
-              e.currentTarget.style.boxShadow = 'none'
+              e.currentTarget.style.background = OWLIN_COLORS.backgroundLevel2
+              e.currentTarget.style.borderColor = OWLIN_COLORS.border
             }}
           />
+          
+          {/* Send button (right) - Owlin style */}
           <button
             type={isLoading ? "button" : "submit"}
             onClick={isLoading ? handleStop : undefined}
             disabled={!isLoading && !inputValue.trim()}
             style={{
-              width: '44px',
-              height: '44px',
+              width: '36px',
+              height: '36px',
+              minWidth: '36px',
               borderRadius: '50%',
               border: 'none',
               background: isLoading
-                ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.9), rgba(220, 38, 38, 0.9))'
+                ? 'rgba(239, 68, 68, 0.9)'
                 : !inputValue.trim()
-                ? 'linear-gradient(135deg, rgba(156, 163, 175, 0.6), rgba(107, 114, 128, 0.6))'
-                : 'linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(37, 99, 235, 0.9))',
+                ? OWLIN_COLORS.backgroundLevel2
+                : OWLIN_COLORS.primary,
               color: '#fff',
               cursor: isLoading ? 'pointer' : (!inputValue.trim() ? 'not-allowed' : 'pointer'),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '20px',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: isLoading
-                ? '0 4px 16px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                : !inputValue.trim()
-                ? 'none'
-                : '0 4px 16px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+              transition: OWLIN_TRANSITIONS.default,
+              boxShadow: isLoading || inputValue.trim()
+                ? '0 2px 6px rgba(0, 0, 0, 0.2)'
+                : 'none',
+              fontFamily: OWLIN_TYPOGRAPHY.fontFamily,
+              opacity: !inputValue.trim() && !isLoading ? 0.5 : 1,
             }}
             onMouseEnter={(e) => {
               if (isLoading) {
-                e.currentTarget.style.transform = 'scale(1.08)'
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(239, 68, 68, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+                e.currentTarget.style.transform = 'scale(1.05)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.4)'
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 1)'
               } else if (inputValue.trim()) {
-                e.currentTarget.style.transform = 'scale(1.08)'
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+                e.currentTarget.style.transform = 'scale(1.05)'
+                e.currentTarget.style.background = OWLIN_COLORS.primaryHover
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(76, 163, 255, 0.3)'
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)'
-              e.currentTarget.style.boxShadow = isLoading
-                ? '0 4px 16px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+              e.currentTarget.style.background = isLoading
+                ? 'rgba(239, 68, 68, 0.9)'
                 : !inputValue.trim()
-                ? 'none'
-                : '0 4px 16px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+                ? OWLIN_COLORS.backgroundLevel2
+                : OWLIN_COLORS.primary
+              e.currentTarget.style.boxShadow = isLoading || inputValue.trim()
+                ? '0 2px 6px rgba(0, 0, 0, 0.2)'
+                : 'none'
             }}
             title={isLoading ? 'Stop' : 'Send'}
           >
-            {isLoading ? '⏹' : '→'}
+            {isLoading ? (
+              <X size={16} strokeWidth={2} />
+            ) : (
+              <Send size={16} strokeWidth={1.5} />
+            )}
           </button>
         </div>
       </form>
@@ -1967,13 +2181,24 @@ export function ChatAssistant() {
             width: 0,
             height: 0,
             borderLeft: '10px solid transparent',
-            borderBottom: '10px solid rgba(156, 163, 175, 0.4)',
+            borderBottom: `10px solid ${OWLIN_COLORS.textMuted}`,
           }}
         />
       </div>
 
       {/* CSS Animations */}
       <style>{`
+        @keyframes dropIn {
+          from {
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        
         @keyframes pulseDot {
           0%, 60%, 100% {
             transform: scale(1);
@@ -2005,6 +2230,20 @@ export function ChatAssistant() {
           }
         }
         
+        @keyframes menuFadeIn {
+          from {
+            opacity: 0;
+            transform: scale(1) translateY(4px);
+          }
+          50% {
+            transform: scale(1.02) translateY(2px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+        
         @keyframes taskPulse {
           0%, 100% {
             box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
@@ -2016,6 +2255,31 @@ export function ChatAssistant() {
       `}</style>
     </div>
   )
+
+  // When renderAsWidget is true and expanded, render the expanded panel as a widget in the layout
+  // This is used when the assistant should appear as part of the page layout (right column)
+  if (renderAsWidget && isExpanded) {
+    return expandedPanel
+  }
+
+  // When compactInputExternal is true and expanded, but using shared state,
+  // only render the compact input (the widget will handle the expanded view)
+  if (compactInputExternal && useSharedState && isExpanded) {
+    return <CompactInputForm />
+  }
+
+  // When compactInputExternal is true and expanded (without shared state), render both compact input and expanded panel
+  if (compactInputExternal && isExpanded) {
+    return (
+      <>
+        <CompactInputForm />
+        {expandedPanel}
+      </>
+    )
+  }
+
+  // When compactInputExternal is false, render only expanded panel when expanded
+  return expandedPanel
 }
 
 

@@ -1,0 +1,333 @@
+.upload-box-gen {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  width: 100%;
+  margin-bottom: 24px;
+  margin-left: 24px;
+  margin-right: 24px;
+  box-sizing: border-box;
+}
+
+/* Left: Drag & Drop Zone - Liquid Glass Style */
+.upload-box-gen__dropzone {
+  flex: 1;
+  min-height: 200px;
+  border-radius: 22px;
+  border: 2px dashed rgba(148, 163, 184, 0.4);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0.7) 100%
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 
+    0 8px 32px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-box-gen__dropzone::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.05) 0%,
+    rgba(147, 51, 234, 0.05) 50%,
+    rgba(59, 130, 246, 0.05) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.upload-box-gen__dropzone:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(255, 255, 255, 0.8) 100%
+  );
+  box-shadow: 
+    0 12px 40px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transform: translateY(-2px);
+}
+
+.upload-box-gen__dropzone:hover::before {
+  opacity: 1;
+}
+
+.upload-box-gen__dropzone--active {
+  border-color: rgba(59, 130, 246, 0.8);
+  background: linear-gradient(
+    135deg,
+    rgba(239, 246, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.7) 50%,
+    rgba(239, 246, 255, 0.9) 100%
+  );
+  box-shadow: 
+    0 16px 48px rgba(59, 130, 246, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 0 0 4px rgba(59, 130, 246, 0.1);
+  transform: scale(1.01);
+}
+
+.upload-box-gen__dropzone--active::before {
+  opacity: 1;
+}
+
+.upload-box-gen__file-input {
+  display: none;
+}
+
+.upload-box-gen__dropzone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 40px 20px;
+  z-index: 1;
+}
+
+.upload-box-gen__icon-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.1) 0%,
+    rgba(147, 51, 234, 0.1) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.15);
+}
+
+.upload-box-gen__upload-icon {
+  width: 32px;
+  height: 32px;
+  color: rgba(59, 130, 246, 0.8);
+  stroke-width: 2;
+}
+
+.upload-box-gen__dropzone-text {
+  text-align: center;
+  font-weight: 500;
+}
+
+.upload-box-gen__choose-button {
+  margin-top: 8px;
+}
+
+/* Right: Upload Progress List */
+.upload-box-gen__progress-list {
+  flex: 0 0 400px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.upload-box-gen__progress-title {
+  margin-bottom: 4px;
+  color: #111827;
+}
+
+.upload-box-gen__progress-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.upload-box-gen__progress-items::-webkit-scrollbar {
+  width: 6px;
+}
+
+.upload-box-gen__progress-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.upload-box-gen__progress-items::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+
+.upload-box-gen__progress-items::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+.upload-box-gen__progress-item {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease;
+}
+
+.upload-box-gen__progress-item:hover {
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.upload-box-gen__progress-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.upload-box-gen__file-icon {
+  width: 20px;
+  height: 20px;
+  color: rgba(59, 130, 246, 0.7);
+  flex-shrink: 0;
+}
+
+.upload-box-gen__progress-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upload-box-gen__progress-item-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-box-gen__progress-item-meta {
+  font-size: 11px;
+}
+
+.upload-box-gen__progress-item-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.upload-box-gen__progress-bar {
+  width: 180px;
+  height: 4px;
+  background: rgba(148, 163, 184, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-box-gen__progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.upload-box-gen__progress-status {
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.upload-box-gen__progress-status--completed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #10b981;
+  font-weight: 500;
+}
+
+.upload-box-gen__check-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.upload-box-gen__remove-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  color: rgba(107, 114, 128, 0.6);
+  margin-top: 4px;
+}
+
+.upload-box-gen__remove-button:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.upload-box-gen__remove-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Responsive */
+@media (max-width: 1000px) {
+  .upload-box-gen {
+    flex-direction: column;
+  }
+
+  .upload-box-gen__progress-list {
+    flex: 1;
+  }
+
+  .upload-box-gen__dropzone {
+    min-height: 160px;
+  }
+}
+
+@media (max-width: 500px) {
+  .upload-box-gen__dropzone-content {
+    padding: 30px 16px;
+  }
+
+  .upload-box-gen__icon-wrapper {
+    width: 56px;
+    height: 56px;
+  }
+
+  .upload-box-gen__upload-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .upload-box-gen__progress-bar {
+    width: 120px;
+  }
+}
+

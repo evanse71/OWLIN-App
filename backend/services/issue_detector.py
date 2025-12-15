@@ -17,6 +17,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass
+from backend.services.line_item_matcher import match_line_items
 
 LOGGER = logging.getLogger("owlin.services.issue_detector")
 LOGGER.setLevel(logging.INFO)
@@ -163,9 +164,9 @@ def detect_short_delivery(invoice_id: str, delivery_id: Optional[str] = None) ->
     cursor = conn.cursor()
     
     try:
-        # Get invoice line items
+        # Get invoice line items (including SKU if available)
         cursor.execute("""
-            SELECT description, qty, total
+            SELECT description, qty, total, sku
             FROM invoice_line_items
             WHERE invoice_id = ?
             ORDER BY line_number
@@ -193,13 +194,12 @@ def detect_short_delivery(invoice_id: str, delivery_id: Optional[str] = None) ->
                 LOGGER.debug(f"No paired delivery note found for invoice {invoice_id}")
                 return None
         
-        # Get delivery note line items (assuming same structure)
-        # Note: This assumes delivery notes have line items in a similar table
-        # If delivery notes use documents table, we may need to parse from OCR
+        # Get delivery note line items (including SKU if available)
+        # Delivery notes store line items in invoice_line_items table with invoice_id = NULL
         cursor.execute("""
-            SELECT description, qty, total
+            SELECT description, qty, total, sku
             FROM invoice_line_items
-            WHERE doc_id = ?
+            WHERE doc_id = ? AND invoice_id IS NULL
             ORDER BY line_number
         """, (delivery_id,))
         
@@ -209,23 +209,40 @@ def detect_short_delivery(invoice_id: str, delivery_id: Optional[str] = None) ->
             LOGGER.debug(f"No line items found for delivery note {delivery_id}")
             return None
         
-        # Compare quantities
+        # Convert database rows to dictionaries for matching
+        invoice_items = []
+        for desc, qty, total, sku in invoice_lines:
+            invoice_items.append({
+                "description": desc,
+                "qty": qty or 0.0,
+                "total": total or 0.0,
+                "sku": sku or ""
+            })
+        
+        delivery_items = []
+        for desc, qty, total, sku in delivery_lines:
+            delivery_items.append({
+                "description": desc,
+                "qty": qty or 0.0,
+                "total": total or 0.0,
+                "sku": sku or ""
+            })
+        
+        # Use fuzzy matching to match items
+        matched_items = match_line_items(invoice_items, delivery_items, threshold=0.85)
+        
+        # Compare quantities using matched items
         short_items = []
         total_short_value = 0.0
         
-        # Create lookup by description
-        delivery_lookup = {}
-        for desc, qty, total in delivery_lines:
-            desc_key = (desc or "").lower().strip()
-            delivery_lookup[desc_key] = {"qty": qty or 0.0, "total": total or 0.0}
-        
-        for inv_desc, inv_qty, inv_total in invoice_lines:
-            desc_key = (inv_desc or "").lower().strip()
-            inv_qty = inv_qty or 0.0
-            inv_total = inv_total or 0.0
+        for inv_item, del_item, similarity, match_type in matched_items:
+            inv_desc = inv_item.get("description") or ""
+            inv_qty = inv_item.get("qty") or 0.0
+            inv_total = inv_item.get("total") or 0.0
             
-            if desc_key in delivery_lookup:
-                del_qty = delivery_lookup[desc_key]["qty"]
+            if del_item and similarity >= 0.85:
+                # Item was matched (exact, SKU, fuzzy, or partial)
+                del_qty = del_item.get("qty") or 0.0
                 qty_diff = inv_qty - del_qty
                 
                 if qty_diff > 0.01:  # Short delivery detected
@@ -233,16 +250,20 @@ def detect_short_delivery(invoice_id: str, delivery_id: Optional[str] = None) ->
                         "description": inv_desc,
                         "invoice_qty": inv_qty,
                         "delivery_qty": del_qty,
-                        "shortage": qty_diff
+                        "shortage": qty_diff,
+                        "match_type": match_type,
+                        "similarity": similarity
                     })
                     total_short_value += (qty_diff * (inv_total / inv_qty if inv_qty > 0 else 0))
             else:
-                # Item missing entirely
+                # Item not matched or similarity too low
                 short_items.append({
                     "description": inv_desc,
                     "invoice_qty": inv_qty,
                     "delivery_qty": 0.0,
-                    "shortage": inv_qty
+                    "shortage": inv_qty,
+                    "match_type": "none",
+                    "similarity": similarity
                 })
                 total_short_value += inv_total
         

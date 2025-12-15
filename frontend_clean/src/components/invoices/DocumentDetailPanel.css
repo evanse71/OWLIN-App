@@ -1,0 +1,1341 @@
+/* Selected state for detail column */
+.invoices-detail-column-selected {
+  position: relative;
+}
+
+/* Prevent yellow borders on all elements inside - comprehensive rules */
+.invoices-detail-column-selected,
+.invoices-detail-column-selected *,
+.invoices-detail-column-selected *::before,
+.invoices-detail-column-selected *::after {
+  outline: none !important;
+  outline-color: transparent !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Remove ALL right borders to prevent yellow from showing - most aggressive */
+.invoices-detail-column-selected,
+.invoices-detail-column-selected *,
+.invoices-detail-column-selected *:not(.comparison-table tr.mismatch),
+.invoices-detail-column-selected *:not(.comparison-table tr.mismatch)::before,
+.invoices-detail-column-selected *:not(.comparison-table tr.mismatch)::after {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  border-right-style: none !important;
+}
+
+.invoices-detail-column-selected:hover,
+.invoices-detail-column-selected *:hover:not(.comparison-table tr.mismatch),
+.invoices-detail-column-selected *:focus:not(.comparison-table tr.mismatch),
+.invoices-detail-column-selected *:active:not(.comparison-table tr.mismatch),
+.invoices-detail-column-selected *:focus-within:not(.comparison-table tr.mismatch) {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  border-right-style: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  outline-color: transparent !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+}
+
+/* Specifically target the div with "No delivery note linked" - remove ALL yellow */
+.invoices-detail-column-selected .dn-pairing-widget > div,
+.invoices-detail-column-selected .dn-pairing-widget > div:hover,
+.invoices-detail-column-selected .dn-pairing-widget > div:focus {
+  border: none !important;
+  border-right: none !important;
+  border-left: none !important;
+  border-top: none !important;
+  border-bottom: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+}
+
+/* Remove yellow from any element that might have it */
+.invoices-detail-column-selected *[style*="yellow"],
+.invoices-detail-column-selected *[style*="#eab308"],
+.invoices-detail-column-selected *[style*="#fbbf24"],
+.invoices-detail-column-selected *[style*="234, 179, 8"] {
+  border: none !important;
+  border-right: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected *:hover,
+.invoices-detail-column-selected *:focus,
+.invoices-detail-column-selected *:focus-visible,
+.invoices-detail-column-selected *:active,
+.invoices-detail-column-selected *:focus-within {
+  outline: none !important;
+  border-right-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Prevent browser default focus outlines */
+.invoices-detail-column-selected *:focus {
+  outline: 0 !important;
+  outline-offset: 0 !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+.invoices-detail-column-selected *:focus-visible {
+  outline: 0 !important;
+  outline-offset: 0 !important;
+}
+
+/* Specific overrides for common elements */
+.invoices-detail-column-selected button,
+.invoices-detail-column-selected button:hover,
+.invoices-detail-column-selected button:focus,
+.invoices-detail-column-selected button:active {
+  outline: none !important;
+  border-right-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .glass-button,
+.invoices-detail-column-selected .glass-button:hover,
+.invoices-detail-column-selected .glass-button:focus,
+.invoices-detail-column-selected .glass-button:active {
+  border-right-color: var(--border-color) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .glass-button.primary-action,
+.invoices-detail-column-selected .glass-button.primary-action:hover,
+.invoices-detail-column-selected .glass-button.primary-action:focus,
+.invoices-detail-column-selected .glass-button.primary-action:active {
+  border-right-color: var(--accent-blue) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .dn-pairing-widget,
+.invoices-detail-column-selected .dn-pairing-widget:hover,
+.invoices-detail-column-selected .dn-pairing-widget:focus,
+.invoices-detail-column-selected .dn-pairing-widget:active {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .dn-pairing-widget-header,
+.invoices-detail-column-selected .dn-pairing-widget-header:hover,
+.invoices-detail-column-selected .dn-pairing-widget-header:focus,
+.invoices-detail-column-selected .dn-pairing-widget-header:active {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .dn-pairing-widget-content,
+.invoices-detail-column-selected .dn-pairing-widget-content:hover,
+.invoices-detail-column-selected .dn-pairing-widget-content:focus {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Target all divs inside dn-pairing-widget to prevent yellow borders */
+.invoices-detail-column-selected .dn-pairing-widget div,
+.invoices-detail-column-selected .dn-pairing-widget div:hover,
+.invoices-detail-column-selected .dn-pairing-widget div:focus,
+.invoices-detail-column-selected .dn-pairing-widget div:active {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .dn-pairing-widget span,
+.invoices-detail-column-selected .dn-pairing-widget span:hover,
+.invoices-detail-column-selected .dn-pairing-widget span:focus {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .dn-pairing-widget p,
+.invoices-detail-column-selected .dn-pairing-widget p:hover,
+.invoices-detail-column-selected .dn-pairing-widget p:focus {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .comparison-table tr,
+.invoices-detail-column-selected .comparison-table tr:hover,
+.invoices-detail-column-selected .comparison-table tr:focus {
+  border-right: none !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .comparison-table tr.mismatch,
+.invoices-detail-column-selected .comparison-table tr.mismatch:hover {
+  border-right: none !important;
+  border-left-color: var(--accent-yellow) !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .detail-card {
+  border-right: none !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .detail-card:hover,
+.invoices-detail-column-selected .detail-card:focus {
+  border-right: none !important;
+  outline: none !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.invoices-detail-column-selected .document-header-card {
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .document-header-card:hover,
+.invoices-detail-column-selected .document-header-card:focus,
+.invoices-detail-column-selected .document-header-card:active {
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Target all elements inside document-header-card - remove ALL borders on hover */
+.invoices-detail-column-selected .document-header-card * {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .document-header-card *:hover,
+.invoices-detail-column-selected .document-header-card *:focus,
+.invoices-detail-column-selected .document-header-card *:active {
+  border: none !important;
+  border-right: none !important;
+  border-left: none !important;
+  border-top: none !important;
+  border-bottom: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.invoices-detail-column-selected .document-header-left,
+.invoices-detail-column-selected .document-header-left:hover,
+.invoices-detail-column-selected .document-header-left:focus {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .document-header-right,
+.invoices-detail-column-selected .document-header-right:hover,
+.invoices-detail-column-selected .document-header-right:focus {
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  outline: none !important;
+}
+
+/* Prevent any yellow borders specifically */
+.invoices-detail-column-selected * {
+  --accent-yellow: transparent !important;
+}
+
+.invoices-detail-column-selected *[style*="yellow"],
+.invoices-detail-column-selected *[style*="#eab308"],
+.invoices-detail-column-selected *[style*="#fbbf24"] {
+  border-right-color: transparent !important;
+}
+
+/* Target all interactive elements specifically */
+.invoices-detail-column-selected a,
+.invoices-detail-column-selected button,
+.invoices-detail-column-selected input,
+.invoices-detail-column-selected textarea,
+.invoices-detail-column-selected select,
+.invoices-detail-column-selected [role="button"],
+.invoices-detail-column-selected [tabindex] {
+  border-right-color: transparent !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected a:hover,
+.invoices-detail-column-selected a:focus,
+.invoices-detail-column-selected button:hover,
+.invoices-detail-column-selected button:focus,
+.invoices-detail-column-selected input:hover,
+.invoices-detail-column-selected input:focus,
+.invoices-detail-column-selected textarea:hover,
+.invoices-detail-column-selected textarea:focus,
+.invoices-detail-column-selected select:hover,
+.invoices-detail-column-selected select:focus,
+.invoices-detail-column-selected [role="button"]:hover,
+.invoices-detail-column-selected [role="button"]:focus,
+.invoices-detail-column-selected [tabindex]:hover,
+.invoices-detail-column-selected [tabindex]:focus {
+  border-right-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Prevent yellow on divs and other containers */
+.invoices-detail-column-selected div:hover,
+.invoices-detail-column-selected div:focus,
+.invoices-detail-column-selected span:hover,
+.invoices-detail-column-selected span:focus,
+.invoices-detail-column-selected p:hover,
+.invoices-detail-column-selected p:focus {
+  border-right-color: transparent !important;
+  outline: none !important;
+}
+
+
+.invoices-detail-column-selected .detail-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .detail-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  border-right-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .detail-card {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-right: none !important;
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  outline: none !important;
+  opacity: 0;
+  animation: slideDownFadeIn 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+.invoices-detail-column-selected .detail-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-right: none !important;
+  border-right-width: 0 !important;
+  border-right-color: transparent !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  outline: none !important;
+}
+
+.invoices-detail-column-selected .detail-card:focus,
+.invoices-detail-column-selected .detail-card:focus-visible {
+  outline: none !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  border-right-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.invoices-detail-column-selected .document-header-card {
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.05);
+  opacity: 0;
+  animation: slideDownFadeIn 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0ms forwards;
+}
+
+/* Sequential animation delays for detail cards - header first, then cards cascade */
+.invoices-detail-column-selected > .document-header-card {
+  animation-delay: 0ms;
+}
+
+/* Target detail cards that are not the header, using nth-child to account for header being first */
+.invoices-detail-column-selected > .detail-card:not(.document-header-card):nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.invoices-detail-column-selected > .detail-card:not(.document-header-card):nth-child(3) {
+  animation-delay: 300ms;
+}
+
+.invoices-detail-column-selected > .detail-card:not(.document-header-card):nth-child(4) {
+  animation-delay: 450ms;
+}
+
+.invoices-detail-column-selected > .detail-card:not(.document-header-card):nth-child(5) {
+  animation-delay: 600ms;
+}
+
+.invoices-detail-column-selected > .detail-card:not(.document-header-card):nth-child(6) {
+  animation-delay: 750ms;
+}
+
+.invoices-detail-column-selected > .detail-card:not(.document-header-card):nth-child(n+7) {
+  animation-delay: 900ms;
+}
+
+.summary-box {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 16px;
+  transition: all 0.2s ease;
+}
+
+.summary-box:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.comment-textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 14px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  line-height: 1.5;
+  min-height: 80px;
+}
+
+.comment-textarea:hover {
+  border-color: var(--border-hover);
+}
+
+.comment-textarea:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), var(--shadow-sm);
+}
+
+.comment-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* Link buttons styling */
+.glass-button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
+}
+
+.glass-button:hover {
+  transform: translateY(-1px) translateZ(0);
+}
+
+.glass-button:active {
+  transform: translateY(0) translateZ(0);
+}
+
+/* Comparison table enhancements */
+.comparison-table {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.comparison-table tr {
+  cursor: default;
+}
+
+.comparison-table tr.mismatch td:first-child {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Totals footer in table */
+.comparison-table tfoot.totals-footer {
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.comparison-table tfoot.totals-footer tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.comparison-table tfoot.totals-footer tr:last-child {
+  border-bottom: none;
+}
+
+.comparison-table tfoot.totals-footer-total {
+  border-top: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.comparison-table tfoot.totals-footer td {
+  padding: 12px 8px;
+}
+
+/* Compressed workflow progress */
+.workflow-progress-compressed {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 8px 0;
+}
+
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.2s ease;
+}
+
+/* Recommended DN Card - One Click Action */
+.recommended-dn-card {
+  background: rgba(59, 130, 246, 0.1);
+  border: 2px solid rgba(59, 130, 246, 0.4);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.recommended-dn-card:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Line Items Card - Prominent styling */
+.line-items-card {
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.line-items-card .detail-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Totals Card - Prominent styling */
+.totals-card {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.totals-breakdown {
+  max-width: 300px;
+  margin-left: auto;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.totals-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 14px;
+}
+
+.totals-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.totals-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.totals-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.totals-row-total {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  font-size: 16px;
+}
+
+.totals-value-total {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-green, #22c55e);
+}
+
+/* Delivery Note Pairing Widget */
+.dn-pairing-widget {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-right: none !important;
+  border-radius: 10px;
+  overflow: visible; /* Allow expanded content to show */
+  transition: all 0.2s ease;
+  margin-bottom: 16px; /* Add spacing between sections */
+  position: relative;
+  z-index: 1; /* Ensure proper stacking */
+}
+
+.dn-pairing-widget:hover {
+  border-color: var(--border-hover);
+  border-right: none !important;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dn-pairing-widget-header {
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.dn-pairing-widget-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dn-pairing-widget-content {
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.2);
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideDownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pulsing animation for highlighting */
+@keyframes pulse {
+  0%, 100% {
+    background-color: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.8),
+                0 0 0 0 rgba(59, 130, 246, 0.4),
+                0 0 20px rgba(59, 130, 246, 0.3),
+                inset 0 0 10px rgba(59, 130, 246, 0.1);
+  }
+  50% {
+    background-color: rgba(59, 130, 246, 0.2);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.6),
+                0 0 0 8px rgba(59, 130, 246, 0.3),
+                0 0 30px rgba(59, 130, 246, 0.5),
+                inset 0 0 15px rgba(59, 130, 246, 0.15);
+  }
+}
+
+.line-item-pulse {
+  animation: pulse 1.5s ease-in-out 3;
+  border-left: 3px solid rgba(59, 130, 246, 0.8) !important;
+  position: relative;
+}
+
+.line-item-pulse::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: rgba(59, 130, 246, 0.8);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.8);
+}
+
+.section-pulse {
+  animation: pulse 1.5s ease-in-out 3;
+  border: 2px solid rgba(59, 130, 246, 0.6) !important;
+  border-radius: 6px;
+  position: relative;
+}
+
+/* Invoice Line Items Table - Professional Invoice Style */
+.invoice-line-items-table-wrapper {
+  width: 100%;
+  overflow-x: hidden; /* No horizontal scroll - table fits container */
+  overflow-y: visible;
+  margin: 0;
+  padding: 0;
+  max-height: none;
+  position: relative;
+  z-index: 1; /* Ensure proper stacking */
+}
+
+.invoice-line-items-table {
+  width: 100%;
+  min-width: 0; /* Remove minimum width to fit container */
+  table-layout: auto; /* Auto layout for better column sizing */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: clamp(10px, 1.1vw, 12px); /* Smaller responsive font size */
+  background: transparent;
+  border-radius: 0;
+}
+
+/* Tablet - hide less important columns and adjust sizing */
+@media (max-width: 1200px) {
+  .invoice-line-items-table {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 968px) {
+  .invoice-line-items-table {
+    font-size: 10px;
+  }
+  
+  /* Hide DN column on smaller tablet */
+  .invoice-line-items-table th.col-quantity-dn,
+  .invoice-line-items-table td.col-quantity-dn {
+    display: none;
+  }
+}
+
+/* Mobile - card-based layout */
+@media (max-width: 768px) {
+  .invoice-line-items-table-wrapper {
+    overflow-x: visible;
+  }
+  
+  .invoice-line-items-table,
+  .invoice-line-items-table thead,
+  .invoice-line-items-table tbody,
+  .invoice-line-items-table tr,
+  .invoice-line-items-table th,
+  .invoice-line-items-table td {
+    display: block;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+  
+  .invoice-line-items-table thead {
+    display: none; /* Hide table headers on mobile */
+  }
+  
+  .invoice-line-items-table tbody tr {
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  
+  .invoice-line-items-table tbody tr:hover {
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .invoice-line-items-table td {
+    padding: 6px 0;
+    border-bottom: none !important;
+    text-align: left !important;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .invoice-line-items-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    margin-right: 12px;
+  }
+  
+  .invoice-line-items-table td.col-description {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .invoice-line-items-table td.col-description::before {
+    margin-bottom: 4px;
+  }
+  
+  .line-item-description {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+.invoice-line-items-table thead {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.invoice-line-items-table th {
+  padding: 6px 3px 5px 3px; /* Reduced padding */
+  text-align: left;
+  font-size: clamp(8px, 1vw, 9px); /* Responsive font size */
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em; /* Reduced letter spacing */
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+}
+
+.invoice-line-items-table th.col-description {
+  width: 38%; /* More space for name/description */
+  min-width: 0;
+}
+
+.invoice-line-items-table th.col-quantity {
+  width: 12%; /* Percentage-based */
+  min-width: 55px;
+  text-align: right;
+  padding-right: 3px;
+}
+
+.invoice-line-items-table th.col-quantity-dn {
+  width: 10%; /* Percentage-based */
+  min-width: 50px;
+  text-align: right;
+  padding-right: 3px;
+}
+
+.invoice-line-items-table th.col-price {
+  width: 18%; /* More space for PPU (Price Per Unit) */
+  min-width: 65px;
+  text-align: right;
+  padding-right: 3px;
+}
+
+.invoice-line-items-table th.col-total {
+  width: 15%; /* More space for total */
+  min-width: 65px;
+  text-align: right;
+  padding-right: 3px;
+}
+
+.invoice-line-items-table th.col-status {
+  width: 5%; /* Much smaller for delete button */
+  min-width: 30px;
+  text-align: center;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.invoice-line-items-table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.2s ease;
+  background: transparent;
+}
+
+.invoice-line-items-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+  border-right: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.invoice-line-items-table tbody tr.mismatch {
+  background: transparent;
+  border-left: 2px solid rgba(234, 179, 8, 0.4);
+}
+
+.invoice-line-items-table tbody tr.mismatch:hover {
+  background: rgba(234, 179, 8, 0.05);
+  border-left: 2px solid rgba(234, 179, 8, 0.6);
+}
+
+.invoice-line-items-table tbody tr:last-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.invoice-line-items-table td {
+  padding: 5px 3px; /* Reduced padding */
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+}
+
+/* Even more compact padding in edit mode */
+.invoice-line-items-table tbody tr td {
+  padding: 4px 2px;
+}
+
+.invoice-line-items-table tbody tr:last-child td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Column-specific styling */
+.invoice-line-items-table .col-description {
+  width: 35%;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+}
+
+.invoice-line-items-table .col-quantity {
+  width: 12%;
+}
+
+.invoice-line-items-table .col-quantity-dn {
+  width: 10%;
+}
+
+.invoice-line-items-table .col-price {
+  width: 18%;
+}
+
+.invoice-line-items-table .col-total {
+  width: 15%;
+}
+
+.invoice-line-items-table .col-status {
+  width: 5%;
+}
+
+.line-item-description {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: clamp(10px, 1.1vw, 12px); /* Responsive font size */
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-word; /* Break long words */
+  min-width: 0; /* Allow shrinking */
+  max-width: 100%; /* Prevent overflow */
+}
+
+.invoice-line-items-table .text-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  white-space: nowrap;
+}
+
+.quantity-value,
+.price-value,
+.total-value {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: clamp(10px, 1.1vw, 12px); /* Responsive font size */
+}
+
+.quantity-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.unit-value {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.total-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* Status badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.status-matched {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--accent-green);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-not-matched {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-short {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-over {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--accent-yellow);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+/* Totals footer */
+.invoice-totals {
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.invoice-totals tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+}
+
+.invoice-totals tr:last-child {
+  border-bottom: none;
+}
+
+.totals-row-subtotal {
+  background: transparent;
+}
+
+.totals-row-vat {
+  background: transparent;
+}
+
+.totals-row-total {
+  background: transparent;
+  border-top: 1px solid rgba(34, 197, 94, 0.3);
+  margin-top: 2px;
+  padding-top: 2px;
+}
+
+.invoice-totals td {
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  background: transparent;
+}
+
+.totals-label {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding-right: 4px !important;
+}
+
+.totals-value {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.totals-label-total {
+  text-align: right;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding-right: 4px !important;
+}
+
+.totals-value-total {
+  text-align: right;
+  font-weight: 700;
+  color: var(--accent-green);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Confidence Badge Styles */
+.confidence-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.confidence-badge.high {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: var(--accent-green);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.confidence-badge.medium {
+  background-color: rgba(251, 191, 36, 0.2);
+  color: var(--accent-yellow);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.confidence-badge.low {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* LLM Explanation Styles */
+.llm-explanation {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid #3b82f6;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.llm-explanation .explanation-icon {
+  margin-right: 8px;
+}
+
+/* Feature Highlights */
+.feature-highlights {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.feature-tag {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* Editable line items styles */
+.line-item-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 3px 4px; /* More compact padding */
+  color: var(--text-primary);
+  font-size: clamp(10px, 1.1vw, 11px); /* Smaller responsive font */
+  font-family: inherit;
+  transition: all 0.2s ease;
+  height: 24px; /* Reduced height */
+  box-sizing: border-box;
+}
+
+/* Hide browser's native number input spinners on all inputs */
+.line-item-input[type=number]::-webkit-outer-spin-button,
+.line-item-input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.line-item-input[type=number] {
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* Disabled input styling */
+.line-item-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.line-item-input:disabled::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.line-item-input:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.line-item-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.line-item-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.numeric-input-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.numeric-input {
+  flex: 1;
+  min-width: 40px; /* Reduced minimum width */
+  max-width: 100%; /* Allow full width */
+  text-align: right;
+  height: 24px; /* Match input height */
+  padding: 3px 4px; /* Compact padding */
+  font-size: clamp(10px, 1.1vw, 11px); /* Smaller font */
+}
+
+/* Hide browser's native number input spinners */
+.numeric-input::-webkit-outer-spin-button,
+.numeric-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.numeric-input[type=number] {
+  -moz-appearance: textfield; /* Firefox */
+}
+
+.numeric-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.numeric-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.numeric-button:active:not(:disabled) {
+  opacity: 0.8;
+}
+
+.numeric-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.line-item-delete-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; /* Smaller button */
+  height: 20px; /* Smaller button */
+  padding: 0;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 3px;
+  color: var(--accent-red);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0; /* Prevent shrinking */
+}
+
+.line-item-delete-button:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.line-item-delete-button:active:not(:disabled) {
+  opacity: 0.8;
+}
+
+.line-item-delete-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}

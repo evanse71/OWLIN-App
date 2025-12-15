@@ -1,3 +1,4 @@
+# LEGACY: Streamlit MVP tool, not used in production. Safe to ignore for main Owlin app.
 import streamlit as st
 import requests
 import os

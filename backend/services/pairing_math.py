@@ -1,5 +1,5 @@
 from __future__ import annotations
-from schemas.pairing import CandidateLine, LineScore
+from backend.schemas.pairing import CandidateLine, LineScore
 
 def _ratio(a: float, b: float) -> float:
     if a <= 0 or b <= 0:

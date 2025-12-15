@@ -1,9 +1,9 @@
 from __future__ import annotations
 import sqlite3
 from typing import List, Tuple
-from services.db_exec import query_all, exec_one
-from schemas.pairing import CandidateLine, LineScore
-from services.pairing_math import score_line
+from backend.services.db_exec import query_all, exec_one
+from backend.schemas.pairing import CandidateLine, LineScore
+from backend.services.pairing_math import score_line
 
 PAIR_THRESHOLD = 0.72
 

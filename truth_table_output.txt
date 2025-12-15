@@ -1,0 +1,23 @@
+
+========================================================================================================================
+PIPELINE TRUTH TABLE
+========================================================================================================================
+doc_id                                   upload   OCR len    extract  supplier                  total        items    DB   stage           fix                           
+------------------------------------------------------------------------------------------------------------------------
+ccb3a86c-42b8-4a8f-bf41-e2c9548be3a9     Y        ?          N        Unknown Supplier          ú0.00        0        Y    extraction      Extraction produced empty da..
+9908b339-b583-4244-a84c-e89fea8a7b42     Y        ?          N        WREXHAM EXPORT            ú1872.00     2        Y    none            Pipeline completed successfu..
+fb5037f1-3afd-40d3-aff9-9a5372bad4c7     Y        ?          N        Unknown Supplier          ú0.00        0        N    db_write        Invoice row not found in dat..
+========================================================================================================================
+Total documents analyzed: 3
+
+Summary:
+  Upload OK: 3/3
+  Extraction OK: 0/3
+  DB Write OK: 2/3
+
+Failure stages:
+  extraction: 1
+  none: 1
+  db_write: 1
+
+Truth table saved to: data\pipeline_truth_table.json

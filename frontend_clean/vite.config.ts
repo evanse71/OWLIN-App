@@ -5,6 +5,13 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react() as any],
+  define: {
+    "global": "window",
+    "__dirname": JSON.stringify("")
+  },
+  optimizeDeps: {
+    include: ['nspell', 'dictionary-en', 'dictionary-cy'],
+  },
   build: {
     outDir: '../backend/static',
     emptyOutDir: true,
@@ -12,7 +19,7 @@ export default defineConfig({
   server: {
     host: true,
     port: 5176,
-    strictPort: true,
+    strictPort: false, // Allow using next available port if 5176 is busy
     open: false,
     cors: true,
     // NOTE: For single-port setup (backend on 5177), don't use dev server
@@ -22,6 +29,16 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8000', // Backend on port 8000
         changeOrigin: true,
+        secure: false,
+        ws: true, // Enable WebSocket proxying
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, res) => {
+            console.log('Proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Proxying request:', req.method, req.url);
+          });
+        },
       },
     },
   },

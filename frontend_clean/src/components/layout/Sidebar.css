@@ -1,0 +1,68 @@
+/* Sidebar Styles - Dynamic Glassmorphism Design */
+
+.sidebar-desktop {
+  transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: width, box-shadow;
+  /* Ensure solid background to prevent white showing through */
+  background-color: #1a1a1a !important;
+}
+
+/* Smooth scrollbar with glassmorphism */
+.sidebar-desktop nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-desktop nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-desktop nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  backdrop-filter: blur(10px);
+}
+
+.sidebar-desktop nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Smooth, calm fade animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-25px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Edge blending effect */
+.sidebar-desktop::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  background: linear-gradient(to right, transparent 0%, rgba(26, 26, 26, 0.5) 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-desktop:hover::after {
+  opacity: 1;
+}

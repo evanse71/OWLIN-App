@@ -1,0 +1,16 @@
+Test started at 2025-12-05 21:54:56
+Testing: data\uploads\36d55f24-1a00-41f3-8467-015e11216c91__Storiinvoiceonly1.pdf
+
+21:54:56 - ================================================================================
+21:54:56 - INVOICE VALIDATION TEST
+21:54:56 - ================================================================================
+21:54:56 - 
+Testing: data\uploads\36d55f24-1a00-41f3-8467-015e11216c91__Storiinvoiceonly1.pdf
+21:54:56 - 
+[1/3] Running OCR pipeline...
+22:06:30 - ✓ OCR complete: 1 page(s), confidence=0.100
+22:06:30 - 
+[2/3] Running LLM extraction (this may take 30-120 seconds)...
+22:06:30 - ✓ Assembled 86789 chars of OCR text
+22:06:30 - Calling LLM parser...
+22:06:45 - ❌ LLM extraction failed: LLM returned empty response

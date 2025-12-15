@@ -1,0 +1,51 @@
+/**
+ * Supplier Risk Board Styles
+ */
+
+.supplier-risk-board {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 20px;
+  min-height: 400px;
+  max-height: 800px;
+  display: flex;
+  flex-direction: column;
+}
+
+.supplier-risk-board-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  margin: 0 0 16px 0;
+}
+
+.supplier-risk-board-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.supplier-risk-board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.supplier-risk-board-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.supplier-risk-board-grid::-webkit-scrollbar-track {
+  background: rgba(255, 255, 0.05);
+}
+
+.supplier-risk-board-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+

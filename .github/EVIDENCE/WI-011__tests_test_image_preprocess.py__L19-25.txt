@@ -1,0 +1,6 @@
+def test_preprocess_basic():
+    bgr = _synthetic_doc()
+    proc, meta = preprocess_bgr_page(bgr)
+    assert proc is not None
+    assert isinstance(proc, np.ndarray)
+    assert len(meta.get("steps", [])) >= 3

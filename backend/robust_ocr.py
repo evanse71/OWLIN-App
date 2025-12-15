@@ -5,7 +5,13 @@ from datetime import datetime
 import numpy as np
 from PIL import Image
 import pytesseract
-from pdf2image import convert_from_path
+# Optional pdf2image import for PDF processing
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    convert_from_path = None  # type: ignore
 import cv2
 from difflib import SequenceMatcher
 
@@ -135,7 +141,10 @@ def _weakest_stage(c_split, c_header, c_lines, c_totals) -> str:
 def rasterize(path: str) -> List[Image.Image]:
     """Convert PDF to images or return single image"""
     if path.lower().endswith('.pdf'):
-        return convert_from_path(path, dpi=300)
+        if PDF2IMAGE_AVAILABLE and convert_from_path:
+            return convert_from_path(path, dpi=300)
+        else:
+            raise ImportError("pdf2image is not installed. PDF processing requires pdf2image. Install with: pip install pdf2image")
     else:
         return [Image.open(path)]
 

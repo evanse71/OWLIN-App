@@ -1,0 +1,126 @@
+{
+  "status": "ok",
+  "test_file": "C:\\Users\\tedev\\FixPack_2025-11-02_133105\\data\\uploads\\112be37d-afe1-4fe6-8eed-723ccbd70b58__Storiinvoiceonly1.pdf",
+  "doc_id": "test_0b2a47f1",
+  "ocr_result": {
+    "status": "ok",
+    "confidence": 0.9715455609482605,
+    "supplier": "Stori Beer & Wine CYF",
+    "date": "2025-08-21",
+    "total": 289.17,
+    "line_items_count": 17,
+    "line_items": [
+      {
+        "desc": "Stori Beer & Wine CYF",
+        "qty": 1.0,
+        "unit_price": 0.0,
+        "total": 1.0,
+        "uom": "",
+        "confidence": 0.75
+      },
+      {
+        "desc": "VAT Registration No.:",
+        "qty": 2362685.0,
+        "unit_price": 9.0,
+        "total": 5.0,
+        "uom": "",
+        "confidence": 0.75
+      },
+      {
+        "desc": "Company Registration No.",
+        "qty": 93741.0,
+        "unit_price": 6.0,
+        "total": 4.0,
+        "uom": "",
+        "confidence": 0.75
+      },
+      {
+        "desc": "INVOICE NO.",
+        "qty": 8520.0,
+        "unit_price": 2.0,
+        "total": 1.0,
+        "uom": "",
+        "confidence": 0.75
+      },
+      {
+        "desc": "PRODUCT",
+        "qty": 2.0,
+        "unit_price": 0.0,
+        "total": 0.0,
+        "uom": "",
+        "confidence": 0.75
+      }
+    ]
+  },
+  "raw_ocr_text_sample": "Stori Beer & Wine CYF\n101 High Street.\nBala\nGD\nLL23 7AE\ntrade@storibeers.wales\nSIOR!\nVAT Registration No.: 236268595\nCompany Registration No. 09374164\nVAT Invoice\nINVOICE NO. 852021_162574\nINVOICE TO\nDATE 21/08/2025\nSam Roberts\nDUE DATE 28/08/2025\nY Stablau\nTERMS 7 Days\nSnowdonia Hospitality &\nLeisure Ltd\nt/a Royal Oak Hotel\nBetws Y Coed, Conwy LL24\nOAY\nWales\nVAT\nAMOUNT\nQTy\nRATE\nPRODUCT\n20.0% S\n198.32\n24.79\n8\nGwynt Black Dragon case of 12.\n42.66\n20.0% S\n2\n21.33\nBarti Spiced 70cl.\n240.98\nSUBTOTAL\n48.19\nVAT TOTAL\n289.17\nTOTAL\nDALANCE DUE\n8289.17\nVAT SUMMARY\nNET\nYAT\nRATE\n48.10\n240.98\nVAT @ 20%\nWe appreciate your business, should you have any queries please contact us (contact details at\ntop). Many ihanks.\nPayment by BACS please.\nSiori Seer and Wine cyf\nSori Code: 60 83 71\nAccouni number: 57546610\nAWRS No XFAW00000106331\nWe appreciate your business, should you have any queries please contact us (contact details at\ntop). Many thanks.\nPayment by BAcS please.\nSiori Beer and Wine cyf\nSort Code",
+  "raw_paddleocr_pages": [
+    {
+      "page_num": 1,
+      "confidence": 0.9715455609482605,
+      "preprocessed_image_path": "data\\uploads\\112be37d-afe1-4fe6-8eed-723ccbd70b58__storiinvoiceonly1\\pages\\page_001.pre.png",
+      "blocks": [
+        {
+          "type": "header",
+          "bbox": [
+            0,
+            0,
+            7675,
+            2261
+          ],
+          "ocr_text": "Stori Beer & Wine CYF\n101 High Street.\nBala\nGD\nLL23 7AE",
+          "confidence": 0.9830066680908203,
+          "table_data": null
+        },
+        {
+          "type": "table",
+          "bbox": [
+            383,
+            2487,
+            7291,
+            8142
+          ],
+          "ocr_text": "trade@storibeers.wales\nSIOR!\nVAT Registration No.: 236268595\nCompany Registration No. 09374164\nVAT Invoice\nINVOICE NO. 852021_162574\nINVOICE TO\nDATE 21/08/2025\nSam Roberts\nDUE DATE 28/08/2025\nY Stablau\nTERMS 7 Days\nSnowdonia Hospitality &\nLeisure Ltd\nt/a Royal Oak Hotel\nBetws Y Coed, Conwy LL24\nOAY\nWales\nVAT\nAMOUNT\nQTy\nRATE\nPRODUCT\n20.0% S\n198.32\n24.79\n8\nGwynt Black Dragon case of 12.\n42.66\n20.0% S\n2\n21.33\nBarti Spiced 70cl.\n240.98\nSUBTOTAL\n48.19\nVAT TOTAL\n289.17\nTOTAL\nDALANCE DUE\n8289.17\nVAT SUMMARY\nNET\nYAT\nRATE\n48.10\n240.98\nVAT @ 20%\nWe appreciate your business, should you have any queries please contact us (contact details at\ntop). Many ihanks.\nPayment by BACS please.\nSiori Seer and Wine cyf\nSori Code: 60 83 71\nAccouni number: 57546610\nAWRS No XFAW00000106331",
+          "confidence": 0.9603016029704701,
+          "table_data": {
+            "type": "table",
+            "bbox": [
+              383,
+              2487,
+              7291,
+              8142
+            ],
+            "line_items": [],
+            "confidence": 0.0,
+            "method_used": "error",
+            "processing_time": 0.03285408020019531,
+            "fallback_used": true,
+            "cell_count": 0,
+            "row_count": 0
+          }
+        },
+        {
+          "type": "footer",
+          "bbox": [
+            0,
+            8481,
+            7675,
+            11309
+          ],
+          "ocr_text": "We appreciate your business, should you have any queries please contact us (contact details at\ntop). Many thanks.\nPayment by BAcS please.\nSiori Beer and Wine cyf\nSort Code: 60 83 71\nAccount number: 57546610\nAWRS No XFAW00000106337",
+          "confidence": 0.9713284117834908,
+          "table_data": null
+        }
+      ]
+    }
+  ],
+  "feature_flags": {
+    "preproc": false,
+    "layout": true,
+    "tables": true
+  },
+  "page_count": 1,
+  "raster_dpi_used": 300,
+  "multi_invoice_detected": false,
+  "extraction_method": "v2_pipeline",
+  "errors": null
+}

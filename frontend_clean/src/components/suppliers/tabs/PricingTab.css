@@ -1,0 +1,146 @@
+/**
+ * Pricing Tab Styles
+ */
+
+.pricing-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pricing-tab-loading {
+  padding: 48px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pricing-tab-selector {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.pricing-tab-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  flex: 1;
+}
+
+.pricing-tab-search svg {
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.pricing-tab-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.87);
+  font-size: 13px;
+  outline: none;
+}
+
+.pricing-tab-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.pricing-tab-select {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.87);
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+  min-width: 200px;
+}
+
+.pricing-tab-select:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.pricing-tab-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  color: rgba(59, 130, 246, 1);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.pricing-tab-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pricing-tab-flag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(234, 179, 8, 1);
+}
+
+.pricing-tab-chart {
+  margin-top: 8px;
+}
+
+.pricing-tab-average {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.pricing-tab-average-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pricing-tab-average-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.pricing-tab-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pricing-tab-action-button {
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.87);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pricing-tab-action-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+

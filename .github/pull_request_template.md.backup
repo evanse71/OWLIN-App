@@ -1,0 +1,101 @@
+# Pull Request Template
+
+## 🧪 Pre-merge Checklist
+
+### Configuration
+- [ ] Updated env usage still == `VITE_API_BASE_URL`
+- [ ] No `NEXT_PUBLIC_API_BASE_URL` references added
+- [ ] Environment variables documented in `env.local`
+
+### API Changes
+- [ ] Added/changed routes covered by `assert_routes.sh`
+- [ ] OpenAPI spec updated if routes changed
+- [ ] Backward compatibility maintained
+
+### Testing
+- [ ] Smoke passes locally (`scripts/smoke_e2e_simple.ps1`)
+- [ ] Edge cases tested (`scripts/smoke_edge.ps1`)
+- [ ] Route assertions pass (`scripts/assert_routes.sh`)
+- [ ] No new linting errors introduced
+
+### Documentation
+- [ ] CHANGELOG.md updated if needed
+- [ ] README updated if user-facing changes
+- [ ] Support pack script still works
+
+---
+
+## 🚨 CI Must Block If
+
+- `/api/health` or `/api/upload` changes or disappears (OpenAPI assert)
+- Smoke scripts fail
+- Route assertions fail
+- Linting errors introduced
+
+---
+
+## 🧪 Quick QA Script
+
+### Backend Validation
+- [ ] `/api/health` returns `{"status":"ok"}`
+- [ ] Upload <5MB PDF → 200/201; file exists in `data/uploads`
+- [ ] Backend logs show structured messages with timestamps
+- [ ] OCR graceful degradation works (uploads OK without OCR)
+
+### Frontend Validation
+- [ ] UI shows specific error on forced 404/413
+- [ ] Health banner shows backend status
+- [ ] Upload button disabled when backend offline
+- [ ] "Copy error" button works for debugging
+- [ ] No generic "0% error" messages
+
+### Integration Validation
+- [ ] Support pack script produces a zip with logs + uploads list
+- [ ] CORS configuration allows frontend-backend communication
+- [ ] Environment variables properly configured
+- [ ] All smoke tests pass
+
+---
+
+## 🔄 Rollback Plan
+
+If issues arise:
+1. **Code rollback**: `git checkout e2e-upload-green`
+2. **Runtime sanity**: `bash scripts/smoke_e2e.sh`
+3. **OCR issues**: Uploads still work (graceful degradation)
+
+---
+
+## 📝 Description
+
+### What Changed
+<!-- Describe the changes in this PR -->
+
+### Why Changed
+<!-- Explain the reasoning behind these changes -->
+
+### Testing Done
+<!-- List the testing performed -->
+
+### Breaking Changes
+<!-- List any breaking changes and migration steps -->
+
+---
+
+## 🎯 Acceptance Criteria
+
+- [ ] All pre-merge checklist items completed
+- [ ] All QA script items validated
+- [ ] No regressions introduced
+- [ ] Documentation updated if needed
+- [ ] CI/CD pipeline passes
+
+---
+
+## 🚀 Ready for Review
+
+This PR is ready for review when:
+- [ ] All checkboxes above are checked
+- [ ] CI/CD pipeline passes
+- [ ] Code review completed
+- [ ] Final testing performed

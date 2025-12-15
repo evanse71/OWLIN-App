@@ -1,0 +1,17 @@
+dist/
+node_modules/
+.venv/
+data/
+uploads/
+backups/
+logs/
+*.db
+*.sqlite*
+*.pdf
+*.png
+*.jpg
+*.tif*
+*.gif
+.vscode/
+.idea/
+*.log

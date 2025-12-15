@@ -361,6 +361,11 @@ def _persist_invoice(invoice: Dict, items: list, *, file_hash: str, filename: st
         after={"invoice_id": inv_id, "supplier": invoice.get("supplier_name"), "items_count": len(items)}
     )
     
+    # #region agent log
+    with open(r'c:\Users\tedev\FixPack_2025-11-02_133105\.cursor\debug.log', 'a', encoding='utf-8') as f:
+        f.write('{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"services.py:364","message":"Persisting invoice to database","data":{"inv_id":"' + str(inv_id) + '","supplier_name":"' + str(invoice.get("supplier_name","")) + '","invoice_date":"' + str(invoice.get("invoice_date","")) + '","total_p":' + str(invoice.get("total_p")) + ',"subtotal_p":' + str(invoice.get("subtotal_p")) + ',"vat_total_p":' + str(invoice.get("vat_total_p")) + ',"filename":"' + str(filename) + '"},"timestamp":' + str(int(time.time() * 1000)) + '}\n')
+    # #endregion
+    
     with db_manager.get_connection() as c:
         c.execute("""
           INSERT INTO invoices(id, status, confidence, paired, processing_progress,
@@ -383,6 +388,11 @@ def _persist_invoice(invoice: Dict, items: list, *, file_hash: str, filename: st
             file_hash,
             datetime.utcnow().isoformat(),  # Add parsed_at timestamp
         ))
+        
+        # #region agent log
+        with open(r'c:\Users\tedev\FixPack_2025-11-02_133105\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write('{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"services.py:385","message":"Invoice persisted successfully","data":{"inv_id":"' + str(inv_id) + '"},"timestamp":' + str(int(time.time() * 1000)) + '}\n')
+        # #endregion
         for it in items:
             c.execute("""
               INSERT INTO invoice_items(invoice_id, description, qty, unit_price, total, vat_rate, confidence)

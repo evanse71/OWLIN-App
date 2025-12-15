@@ -1,0 +1,9 @@
+        # Mock OCR result - replace with real OCR when ready
+        return {
+            "supplier": "Unknown",
+            "date": None,
+            "value": None,
+            "confidence": 0.0,
+            "status": "mock",
+            "venue": "Unknown"
+        }

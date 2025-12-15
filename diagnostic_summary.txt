@@ -1,0 +1,35 @@
+=== DIAGNOSTIC SUMMARY ===
+
+1. Backend startup (checking for [VERSION] message):
+
+2. Upload response (doc_id):
+{"doc_id":"fb5037f1-3afd-40d3-aff9-9a5372bad4c7","status":"processing"}
+
+3. Status after processing:
+{"doc_id":"fb5037f1-3afd-40d3-aff9-9a5372bad4c7","status":"error","parsed":null,"items":[],"doc_type":"unknown","doc_type_confidence":0.0,"doc_type_reasons":null,"confidence":0.0,"error":"OCR produced insufficient text: 0 chars (minimum 100 required)"}
+
+4. Pipeline debug output:
+{
+  "doc_id": "fb5037f1-3afd-40d3-aff9-9a5372bad4c7",
+  "timestamp": "2025-12-13T19:34:26.038523",
+  "documents": {
+    "id": "fb5037f1-3afd-40d3-aff9-9a5372bad4c7",
+    "filename": "036bea7b-76df-485e-831f-acb4c5f150bf__Storiinvoiceonly1.pdf",
+    "stored_path": "data/uploads/fb5037f1-3afd-40d3-aff9-9a5372bad4c7__036bea7b-76df-485e-831f-acb4c5f150bf__Storiinvoiceonly1.pdf",
+    "size_bytes": 759914,
+    "status": "error",
+    "ocr_error": "OCR produced insufficient text: 0 chars (minimum 100 required)",
+    "doc_type": "unknown",
+    "doc_type_confidence": 0.0,
+    "ocr_confidence": 0.0,
+    "uploaded_at": "2025-12-13T19:30:43.740446"
+  },
+  "invoices": null,
+  "line_items": [],
+  "line_items_count": 0,
+  "line_items_sample": []
+}
+
+
+5. /api/invoices count:
+5

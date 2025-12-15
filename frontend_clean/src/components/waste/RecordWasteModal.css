@@ -1,0 +1,123 @@
+/**
+ * Record Waste Modal Styles
+ * Following Owlin UI Design Contract
+ */
+
+.waste-modal-segmented-control {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.waste-modal-segment {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.waste-modal-segment:hover {
+  background: rgba(43, 58, 85, 0.05);
+}
+
+.waste-modal-segment-active {
+  background: #2B3A55;
+  color: white;
+}
+
+.waste-modal-autocomplete-container {
+  position: relative;
+}
+
+.waste-modal-autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.waste-modal-autocomplete-item {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+  transition: background 150ms ease-out;
+}
+
+.waste-modal-autocomplete-item:hover {
+  background: rgba(43, 58, 85, 0.05);
+}
+
+.waste-modal-autocomplete-item:first-child {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+.waste-modal-autocomplete-item:last-child {
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.waste-modal-quantity-row {
+  display: flex;
+  gap: 8px;
+}
+
+.waste-modal-quantity-input {
+  flex: 1;
+}
+
+.waste-modal-unit-select {
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.waste-modal-cost-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(43, 58, 85, 0.02);
+  border-radius: 4px;
+}
+
+.waste-modal-cost-label {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.waste-modal-cost-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2B3A55;
+}
+
+.waste-modal-cost-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  font-style: italic;
+}
+
+.waste-modal-tag-staff {
+  margin-top: 8px;
+}
+

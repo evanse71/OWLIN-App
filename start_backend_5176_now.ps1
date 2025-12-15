@@ -33,6 +33,7 @@ Write-Host "[3/5] Setting environment variables..." -ForegroundColor Yellow
 $env:OWLIN_ENV = "dev"
 $env:FEATURE_OCR_PIPELINE_V2 = "true"
 $env:PYTHONPATH = $ROOT
+$env:PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 
 # Ensure directories exist
 Write-Host "[4/5] Ensuring directories exist..." -ForegroundColor Yellow

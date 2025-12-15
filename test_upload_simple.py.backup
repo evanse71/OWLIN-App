@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Simple upload test with real file"""
+import requests
+import time
+import json
+import sys
+from pathlib import Path
+
+API_BASE = "http://127.0.0.1:8000"
+
+def main():
+    pdf_path = Path("data/dev/test_invoice.pdf")
+    if not pdf_path.exists():
+        print(f"[ERROR] Test file not found: {pdf_path}")
+        print("Please copy a real invoice PDF to data/dev/test_invoice.pdf")
+        sys.exit(1)
+    
+    print(f"\n{'='*60}")
+    print(f"Testing upload: {pdf_path} ({pdf_path.stat().st_size} bytes)")
+    print(f"{'='*60}\n")
+    
+    # Upload
+    print("1. Uploading file...")
+    with open(pdf_path, 'rb') as f:
+        files = {'file': (pdf_path.name, f, 'application/pdf')}
+        response = requests.post(f"{API_BASE}/api/upload", files=files)
+    
+    if response.status_code != 200:
+        print(f"[ERROR] Upload failed: {response.status_code}")
+        print(response.text)
+        sys.exit(1)
+    
+    upload_data = response.json()
+    doc_id = upload_data.get('doc_id')
+    print(f"[OK] Upload successful: doc_id={doc_id}")
+    print(f"   Status: {upload_data.get('status')}")
+    
+    # Poll for completion
+    print("\n2. Polling for OCR completion (max 60 seconds)...")
+    for attempt in range(40):
+        time.sleep(1.5)
+        try:
+            status_response = requests.get(f"{API_BASE}/api/upload/status", params={'doc_id': doc_id}, timeout=5)
+            if status_response.status_code != 200:
+                print(f"[WARN] Status check failed: {status_response.status_code}")
+                continue
+            
+            status_data = status_response.json()
+            status = status_data.get('status', 'processing')
+            has_items = len(status_data.get('items', [])) > 0
+            has_parsed = status_data.get('parsed') is not None and status_data.get('parsed').get('supplier') != 'Unknown Supplier'
+            
+            if attempt % 5 == 0 or status != 'processing':
+                print(f"   Attempt {attempt+1}/40: status={status}, has_items={has_items}, has_parsed={has_parsed}")
+            
+            if status in ['ready', 'scanned', 'completed'] or (has_items and has_parsed):
+                print(f"\n[OK] Processing complete!")
+                print(f"\n3. Results:")
+                parsed = status_data.get('parsed', {})
+                print(f"   Supplier: {parsed.get('supplier', 'N/A')}")
+                print(f"   Date: {parsed.get('date', 'N/A')}")
+                print(f"   Total: {parsed.get('value', parsed.get('total', 'N/A'))}")
+                print(f"   Confidence: {parsed.get('confidence', 'N/A')}")
+                print(f"   Line items: {len(status_data.get('items', []))}")
+                
+                if status_data.get('status') == 'error':
+                    print(f"\n[WARN] Status is 'error' - check backend logs")
+                
+                return status_data
+        except Exception as e:
+            print(f"[WARN] Poll error: {e}")
+            continue
+    
+    print(f"\n[WARN] Timeout after 60 seconds")
+    print(f"Final status: {status_data.get('status') if 'status_data' in locals() else 'unknown'}")
+    return None
+
+if __name__ == "__main__":
+    result = main()
+    sys.exit(0 if result else 1)

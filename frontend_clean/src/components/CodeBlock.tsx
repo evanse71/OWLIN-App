@@ -21,7 +21,7 @@ export function CodeBlock({ file, snippet, language = 'text' }: CodeBlockProps) 
         margin: '16px 0',
         borderRadius: '12px',
         overflow: 'hidden',
-        border: '1px solid rgba(0, 0, 0, 0.1)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
         background: 'linear-gradient(135deg, #1e1e1e, #2a2a2a)',
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
       }}
@@ -33,7 +33,7 @@ export function CodeBlock({ file, snippet, language = 'text' }: CodeBlockProps) 
             background: 'linear-gradient(135deg, #2d2d2d, #252525)',
             borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
             fontSize: '12px',
-            color: '#9ca3af',
+            color: 'rgba(255, 255, 255, 0.6)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -54,12 +54,12 @@ export function CodeBlock({ file, snippet, language = 'text' }: CodeBlockProps) 
             style={{
               padding: '6px 12px',
               background: copied 
-                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.2))'
+                ? 'rgba(20, 184, 166, 0.2)'
                 : 'rgba(61, 61, 61, 0.8)',
               backdropFilter: 'blur(10px)',
-              color: copied ? '#10b981' : '#fff',
+              color: copied ? '#14b8a6' : 'rgba(255, 255, 255, 0.87)',
               border: copied 
-                ? '1px solid rgba(16, 185, 129, 0.3)'
+                ? '1px solid rgba(20, 184, 166, 0.4)'
                 : '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -116,12 +116,12 @@ export function CodeBlock({ file, snippet, language = 'text' }: CodeBlockProps) 
             style={{
               padding: '6px 12px',
               background: copied 
-                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.2))'
+                ? 'rgba(20, 184, 166, 0.2)'
                 : 'rgba(61, 61, 61, 0.8)',
               backdropFilter: 'blur(10px)',
-              color: copied ? '#10b981' : '#fff',
+              color: copied ? '#14b8a6' : 'rgba(255, 255, 255, 0.87)',
               border: copied 
-                ? '1px solid rgba(16, 185, 129, 0.3)'
+                ? '1px solid rgba(20, 184, 166, 0.4)'
                 : '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '6px',
               cursor: 'pointer',

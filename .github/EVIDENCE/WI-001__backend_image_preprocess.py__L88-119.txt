@@ -1,0 +1,31 @@
+def preprocess_bgr_page(img_bgr: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """Preprocess a single page image (BGR) -> (grayscale/binary image, metadata)."""
+    meta: Dict[str, Any] = {"steps": [], "warnings": []}
+    try:
+        img = _downscale(img_bgr)
+        meta["steps"].append({"op": "downscale", "shape": list(img.shape)})
+        gray = _to_gray(img)
+        meta["steps"].append({"op": "to_gray"})
+
+        if _is_photo(img):
+            gray = _perspective_correction(gray)
+            meta["steps"].append({"op": "perspective_correction"})
+
+        deskewed, angle = _deskew(gray)
+        meta["steps"].append({"op": "deskew", "angle_deg": angle})
+
+        den = cv2.bilateralFilter(deskewed, 5, 75, 75)
+        meta["steps"].append({"op": "denoise_bilateral"})
+
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(den)
+        meta["steps"].append({"op": "clahe"})
+
+        bw = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 31, 9)
+        meta["steps"].append({"op": "adaptive_threshold"})
+        return bw, meta
+    except Exception as e:
+        meta["warnings"].append(f"preprocess_error:{e}")
+        # Safe fallback: grayscale only
+        return _to_gray(img_bgr), meta

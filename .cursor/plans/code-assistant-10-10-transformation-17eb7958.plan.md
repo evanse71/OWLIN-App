@@ -1,4 +1,48 @@
-<!-- 17eb7958-8f0e-4a8a-866e-61c6682dc099 8c45fc69-8b8b-4030-861d-e802b00686e7 -->
+---
+name: Fix Critical Integration Bugs
+overview: ""
+todos:
+  - id: ddf1ce0b-a9cf-48d7-a474-0bfc3bcba5d4
+    content: Create CodeVerifier service with actual code verification methods (verify_function_exists, verify_code_snippet, verify_framework, verify_logging_exists, compare_code_examples)
+    status: pending
+  - id: 0e8a95d0-9bb9-452e-9d83-b1a570dd8e59
+    content: Integrate CodeVerifier into _check_verification_requirements() to actually verify claims before allowing ANALYZE
+    status: pending
+  - id: 665d87a6-fa25-4b25-ae35-732003e65fb3
+    content: Update _filter_unverified_claims() to use CodeVerifier for actual code comparison instead of pattern matching
+    status: pending
+  - id: 34ef5cc7-cba8-4bdb-9b5b-7d84a51ab90c
+    content: Create ResponseValidator service to validate response structure and format before generation
+    status: pending
+  - id: 71509136-ac7c-4078-b708-dc0ec3c503ff
+    content: Add pre-generation blocking in chat_service.py to enforce validation checklist before LLM generates response
+    status: pending
+  - id: 86d010cc-a3e5-4467-8a43-a5fd8f969916
+    content: Implement response structure enforcement to validate sections and format, reject invalid responses
+    status: pending
+  - id: 7afb7715-5857-43d4-aa12-b9eaa9dabd42
+    content: Create RuntimeVerifier service with methods to check logs, query database, and test API endpoints
+    status: pending
+  - id: cf7b2f70-7af3-4e9c-a303-f23bfdce72e7
+    content: Integrate RuntimeVerifier into workflow to actually execute diagnostic queries and verify runtime behavior
+    status: pending
+  - id: cf51905a-e436-4bbd-a195-16e03f0b8244
+    content: Create ArchitectureAnalyzer service to auto-detect framework, async patterns, and data flow
+    status: pending
+  - id: 5d385d07-dcc7-4d95-9f3b-da95a05cfa8e
+    content: Integrate ArchitectureAnalyzer to validate LLM architecture claims and provide architecture context
+    status: pending
+  - id: 5cd4d215-a283-4398-b62f-f05e6032f135
+    content: Create ResponseRewriter service to automatically fix function names, file paths, and code examples
+    status: pending
+  - id: af62885e-219b-4b4b-bba2-73bcc5a389b4
+    content: Implement confidence-based blocking using verification results, code match accuracy, and runtime checks
+    status: pending
+  - id: 98aeb0d9-5126-4dbe-8b39-dccd0f5cca4c
+    content: Add multi-pass validation loop that rewrites and re-validates responses until they pass or max attempts reached
+    status: pending
+---
+
 # Fix Critical Integration Bugs
 
 ## Problem Summary
@@ -194,19 +238,3 @@ After fixes:
 - [ ] RuntimeVerifier works with custom paths
 - [ ] Multi-pass validation verifies fixes before accepting
 - [ ] All verification results flow correctly through the system
-
-### To-dos
-
-- [ ] Create CodeVerifier service with actual code verification methods (verify_function_exists, verify_code_snippet, verify_framework, verify_logging_exists, compare_code_examples)
-- [ ] Integrate CodeVerifier into _check_verification_requirements() to actually verify claims before allowing ANALYZE
-- [ ] Update _filter_unverified_claims() to use CodeVerifier for actual code comparison instead of pattern matching
-- [ ] Create ResponseValidator service to validate response structure and format before generation
-- [ ] Add pre-generation blocking in chat_service.py to enforce validation checklist before LLM generates response
-- [ ] Implement response structure enforcement to validate sections and format, reject invalid responses
-- [ ] Create RuntimeVerifier service with methods to check logs, query database, and test API endpoints
-- [ ] Integrate RuntimeVerifier into workflow to actually execute diagnostic queries and verify runtime behavior
-- [ ] Create ArchitectureAnalyzer service to auto-detect framework, async patterns, and data flow
-- [ ] Integrate ArchitectureAnalyzer to validate LLM architecture claims and provide architecture context
-- [ ] Create ResponseRewriter service to automatically fix function names, file paths, and code examples
-- [ ] Implement confidence-based blocking using verification results, code match accuracy, and runtime checks
-- [ ] Add multi-pass validation loop that rewrites and re-validates responses until they pass or max attempts reached

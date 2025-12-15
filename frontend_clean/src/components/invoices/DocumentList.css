@@ -1,0 +1,292 @@
+.sort-button {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 500;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
+}
+
+.sort-button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transform: translateY(-1px) translateZ(0);
+}
+
+.sort-button:active {
+  transform: translateY(0) translateZ(0);
+}
+
+/* Loading state */
+.invoices-list-scrollable.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Empty state improvements */
+.empty-state {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Supplier link styling */
+.invoice-card-supplier-link {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(59, 130, 246, 0.5);
+  text-underline-offset: 2px;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.invoice-card-supplier-link:hover {
+  color: rgba(59, 130, 246, 1);
+  text-decoration-color: rgba(59, 130, 246, 1);
+}
+
+/* Card slide-in animation */
+.invoice-card-new {
+  animation: cardSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* Stagger animation for multiple cards */
+.invoice-card-new:nth-child(1) { animation-delay: 0ms; }
+.invoice-card-new:nth-child(2) { animation-delay: 50ms; }
+.invoice-card-new:nth-child(3) { animation-delay: 100ms; }
+.invoice-card-new:nth-child(4) { animation-delay: 150ms; }
+.invoice-card-new:nth-child(5) { animation-delay: 200ms; }
+.invoice-card-new:nth-child(6) { animation-delay: 250ms; }
+.invoice-card-new:nth-child(7) { animation-delay: 300ms; }
+.invoice-card-new:nth-child(8) { animation-delay: 350ms; }
+.invoice-card-new:nth-child(9) { animation-delay: 400ms; }
+.invoice-card-new:nth-child(10) { animation-delay: 450ms; }
+
+@keyframes cardSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* New card highlight (when just uploaded) */
+.invoice-card-new.newly-uploaded {
+  animation: newCardAppear 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes newCardAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Accessibility: Focus styles for keyboard navigation */
+.invoice-card-new:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2), var(--shadow-md);
+}
+
+/* Rectangular card layout structure */
+.invoice-card-rectangular {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.invoice-card-row-1 {
+  margin-bottom: 6px;
+}
+
+.invoice-card-row-2 {
+  margin-bottom: 4px;
+}
+
+.invoice-card-row-3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+
+.invoice-card-row-4 {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* Delete button styling */
+.invoice-card-delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  opacity: 0.4;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 20;
+  width: 24px;
+  height: 24px;
+}
+
+.invoice-card-delete-btn:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.1);
+  transform: scale(1.1);
+}
+
+.invoice-card-delete-btn:active {
+  transform: scale(0.95);
+}
+
+/* Delete confirmation overlay */
+.invoice-card-delete-confirm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ef4444;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 30;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Visual indicator when card is in delete confirmation mode */
+.invoice-card-new.delete-confirming {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+.invoice-card-delete-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  transition: all 0.2s ease;
+  z-index: 35;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.invoice-card-delete-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.invoice-card-delete-close:active {
+  transform: scale(0.95);
+}
+
+.invoice-card-delete-confirm-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.invoice-card-delete-confirm-text {
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  user-select: none;
+}
+
+/* Validation badges */
+.badge-validation {
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.badge-validation-green {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-validation-blue {
+  background: rgba(59, 130, 246, 0.15);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-validation-yellow {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-validation-gray {
+  background: rgba(107, 114, 128, 0.15);
+  color: #4b5563;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}

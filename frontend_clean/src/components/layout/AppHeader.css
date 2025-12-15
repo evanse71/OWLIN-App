@@ -1,0 +1,82 @@
+/**
+ * Global App Header Styles
+ * Wraps page-specific headers and contains the Owlin Assistant input in top-right
+ * OWLIN Design System compliant
+ */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: all 200ms ease-out;
+  font-family: Inter, "Work Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.app-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0;
+  min-height: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden; /* Prevent content from overflowing */
+}
+
+.app-header-page-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0; /* Allow shrinking */
+  overflow: hidden; /* Prevent overflow */
+}
+
+/* Page headers inside should take full width of their container */
+.app-header-page-content > * {
+  flex: 1;
+  width: 100%;
+  min-width: 0; /* Allow shrinking */
+  overflow: hidden; /* Prevent overflow */
+}
+
+.app-header-assistant {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-right: 24px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  min-width: 0; /* Allow shrinking if needed */
+}
+
+/* Ensure assistant input doesn't overlap with header content */
+.app-header-assistant form {
+  max-width: 320px; /* Limit width to prevent overlap */
+  min-width: 240px; /* Minimum usable width */
+  transition: all 200ms ease-out; /* OWLIN transition timing */
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .app-header-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .app-header-assistant {
+    padding: 10px 16px;
+    order: -1; /* Move assistant to top on mobile */
+  }
+  
+  .app-header-page-content {
+    padding: 0 16px;
+  }
+}
+

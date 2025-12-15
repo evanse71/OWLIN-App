@@ -1,0 +1,66 @@
+.upload-bar-gen {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 24px;
+  background: transparent;
+  padding: 0;
+  min-height: 120px;
+  margin-left: 24px;
+  margin-right: 24px;
+}
+
+.upload-bar-gen__dropzone {
+  flex: 1;
+  padding: 18px 20px;
+  border-style: dashed;
+  border-width: 1px;
+  border-color: rgba(148, 163, 184, 0.75);
+  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 45%, #f9fafb 100%);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.upload-bar-gen__dropzone--active {
+  background: linear-gradient(135deg, #eef2ff 0%, #ffffff 40%, #eef2ff 100%);
+  border-color: var(--owlin-accent, #3a76f0);
+  box-shadow: 0 0 0 1px rgba(58, 118, 240, 0.35);
+}
+
+.upload-bar-gen__left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-bar-gen__title {
+  margin-bottom: 2px;
+}
+
+.upload-bar-gen__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Responsive: Stack buttons vertically on small screens */
+@media (max-width: 500px) {
+  .upload-bar-gen {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .upload-bar-gen__right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .upload-bar-gen__right .owlin-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+

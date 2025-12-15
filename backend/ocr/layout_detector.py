@@ -219,16 +219,27 @@ class LayoutDetector:
                     source="opencv_fallback"
                 ))
             
-            # Ensure we have at least header, body, footer
-            if not blocks:
-                # Fallback: split page into thirds
-                blocks = [
-                    LayoutBlock(type="header", bbox=(0, 0, w, h//3), confidence=0.5, source="opencv_fallback"),
-                    LayoutBlock(type="body", bbox=(0, h//3, w, h//3), confidence=0.5, source="opencv_fallback"),
-                    LayoutBlock(type="footer", bbox=(0, 2*h//3, w, h//3), confidence=0.5, source="opencv_fallback")
-                ]
+            # FORCE invoice-standard regions (always use this for now)
+            # This ensures we always get manageable-sized regions for OCR
+            # Instead of trying to detect which often fails
+            blocks = [
+                # HEADER: Top 20% (supplier, date, invoice number)
+                LayoutBlock(type="header", bbox=(0, 0, w, int(h * 0.20)), confidence=0.8, source="opencv_forced"),
+                
+                # TABLE: Middle 50% (line items) - with margins
+                LayoutBlock(type="table", bbox=(int(w * 0.05), int(h * 0.22), int(w * 0.95), int(h * 0.72)), confidence=0.8, source="opencv_forced"),
+                
+                # FOOTER: Bottom 25% (totals, VAT, amount due)
+                LayoutBlock(type="footer", bbox=(0, int(h * 0.75), w, h), confidence=0.8, source="opencv_forced")
+            ]
             
-            LOGGER.info("OpenCV fallback detected %d blocks", len(blocks))
+            # Log bbox sizes for diagnostics
+            for i, block in enumerate(blocks):
+                x1, y1, x2, y2 = block.bbox
+                area_mb = (x2 - x1) * (y2 - y1) / 1e6
+                LOGGER.info(f"[LAYOUT_R{i}] {block.type}: ({x1},{y1},{x2},{y2}) = {area_mb:.1f}MB")
+            
+            LOGGER.info("OpenCV fallback: FORCED %d invoice-standard regions", len(blocks))
             return blocks
             
         except Exception as e:

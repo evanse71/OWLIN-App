@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from backend.db.pairs import (
     db_get_document, db_recent_docs, db_upsert_pair_suggest, date_from
 )
+from backend.services.line_item_matcher import match_line_items
 
 LOGGER = logging.getLogger("owlin.services.match_engine")
 LOGGER.setLevel(logging.INFO)
@@ -220,9 +221,9 @@ def _calculate_line_item_match_score(invoice_id: str, delivery_id: Optional[str]
     cursor = conn.cursor()
     
     try:
-        # Get invoice line items
+        # Get invoice line items (including SKU if available)
         cursor.execute("""
-            SELECT description, qty, total
+            SELECT description, qty, total, sku
             FROM invoice_line_items
             WHERE invoice_id = ?
             ORDER BY line_number
@@ -230,12 +231,12 @@ def _calculate_line_item_match_score(invoice_id: str, delivery_id: Optional[str]
         
         invoice_lines = cursor.fetchall()
         
-        # Get delivery note line items (assuming same structure)
-        # Note: This may need adjustment based on actual delivery note storage
+        # Get delivery note line items (including SKU if available)
+        # Delivery notes store line items in invoice_line_items table with invoice_id = NULL
         cursor.execute("""
-            SELECT description, qty, total
+            SELECT description, qty, total, sku
             FROM invoice_line_items
-            WHERE doc_id = ?
+            WHERE doc_id = ? AND invoice_id IS NULL
             ORDER BY line_number
         """, (str(delivery_id),))
         
@@ -244,32 +245,63 @@ def _calculate_line_item_match_score(invoice_id: str, delivery_id: Optional[str]
         if not invoice_lines or not delivery_lines:
             return 0.0
         
-        # Calculate match score using description similarity
-        matched_items = 0
-        total_items = len(invoice_lines)
+        # Convert database rows to dictionaries for matching
+        invoice_items = []
+        for desc, qty, total, sku in invoice_lines:
+            invoice_items.append({
+                "description": desc,
+                "qty": qty or 0.0,
+                "total": total or 0.0,
+                "sku": sku or ""
+            })
         
-        # Create lookup for delivery items
-        delivery_lookup = {}
-        for desc, qty, total in delivery_lines:
-            desc_key = (desc or "").lower().strip()
-            delivery_lookup[desc_key] = {"qty": qty, "total": total}
+        delivery_items = []
+        for desc, qty, total, sku in delivery_lines:
+            delivery_items.append({
+                "description": desc,
+                "qty": qty or 0.0,
+                "total": total or 0.0,
+                "sku": sku or ""
+            })
         
-        # Match invoice items to delivery items
-        for inv_desc, inv_qty, inv_total in invoice_lines:
-            desc_key = (inv_desc or "").lower().strip()
-            
-            if desc_key in delivery_lookup:
-                # Check quantity and total match
-                del_item = delivery_lookup[desc_key]
-                qty_match = abs((inv_qty or 0) - (del_item["qty"] or 0)) < 0.01
-                total_match = abs((inv_total or 0) - (del_item["total"] or 0)) < 0.01
+        # Use fuzzy matching to match items
+        matched_items_list = match_line_items(invoice_items, delivery_items, threshold=0.85)
+        
+        # Calculate match score weighted by similarity
+        total_items = len(invoice_items)
+        if total_items == 0:
+            return 0.0
+        
+        total_score = 0.0
+        matched_count = 0
+        
+        for inv_item, del_item, similarity, match_type in matched_items_list:
+            if del_item and similarity >= 0.85:
+                # Item was matched - check quantity and total match
+                inv_qty = inv_item.get("qty") or 0.0
+                inv_total = inv_item.get("total") or 0.0
+                del_qty = del_item.get("qty") or 0.0
+                del_total = del_item.get("total") or 0.0
+                
+                qty_match = abs(inv_qty - del_qty) < 0.01
+                total_match = abs(inv_total - del_total) < 0.01
                 
                 if qty_match and total_match:
-                    matched_items += 1
+                    # Perfect match - weight by similarity score
+                    # Exact/SKU matches get full weight (1.0), fuzzy matches get similarity weight
+                    item_score = similarity
+                    total_score += item_score
+                    matched_count += 1
+                elif qty_match or total_match:
+                    # Partial match (quantity or total matches but not both)
+                    # Give partial credit based on similarity
+                    item_score = similarity * 0.5
+                    total_score += item_score
+                    matched_count += 1
         
-        # Calculate score
+        # Calculate final score: average of matched items weighted by similarity
         if total_items > 0:
-            score = matched_items / total_items
+            score = total_score / total_items
             return score
         
         return 0.0

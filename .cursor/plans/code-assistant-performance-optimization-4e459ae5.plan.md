@@ -1,4 +1,48 @@
-<!-- 4e459ae5-f5d8-4edc-af05-7e1143f47a23 5c4abbe4-c556-4c06-914a-166bc58b4bc4 -->
+---
+name: Fix Agent Timeout Detection at Start of Turn
+overview: ""
+todos:
+  - id: c1040c25-1ef1-4b8f-b761-9637593911cb
+    content: Replace multiple result iterations with single-pass processing (lines 5714-5743)
+    status: pending
+  - id: 2338b038-b447-4f19-9340-79afa7790da9
+    content: Add result limiting before _format_findings call (line 5728)
+    status: pending
+  - id: 4b080eaa-071f-459e-bcbe-f3be8dc58848
+    content: Add limit check and optimize _format_findings method (lines 3154-3213)
+    status: pending
+  - id: 84f65fb3-cbb3-49f9-862a-600db2f13408
+    content: Parallelize GREP file reading using ThreadPoolExecutor (lines 5575-5627)
+    status: pending
+  - id: 25b967e3-b981-4ffa-9616-7e97008c5671
+    content: Separate and parallelize GREP commands execution (lines 5256-5260, 5512-5513)
+    status: pending
+  - id: 66029d33-883d-4baa-964a-63df92fe407f
+    content: Use 30s timeout for first turn, 60s for subsequent turns (line 4812)
+    status: pending
+  - id: 9666be1b-cbf9-4067-b685-f0bef9a73aee
+    content: Limit GREP matches to top 20 files immediately after grep_pattern (line 5568)
+    status: pending
+  - id: 7cb087b6-6868-4a65-bb3a-295afbc1502e
+    content: Improve early termination in GREP processing loops (lines 5578-5627)
+    status: pending
+  - id: a38516ba-4318-4299-a946-6c7558703d3e
+    content: Remove or reduce blocking time.sleep(1.0) (line 4964)
+    status: pending
+  - id: 85861edd-b119-4008-ab0d-09560c63e9b2
+    content: Move timeout check to absolute first line of _do_one_turn function (before logging, before any operations)
+    status: pending
+  - id: bf80a278-05da-4f95-9f19-eb9d297122d2
+    content: Remove duplicate timeout check at lines 4686-4738 since it is now at start of function
+    status: pending
+  - id: 86691519-261c-4a26-a4a0-bc8387e19f6f
+    content: Verify heartbeat loop timeout check is working correctly (no changes needed, just verify)
+    status: pending
+  - id: 5ee2fee8-a55a-4b15-9d5a-f32cb2eea65a
+    content: Add diagnostic context to timeout messages to indicate where timeout was detected
+    status: pending
+---
+
 # Fix Agent Timeout Detection at Start of Turn
 
 ## Problem Analysis
@@ -137,19 +181,3 @@ def _do_one_turn(turn_num):
 - No more 5-minute waits before timeout detection
 - Better diagnostic information about where timeout occurred
 - Agent fails fast instead of hanging
-
-### To-dos
-
-- [ ] Replace multiple result iterations with single-pass processing (lines 5714-5743)
-- [ ] Add result limiting before _format_findings call (line 5728)
-- [ ] Add limit check and optimize _format_findings method (lines 3154-3213)
-- [ ] Parallelize GREP file reading using ThreadPoolExecutor (lines 5575-5627)
-- [ ] Separate and parallelize GREP commands execution (lines 5256-5260, 5512-5513)
-- [ ] Use 30s timeout for first turn, 60s for subsequent turns (line 4812)
-- [ ] Limit GREP matches to top 20 files immediately after grep_pattern (line 5568)
-- [ ] Improve early termination in GREP processing loops (lines 5578-5627)
-- [ ] Remove or reduce blocking time.sleep(1.0) (line 4964)
-- [ ] Move timeout check to absolute first line of _do_one_turn function (before logging, before any operations)
-- [ ] Remove duplicate timeout check at lines 4686-4738 since it is now at start of function
-- [ ] Verify heartbeat loop timeout check is working correctly (no changes needed, just verify)
-- [ ] Add diagnostic context to timeout messages to indicate where timeout was detected

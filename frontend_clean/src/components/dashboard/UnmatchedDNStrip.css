@@ -1,0 +1,117 @@
+/**
+ * Unmatched Delivery Notes Strip Styles
+ */
+
+.unmatched-dn-strip {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.unmatched-dn-strip-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.unmatched-dn-strip-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  margin: 0 0 12px 0;
+}
+
+.unmatched-dn-strip-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.unmatched-dn-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  transition: all 200ms ease;
+  position: relative;
+  cursor: pointer;
+}
+
+.unmatched-dn-pill-green {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: rgba(134, 239, 172, 1);
+}
+
+.unmatched-dn-pill-amber {
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: rgba(253, 224, 71, 1);
+}
+
+.unmatched-dn-pill-red {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: rgba(254, 202, 202, 1);
+}
+
+.unmatched-dn-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.unmatched-dn-pill-number {
+  font-weight: 600;
+}
+
+.unmatched-dn-pill-supplier {
+  opacity: 0.8;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unmatched-dn-pill-age {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.unmatched-dn-pill-pair-button {
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  margin-left: auto;
+}
+
+.unmatched-dn-pill-pair-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.unmatched-dn-pill-preview {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  padding: 8px 12px;
+  background: rgba(42, 42, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.87);
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+

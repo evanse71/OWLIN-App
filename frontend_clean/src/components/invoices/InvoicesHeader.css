@@ -1,0 +1,399 @@
+.dropdown-wrapper {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: #2a2a2a;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 180px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  animation: fadeInDropdown 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeInDropdown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 400;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
+}
+
+.dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  transform: translateX(2px) translateZ(0);
+}
+
+.dropdown-item:active {
+  background: var(--bg-glass-hover);
+}
+
+.search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 1; /* Shrink at same rate as other elements */
+  flex-basis: auto; /* Natural size basis */
+  min-width: 0; /* Allow shrinking below content size */
+  margin-right: 0; /* Ensure no right margin on search wrapper */
+  flex: 1 1 auto; /* Allow search wrapper to grow and fill available space */
+  max-width: 100%;
+  justify-content: flex-start; /* Anchor to left */
+}
+
+.search-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1;
+  transition: color 0.2s ease;
+}
+
+.search-input:focus + .search-icon,
+.search-input:focus ~ .search-icon {
+  color: var(--accent-blue);
+}
+
+/* Search wrapper is now defined in InvoicesHeader.css but overridden in InvoicesNew.css media queries */
+
+.search-input {
+  padding-left: 40px !important;
+  min-width: clamp(100px, 10vw, 120px); /* Fluid minimum width */
+  max-width: 100%; /* Allow it to fill available space in its container */
+  width: 100%; /* Allow it to shrink within its container */
+  flex: 1 1 0; /* Can grow and shrink flexibly */
+  flex-shrink: 1; /* Shrink at same rate */
+  font-size: clamp(12px, 1.1vw, 13px); /* Fluid font size */
+  padding-top: clamp(8px, 0.9vw, 9px);
+  padding-bottom: clamp(8px, 0.9vw, 9px);
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smoother transition */
+  box-sizing: border-box; /* Include padding in width calculation */
+}
+
+/* Secondary Action Buttons - Filters (smaller, more subtle) */
+.glass-button.secondary-action {
+  padding: clamp(6px, 0.8vw, 8px) clamp(10px, 1.5vw, 14px); /* Fluid padding */
+  font-size: clamp(11px, 1.1vw, 12px); /* Fluid font size */
+  font-weight: 500;
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  opacity: 0.85;
+  min-width: 36px; /* Minimum for icon-only */
+  width: auto; /* Natural width */
+  flex-shrink: 1; /* Shrink at same rate as other elements */
+  flex-basis: auto; /* Natural size basis */
+  max-width: clamp(150px, 12vw, 200px); /* Fluid max-width */
+  overflow: hidden;
+  gap: clamp(4px, 0.6vw, 6px); /* Fluid gap */
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smoother transition */
+  justify-content: flex-start; /* Anchor content to left */
+}
+
+.glass-button.secondary-action:hover {
+  opacity: 1;
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Button text and icon utilities */
+.button-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.button-text,
+.button-text-full,
+.button-text-short {
+  white-space: nowrap;
+  transition: opacity 0.2s ease, width 0.3s ease;
+}
+
+.button-text-short {
+  display: none; /* Hidden by default, shown at medium breakpoints */
+}
+
+.button-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Primary Action Buttons - Large and Prominent */
+.glass-button.primary-action-large {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.2) 100%);
+  border: 1.5px solid var(--accent-blue);
+  color: var(--accent-blue);
+  font-weight: 600;
+  font-size: clamp(12px, 1.2vw, 14px); /* Fluid font size */
+  padding: clamp(10px, 1.2vw, 12px) clamp(12px, 2vw, 20px); /* Fluid padding */
+  height: clamp(40px, 4vw, 44px); /* Fluid height */
+  min-width: 44px; /* Minimum width for icon-only state */
+  width: auto;
+  max-width: clamp(200px, 18vw, 280px); /* Fluid max-width */
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
+  justify-content: flex-start; /* Anchor content to left, shrink from right */
+  flex-shrink: 1; /* Shrink at same rate as other elements */
+  flex-basis: auto; /* Natural size basis */
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smoother transition */
+  box-sizing: border-box;
+  overflow: hidden;
+  gap: clamp(6px, 0.8vw, 8px); /* Fluid gap */
+}
+
+.glass-button.primary-action-large:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0.3) 100%);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25), 0 0 0 3px rgba(59, 130, 246, 0.15);
+  transform: translateY(-2px) translateZ(0);
+  border-color: var(--accent-blue);
+}
+
+.glass-button.primary-action-large:active {
+  transform: translateY(0) translateZ(0);
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.2);
+}
+
+/* Upload Button - Most Prominent (Primary of Primary) */
+.glass-button.primary-action-upload {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.25) 100%);
+  border: 1.5px solid var(--accent-blue);
+  box-shadow: 0 3px 10px rgba(59, 130, 246, 0.2);
+  font-weight: 700;
+  height: 44px;
+  min-width: 44px; /* Same minimum width for icon-only */
+}
+
+.glass-button.primary-action-upload:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(59, 130, 246, 0.35) 100%);
+  box-shadow: 0 5px 16px rgba(59, 130, 246, 0.3), 0 0 0 3px rgba(59, 130, 246, 0.2);
+  transform: translateY(-3px) translateZ(0); /* More lift */
+}
+
+/* Legacy support - keep for backward compatibility */
+.glass-button.primary-action {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.15) 100%);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  font-weight: 600;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
+  width: 220px;
+  min-width: 180px; /* Allow shrinking if needed to prevent overlap */
+  justify-content: center;
+  flex-shrink: 1; /* Allow buttons to shrink to prevent overlap */
+  white-space: nowrap; /* Prevent text wrapping */
+  overflow: hidden;
+  text-overflow: ellipsis; /* Show ellipsis if text is too long */
+}
+
+.glass-button.primary-action:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.25) 100%);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), var(--shadow-md);
+  transform: translateY(-2px) translateZ(0);
+}
+
+.glass-button.primary-action:active {
+  transform: translateY(0) translateZ(0);
+}
+
+.invoices-header-actions {
+  display: flex;
+  gap: clamp(8px, 1.2vw, 12px); /* Fluid gap between primary action buttons */
+  flex-shrink: 1; /* Allow container to shrink */
+  flex-basis: auto; /* Natural size basis */
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start; /* Anchor buttons to left */
+}
+
+/* Ensure both primary action buttons adapt together */
+.invoices-header-actions .glass-button.primary-action-large {
+  flex: 0 1 auto; /* Allow individual sizing but can shrink at same rate */
+  flex-basis: auto; /* Natural size basis */
+}
+
+.invoices-header-assistant-spacer {
+  min-width: 16px; /* Reduced spacer to bring buttons closer to assistant */
+  flex-shrink: 0;
+}
+
+/* Responsive text and icon states for buttons */
+
+/* Large screens - Full text */
+@media (min-width: 1600px) {
+  .glass-button.primary-action-large {
+    min-width: 200px;
+    max-width: 280px;
+    padding: 12px 24px;
+  }
+  
+  .button-text-full {
+    display: inline;
+  }
+  
+  .button-text-short {
+    display: none;
+  }
+}
+
+/* Medium-large screens - Full text but smaller */
+@media (max-width: 1599px) and (min-width: 1400px) {
+  .glass-button.primary-action-large {
+    min-width: 180px;
+    max-width: 260px;
+    padding: 12px 20px;
+  }
+  
+  .button-text-full {
+    display: inline;
+  }
+  
+  .button-text-short {
+    display: none;
+  }
+}
+
+/* Medium screens - Short text */
+@media (max-width: 1399px) and (min-width: 1100px) {
+  .glass-button.primary-action-large {
+    min-width: 120px;
+    max-width: 200px;
+    padding: 12px 16px;
+    font-size: 13px;
+  }
+  
+  .button-text-full {
+    display: none;
+  }
+  
+  .button-text-short {
+    display: inline;
+  }
+  
+  .glass-button.secondary-action .button-text {
+    display: inline;
+  }
+}
+
+/* Small-medium screens - Icon + short text or icon-only for filters */
+@media (max-width: 1099px) and (min-width: 900px) {
+  .glass-button.primary-action-large {
+    min-width: 100px;
+    max-width: 160px;
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+  
+  .button-text-full {
+    display: none;
+  }
+  
+  .button-text-short {
+    display: inline;
+  }
+  
+  .glass-button.secondary-action {
+    min-width: 36px;
+    padding: 8px 10px;
+  }
+  
+  .glass-button.secondary-action .button-text {
+    display: inline;
+  }
+}
+
+/* Small screens - Icon-only for secondary, short text for primary */
+@media (max-width: 899px) and (min-width: 700px) {
+  .glass-button.primary-action-large {
+    min-width: clamp(60px, 8vw, 100px);
+    max-width: clamp(100px, 12vw, 140px);
+    padding: 12px clamp(8px, 1vw, 12px);
+    font-size: 12px;
+  }
+  
+  .button-text-full {
+    display: none;
+  }
+  
+  .button-text-short {
+    display: inline;
+  }
+  
+  /* Icon-only for secondary buttons when space is tight */
+  .glass-button.secondary-action {
+    min-width: 36px;
+    max-width: 36px;
+    padding: 8px;
+  }
+  
+  .glass-button.secondary-action .button-text {
+    display: none;
+  }
+  
+  .glass-button.secondary-action .button-chevron {
+    display: none;
+  }
+}
+
+/* Very small screens - Icon-only for primary buttons */
+@media (max-width: 699px) {
+  .glass-button.primary-action-large {
+    min-width: 44px;
+    max-width: 44px;
+    padding: 12px;
+    justify-content: center; /* Center icon when icon-only */
+  }
+  
+  .button-text-full,
+  .button-text-short {
+    display: none;
+  }
+  
+  .glass-button.secondary-action {
+    min-width: 36px;
+    max-width: 36px;
+    padding: 8px;
+    justify-content: center; /* Center icon when icon-only */
+  }
+  
+  .glass-button.secondary-action .button-text {
+    display: none;
+  }
+  
+  .glass-button.secondary-action .button-chevron {
+    display: none;
+  }
+}

@@ -1,0 +1,728 @@
+"""
+Probabilistic invoice ↔ delivery-note pairing engine.
+
+Implements conservative automatic pairing, candidate generation, feature
+engineering, and probability scoring with a logistic regression model (or a
+fallback heuristic when the model file is missing).
+"""
+from __future__ import annotations
+
+import logging
+import re
+import sqlite3
+from datetime import datetime, date
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
+
+try:
+    import joblib  # type: ignore
+except ImportError:  # pragma: no cover - sklearn not always available locally
+    joblib = None
+
+from backend.app.db import (
+    DB_PATH,
+    get_line_items_for_doc,
+    get_line_items_for_invoice,
+    get_supplier_stats,
+    insert_pairing_event,
+)
+from backend.models.pairing import FeatureSummary, PairingCandidate, PairingResult
+from backend.services.line_item_matcher import match_line_items
+from backend.services.pairing_explainer import generate_pairing_explanation
+
+LOGGER = logging.getLogger("owlin.services.pairing")
+
+BASE_DATE_WINDOW_DAYS = 10
+BASE_TOTAL_DIFF_PCT_MAX = 0.30
+T_HIGH = 0.95
+T_LOW = 0.40
+DELTA_MIN = 0.10
+MODEL_VERSION = "prl_v1"
+FALLBACK_MODEL_VERSION = "heuristic_v1"
+
+DATA_DIR = Path(DB_PATH).resolve().parent
+MODEL_PATH = DATA_DIR / "models" / "pairing_prl_v1.pkl"
+
+MODEL_FEATURE_ORDER: Sequence[str] = [
+    "amount_diff_abs",
+    "amount_diff_pct",
+    "vat_diff_abs",
+    "vat_diff_pct",
+    "has_exact_total_match",
+    "dn_has_total",
+    "date_diff_days",
+    "abs_date_diff_days",
+    "is_same_day",
+    "is_same_week",
+    "is_on_typical_delivery_day",
+    "days_off_from_typical_delivery",
+    "mean_description_similarity",
+    "proportion_invoice_value_explained",
+    "num_invoice_lines",
+    "num_dn_lines",
+    "line_count_diff",
+    "supplier_name_edit_distance",
+    "supplier_name_similarity",
+    "ocr_confidence_total",
+    "ocr_confidence_date",
+    "ocr_confidence_lines_mean",
+    "is_recurring_pattern_match",
+    "doc_age_days",
+]
+
+_MODEL_CACHE: Optional[Any] = None
+_MODEL_WARNING_EMITTED = False
+
+
+def normalize_supplier_name(name: Optional[str]) -> str:
+    """Normalize supplier strings for comparisons."""
+    if not name:
+        return ""
+    normalized = re.sub(r"[^a-z0-9]", "", name.lower())
+    return normalized
+
+
+def get_pairing_candidates(invoice_id: str, include_existing: bool = False) -> List[Dict[str, Any]]:
+    """
+    Retrieve delivery note candidates for an invoice (without scoring).
+
+    Args:
+        invoice_id: Invoice identifier.
+        include_existing: When True, include the currently paired delivery note.
+    """
+    invoice = _fetch_invoice(invoice_id)
+    if not invoice:
+        raise ValueError(f"Invoice {invoice_id} not found")
+
+    stats = get_supplier_stats(invoice["normalized_supplier"], invoice["venue"])
+    window_days = _determine_supplier_window_days(stats)
+    return _fetch_candidate_documents(invoice, window_days, include_existing)
+
+
+def compute_pair_features(
+    invoice: Dict[str, Any],
+    delivery_note: Dict[str, Any],
+    supplier_stats: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+    """Compute feature vector for an invoice-delivery note pair."""
+    invoice_total = _to_float(invoice.get("total_value"))
+    dn_total = _to_float(delivery_note.get("total"))
+
+    amount_diff_abs = abs((invoice_total or 0.0) - (dn_total or 0.0)) if invoice_total is not None and dn_total is not None else 0.0
+    amount_diff_pct = (
+        amount_diff_abs / max(invoice_total or 0.0, dn_total or 0.0, 1.0)
+        if invoice_total is not None and dn_total is not None
+        else 1.0
+    )
+    has_exact_total_match = 1.0 if invoice_total and dn_total and amount_diff_abs <= max(0.5, 0.01 * invoice_total) else 0.0
+    dn_has_total = 1.0 if dn_total is not None else 0.0
+
+    invoice_date = invoice.get("invoice_date_obj")
+    dn_date = delivery_note.get("doc_date_obj")
+    date_diff_days = _date_difference(invoice_date, dn_date)
+    abs_date_diff_days = abs(date_diff_days) if date_diff_days is not None else BASE_DATE_WINDOW_DAYS + 5
+    is_same_day = 1.0 if date_diff_days == 0 else 0.0
+    is_same_week = 1.0 if _is_same_week(invoice_date, dn_date) else 0.0
+
+    typical_days = supplier_stats.get("typical_delivery_weekdays") if supplier_stats else None
+    dn_weekday = dn_date.weekday() if dn_date else None
+    is_on_typical_delivery_day = 1.0 if typical_days and dn_weekday in typical_days else 0.0
+    days_off_from_typical = _days_off_from_typical(dn_weekday, typical_days)
+
+    avg_days_between = supplier_stats.get("avg_days_between_deliveries") if supplier_stats else None
+    std_days_between = supplier_stats.get("std_days_between_deliveries") if supplier_stats else None
+    is_recurring_pattern_match = 0.0
+    if avg_days_between and date_diff_days is not None:
+        tolerance = max(1.0, std_days_between or 1.0)
+        if abs(abs(date_diff_days) - avg_days_between) <= tolerance:
+            is_recurring_pattern_match = 1.0
+
+    invoice_lines = invoice.get("line_items") or []
+    dn_line_items = get_line_items_for_doc(delivery_note["id"], invoice_id=None)
+    matches = match_line_items(invoice_lines, dn_line_items, threshold=0.75) if invoice_lines and dn_line_items else []
+    if matches:
+        similarity_sum = sum(match[2] for match in matches)
+        mean_description_similarity = similarity_sum / len(matches)
+        matched_value = sum(
+            _to_float(match[0].get("total")) or 0.0
+            for match in matches
+            if match[1] is not None and match[2] >= 0.75
+        )
+    else:
+        mean_description_similarity = 0.0
+        matched_value = 0.0
+
+    proportion_invoice_value_explained = (
+        matched_value / max(invoice_total or 0.0, 1.0) if invoice_total else 0.0
+    )
+
+    num_invoice_lines = float(len(invoice_lines))
+    num_dn_lines = float(len(dn_line_items))
+    line_count_diff = abs(num_invoice_lines - num_dn_lines)
+
+    invoice_norm_supplier = invoice["normalized_supplier"]
+    dn_norm_supplier = normalize_supplier_name(delivery_note.get("supplier"))
+    supplier_name_edit_distance = float(_levenshtein_distance(invoice_norm_supplier, dn_norm_supplier))
+    supplier_name_similarity = 1.0 - (
+        supplier_name_edit_distance / max(len(invoice_norm_supplier), len(dn_norm_supplier), 1)
+    )
+
+    ocr_confidence_total = float(delivery_note.get("ocr_confidence") or 0.0)
+    ocr_confidence_date = ocr_confidence_total
+    ocr_confidence_lines_mean = _mean([_to_float(line.get("confidence")) or 0.0 for line in dn_line_items])
+
+    doc_age_days = _doc_age_days(delivery_note.get("uploaded_at"))
+
+    features = {
+        "amount_diff_abs": float(amount_diff_abs),
+        "amount_diff_pct": float(amount_diff_pct),
+        "vat_diff_abs": 0.0,
+        "vat_diff_pct": 0.0,
+        "has_exact_total_match": has_exact_total_match,
+        "dn_has_total": dn_has_total,
+        "date_diff_days": float(date_diff_days or 0.0),
+        "abs_date_diff_days": float(abs_date_diff_days),
+        "is_same_day": is_same_day,
+        "is_same_week": is_same_week,
+        "is_on_typical_delivery_day": float(is_on_typical_delivery_day),
+        "days_off_from_typical_delivery": float(days_off_from_typical),
+        "mean_description_similarity": float(mean_description_similarity),
+        "proportion_invoice_value_explained": float(proportion_invoice_value_explained),
+        "num_invoice_lines": num_invoice_lines,
+        "num_dn_lines": num_dn_lines,
+        "line_count_diff": float(line_count_diff),
+        "supplier_name_edit_distance": supplier_name_edit_distance,
+        "supplier_name_similarity": float(max(0.0, supplier_name_similarity)),
+        "ocr_confidence_total": ocr_confidence_total,
+        "ocr_confidence_date": ocr_confidence_date,
+        "ocr_confidence_lines_mean": ocr_confidence_lines_mean,
+        "is_recurring_pattern_match": is_recurring_pattern_match,
+        "doc_age_days": float(doc_age_days),
+    }
+
+    return features
+
+
+def predict_pairing_probability(features: Dict[str, float]) -> Tuple[float, str]:
+    """Predict the probability that an invoice and delivery note belong together."""
+    model = _load_pairing_model()
+    vector = [_safe_float(features.get(name, 0.0)) for name in MODEL_FEATURE_ORDER]
+
+    if model:
+        try:
+            probability = float(model.predict_proba([vector])[0][1])
+            version = MODEL_VERSION
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.warning("Pairing model inference failed, using fallback heuristic: %s", exc)
+            probability = _heuristic_probability(features)
+            version = FALLBACK_MODEL_VERSION
+    else:
+        probability = _heuristic_probability(features)
+        version = FALLBACK_MODEL_VERSION
+
+    # Confidence boost for exact matches
+    if features.get("has_exact_total_match") and features.get("is_same_day"):
+        probability = min(1.0, probability * 1.1)  # 10% boost for perfect matches
+    elif features.get("has_exact_total_match"):
+        probability = min(1.0, probability * 1.05)  # 5% boost for exact amount match
+
+    return probability, version
+
+
+def evaluate_pairing(invoice_id: str, mode: Literal["normal", "review"] = "normal") -> PairingResult:
+    """Evaluate candidates for an invoice and optionally perform conservative auto-pairing."""
+    invoice = _fetch_invoice(invoice_id)
+    if not invoice:
+        raise ValueError(f"Invoice {invoice_id} not found")
+
+    include_existing = mode == "review"
+    stats = get_supplier_stats(invoice["normalized_supplier"], invoice["venue"])
+    window_days = _determine_supplier_window_days(stats)
+    candidate_rows = _fetch_candidate_documents(invoice, window_days, include_existing=include_existing)
+
+    candidates: List[PairingCandidate] = []
+    enriched: List[Tuple[Dict[str, Any], PairingCandidate]] = []
+
+    for row in candidate_rows:
+        features = compute_pair_features(invoice, row, stats)
+        probability, version = predict_pairing_probability(features)
+        summary = FeatureSummary(
+            amount_diff_pct=features.get("amount_diff_pct", 1.0),
+            date_diff_days=features.get("date_diff_days", 0.0),
+            proportion_invoice_value_explained=features.get("proportion_invoice_value_explained", 0.0),
+            supplier_name_similarity=features.get("supplier_name_similarity", 0.0),
+            ocr_confidence_total=features.get("ocr_confidence_total", 0.0),
+        )
+        candidate = PairingCandidate(
+            delivery_note_id=row["id"],
+            probability=probability,
+            features=features,
+            features_summary=summary,
+            delivery_date=row.get("doc_date"),
+            delivery_total=row.get("total"),
+            venue=row.get("venue"),
+            supplier=row.get("supplier"),
+            model_version=version,
+        )
+        candidates.append(candidate)
+        enriched.append((row, candidate))
+
+    candidates.sort(key=lambda c: c.probability, reverse=True)
+    enriched.sort(key=lambda item: item[1].probability, reverse=True)
+
+    if not candidates and mode == "normal":
+        _mark_invoice_unpaired(invoice_id)
+        return PairingResult(
+            invoice_id=invoice_id,
+            status="unpaired",
+            pairing_confidence=None,
+            pairing_model_version=None,
+            best_candidate=None,
+            candidates=[],
+            llm_explanation=None,
+        )
+
+    status = invoice.get("pairing_status") or "unpaired"
+    pairing_confidence = invoice.get("pairing_confidence")
+    pairing_model_version = invoice.get("pairing_model_version")
+
+    # Get adaptive thresholds based on supplier history
+    T_HIGH_ADAPTIVE, T_LOW_ADAPTIVE = _get_adaptive_thresholds(stats)
+
+    if candidates and mode == "normal":
+        best_row, best_candidate = enriched[0]
+        second_candidate = enriched[1][1] if len(enriched) > 1 else None
+        can_auto_pair = (
+            best_candidate.probability >= T_HIGH_ADAPTIVE
+            and (not second_candidate or best_candidate.probability - second_candidate.probability >= DELTA_MIN)
+            and not invoice.get("delivery_note_id")
+            and best_row.get("invoice_id") in (None, "", invoice_id)
+            and not invoice.get("paired")
+        )
+
+        if can_auto_pair:
+            _auto_pair_invoice(invoice_id, best_row["id"], best_candidate)
+            status = "auto_paired"
+            pairing_confidence = best_candidate.probability
+            pairing_model_version = best_candidate.model_version
+        elif best_candidate.probability >= T_LOW_ADAPTIVE:
+            _mark_invoice_suggested(invoice_id, best_candidate)
+            status = "suggested"
+            pairing_confidence = best_candidate.probability
+            pairing_model_version = best_candidate.model_version
+        else:
+            _mark_invoice_unpaired(invoice_id, confidence=best_candidate.probability)
+            status = "unpaired"
+            pairing_confidence = best_candidate.probability
+            pairing_model_version = best_candidate.model_version
+
+    # Generate LLM explanation for best candidate
+    llm_explanation = None
+    if candidates:
+        best_candidate = candidates[0]
+        try:
+            llm_explanation = generate_pairing_explanation(
+                invoice_id=invoice_id,
+                candidate=best_candidate,
+                features_summary=best_candidate.features_summary
+            )
+        except Exception as e:
+            LOGGER.debug("Failed to generate LLM explanation: %s", e)
+
+    return PairingResult(
+        invoice_id=invoice_id,
+        status=status,
+        pairing_confidence=pairing_confidence,
+        pairing_model_version=pairing_model_version,
+        best_candidate=candidates[0] if candidates else None,
+        candidates=candidates,
+        llm_explanation=llm_explanation,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+
+def _fetch_invoice(invoice_id: str) -> Optional[Dict[str, Any]]:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            i.id,
+            i.doc_id,
+            i.supplier,
+            i.date,
+            i.value,
+            i.delivery_note_id,
+            i.pairing_status,
+            i.pairing_confidence,
+            i.pairing_model_version,
+            i.paired,
+            i.venue,
+            d.supplier AS doc_supplier,
+            d.doc_date,
+            d.total AS doc_total,
+            d.venue AS doc_venue
+        FROM invoices i
+        LEFT JOIN documents d ON i.doc_id = d.id
+        WHERE i.id = ?
+        """,
+        (invoice_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+
+    invoice_date = row["date"] or row["doc_date"]
+    invoice_total = row["value"] or row["doc_total"]
+    supplier = row["supplier"] or row["doc_supplier"]
+    venue = row["venue"] or row["doc_venue"]
+
+    return {
+        "id": row["id"],
+        "doc_id": row["doc_id"],
+        "supplier": supplier,
+        "normalized_supplier": normalize_supplier_name(supplier),
+        "invoice_date": invoice_date,
+        "invoice_date_obj": _parse_date(invoice_date),
+        "total_value": _to_float(invoice_total),
+        "venue": venue,
+        "delivery_note_id": row["delivery_note_id"],
+        "pairing_status": row["pairing_status"],
+        "pairing_confidence": row["pairing_confidence"],
+        "pairing_model_version": row["pairing_model_version"],
+        "paired": row["paired"],
+        "line_items": get_line_items_for_invoice(invoice_id),
+    }
+
+
+def _fetch_candidate_documents(
+    invoice: Dict[str, Any],
+    supplier_window_days: int,
+    include_existing: bool,
+) -> List[Dict[str, Any]]:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    where_parts = ["doc_type = 'delivery_note'"]
+    params: List[Any] = []
+
+    if include_existing:
+        where_parts.append("(invoice_id IS NULL OR invoice_id = ?)")
+        params.append(invoice["id"])
+    else:
+        where_parts.append("invoice_id IS NULL")
+
+    if invoice.get("venue"):
+        where_parts.append("COALESCE(venue, '') = COALESCE(?, '')")
+        params.append(invoice["venue"])
+
+    order_clause = "ORDER BY uploaded_at DESC"
+    invoice_date = invoice.get("invoice_date")
+    if invoice_date:
+        where_parts.append(
+            """
+            (
+                doc_date BETWEEN date(?, ?) AND date(?, ?)
+                OR doc_date IS NULL
+            )
+            """
+        )
+        params.extend(
+            [
+                invoice_date,
+                f"-{supplier_window_days} days",
+                invoice_date,
+                f"+{supplier_window_days} days",
+            ]
+        )
+        order_clause = """
+            ORDER BY
+                CASE WHEN doc_date IS NULL THEN 1 ELSE 0 END,
+                ABS(julianday(doc_date) - julianday(?)),
+                uploaded_at DESC
+        """
+        params.append(invoice_date)
+
+    query = f"""
+        SELECT
+            id,
+            supplier,
+            doc_date,
+            total,
+            delivery_no,
+            venue,
+            invoice_id,
+            ocr_confidence,
+            uploaded_at,
+            notes
+        FROM documents
+        WHERE {' AND '.join(where_parts)}
+        {order_clause}
+        LIMIT 50
+    """
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    normalized_supplier = invoice["normalized_supplier"]
+    invoice_total = invoice.get("total_value")
+    invoice_date_obj = invoice.get("invoice_date_obj")
+
+    candidates: List[Dict[str, Any]] = []
+    for row in rows:
+        cand = dict(row)
+        cand["doc_date_obj"] = _parse_date(cand.get("doc_date"))
+
+        if normalized_supplier and normalize_supplier_name(cand.get("supplier")) != normalized_supplier:
+            continue
+
+        dn_total = _to_float(cand.get("total"))
+        if invoice_total is not None and dn_total is not None:
+            total_diff_pct = abs(invoice_total - dn_total) / max(invoice_total, dn_total, 1.0)
+            if total_diff_pct > BASE_TOTAL_DIFF_PCT_MAX:
+                continue
+
+        cand_date = cand["doc_date_obj"]
+        if invoice_date_obj and cand_date:
+            if abs((invoice_date_obj - cand_date).days) > supplier_window_days:
+                continue
+
+        candidates.append(cand)
+
+    candidates.sort(key=lambda c: _candidate_sort_key(invoice, c))
+    return candidates[:10]
+
+
+def _candidate_sort_key(invoice: Dict[str, Any], candidate: Dict[str, Any]) -> Tuple[float, float]:
+    invoice_total = invoice.get("total_value")
+    candidate_total = _to_float(candidate.get("total"))
+    invoice_date_obj = invoice.get("invoice_date_obj")
+    candidate_date = candidate.get("doc_date_obj")
+
+    date_weight = abs((invoice_date_obj - candidate_date).days) if invoice_date_obj and candidate_date else BASE_DATE_WINDOW_DAYS + 5
+    if invoice_total is not None and candidate_total is not None:
+        total_weight = abs(invoice_total - candidate_total) / max(invoice_total, candidate_total, 1.0)
+    else:
+        total_weight = BASE_TOTAL_DIFF_PCT_MAX
+
+    return date_weight, total_weight
+
+
+def _determine_supplier_window_days(stats: Optional[Dict[str, Any]]) -> int:
+    if not stats:
+        return BASE_DATE_WINDOW_DAYS
+    avg = stats.get("avg_days_between_deliveries")
+    std = stats.get("std_days_between_deliveries")
+    if avg and std:
+        return int(min(30, max(BASE_DATE_WINDOW_DAYS, avg + std)))
+    if avg:
+        return int(min(30, max(BASE_DATE_WINDOW_DAYS, avg)))
+    return BASE_DATE_WINDOW_DAYS
+
+
+def _get_adaptive_thresholds(supplier_stats: Optional[Dict[str, Any]]) -> Tuple[float, float]:
+    """
+    Adjust thresholds based on supplier's historical pairing accuracy.
+    More reliable suppliers get lower thresholds (more auto-pairs).
+    
+    For now, uses base thresholds. Future enhancement: track accuracy in supplier_stats
+    and adjust dynamically.
+    """
+    # TODO: When supplier_stats includes accuracy metrics, adjust thresholds:
+    # - High accuracy (>95%): lower T_HIGH to 0.90
+    # - Medium accuracy (85-95%): keep base thresholds
+    # - Low accuracy (<85%): raise T_HIGH to 0.98
+    return T_HIGH, T_LOW
+
+
+def _auto_pair_invoice(invoice_id: str, delivery_note_id: str, candidate: PairingCandidate) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE invoices
+        SET delivery_note_id = ?, pairing_status = 'auto_paired', pairing_confidence = ?, pairing_model_version = ?, paired = 1
+        WHERE id = ?
+        """,
+        (delivery_note_id, candidate.probability, candidate.model_version, invoice_id),
+    )
+    cursor.execute(
+        """
+        UPDATE documents
+        SET invoice_id = ?
+        WHERE id = ?
+        """,
+        (invoice_id, delivery_note_id),
+    )
+    conn.commit()
+    conn.close()
+
+    insert_pairing_event(
+        invoice_id=invoice_id,
+        delivery_note_id=delivery_note_id,
+        action="auto_paired",
+        actor_type="system",
+        feature_vector=candidate.features,
+        model_version=candidate.model_version,
+    )
+
+
+def _mark_invoice_suggested(invoice_id: str, candidate: PairingCandidate) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE invoices
+        SET pairing_status = 'suggested', pairing_confidence = ?, pairing_model_version = ?
+        WHERE id = ?
+        """,
+        (candidate.probability, candidate.model_version, invoice_id),
+    )
+    conn.commit()
+    conn.close()
+
+    insert_pairing_event(
+        invoice_id=invoice_id,
+        delivery_note_id=candidate.delivery_note_id,
+        action="suggested",
+        actor_type="system",
+        feature_vector=candidate.features,
+        model_version=candidate.model_version,
+    )
+
+
+def _mark_invoice_unpaired(invoice_id: str, confidence: Optional[float] = None) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE invoices
+        SET pairing_status = 'unpaired', pairing_confidence = ?, pairing_model_version = NULL
+        WHERE id = ?
+        """,
+        (confidence, invoice_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _load_pairing_model():
+    global _MODEL_CACHE, _MODEL_WARNING_EMITTED
+    if _MODEL_CACHE is not None:
+        return _MODEL_CACHE
+    if not MODEL_PATH.exists() or not joblib:
+        if not _MODEL_WARNING_EMITTED:
+            LOGGER.info(
+                "Pairing model file not found or joblib unavailable at %s. Falling back to heuristics.",
+                MODEL_PATH,
+            )
+            _MODEL_WARNING_EMITTED = True
+        return None
+    try:
+        _MODEL_CACHE = joblib.load(MODEL_PATH)
+        LOGGER.info("Loaded pairing model from %s", MODEL_PATH)
+    except Exception as exc:  # pragma: no cover - defensive
+        LOGGER.warning("Failed to load pairing model: %s", exc)
+        _MODEL_CACHE = None
+    return _MODEL_CACHE
+
+
+def _heuristic_probability(features: Dict[str, float]) -> float:
+    score = 0.0
+    score += max(0.0, 1.0 - min(features.get("amount_diff_pct", 1.0), 1.0)) * 0.35
+    score += max(0.0, 1.0 - (features.get("abs_date_diff_days", BASE_DATE_WINDOW_DAYS) / (BASE_DATE_WINDOW_DAYS or 1))) * 0.25
+    score += features.get("mean_description_similarity", 0.0) * 0.2
+    score += features.get("proportion_invoice_value_explained", 0.0) * 0.15
+    score += 0.05 if features.get("is_same_day") else 0.0
+    score += 0.05 if features.get("has_exact_total_match") else 0.0
+    return max(0.0, min(score, 1.0))
+
+
+def _parse_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).date()
+    except ValueError:
+        try:
+            return datetime.strptime(value.split("T")[0], "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+
+def _date_difference(a: Optional[date], b: Optional[date]) -> Optional[int]:
+    if not a or not b:
+        return None
+    return (a - b).days
+
+
+def _is_same_week(a: Optional[date], b: Optional[date]) -> bool:
+    if not a or not b:
+        return False
+    return a.isocalendar()[:2] == b.isocalendar()[:2]
+
+
+def _days_off_from_typical(weekday: Optional[int], typical_days: Optional[List[int]]) -> float:
+    if weekday is None or not typical_days:
+        return float(BASE_DATE_WINDOW_DAYS)
+    diffs = [min((weekday - day) % 7, (day - weekday) % 7) for day in typical_days]
+    return float(min(diffs)) if diffs else float(BASE_DATE_WINDOW_DAYS)
+
+
+def _levenshtein_distance(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev_row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr_row = [i]
+        for j, cb in enumerate(b, start=1):
+            insertions = prev_row[j] + 1
+            deletions = curr_row[j - 1] + 1
+            substitutions = prev_row[j - 1] + (ca != cb)
+            curr_row.append(min(insertions, deletions, substitutions))
+        prev_row = curr_row
+    return prev_row[-1]
+
+
+def _to_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _mean(values: List[float]) -> float:
+    if not values:
+        return 0.0
+    return sum(values) / len(values)
+
+
+def _doc_age_days(uploaded_at: Optional[str]) -> float:
+    if not uploaded_at:
+        return 0.0
+    try:
+        uploaded = datetime.fromisoformat(uploaded_at)
+    except ValueError:
+        return 0.0
+    return max(0.0, (datetime.utcnow() - uploaded).total_seconds() / 86400)
+

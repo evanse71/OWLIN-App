@@ -1,0 +1,177 @@
+/**
+ * Waste Page Styles
+ * Following Owlin UI Design Contract
+ * 12-column grid layout with 4/8 split
+ */
+
+.waste-page {
+  min-height: 100vh;
+  background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+}
+
+.waste-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.waste-page-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.waste-page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #2B3A55;
+  margin: 0 0 4px 0;
+}
+
+.waste-page-subtitle {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+  margin: 0;
+}
+
+.waste-page-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.waste-page-control-select {
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.waste-page-control-select:hover {
+  border-color: rgba(43, 58, 85, 0.2);
+}
+
+.waste-page-control-select:focus {
+  outline: none;
+  border-color: #3A5A87;
+  box-shadow: 0 0 0 2px rgba(58, 90, 135, 0.1);
+}
+
+.waste-page-control-search {
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.8);
+  min-width: 200px;
+  transition: all 150ms ease-out;
+}
+
+.waste-page-control-search::placeholder {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.waste-page-control-search:hover {
+  border-color: rgba(43, 58, 85, 0.2);
+}
+
+.waste-page-control-search:focus {
+  outline: none;
+  border-color: #3A5A87;
+  box-shadow: 0 0 0 2px rgba(58, 90, 135, 0.1);
+}
+
+.waste-page-record-button {
+  padding: 8px 16px;
+  background: #2B3A55;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.waste-page-record-button:hover {
+  background: #3A5A87;
+}
+
+.waste-page-record-button:active {
+  transform: translateY(1px);
+}
+
+.waste-page-content {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.waste-page-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 24px;
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+.waste-page-left-column {
+  grid-column: span 4;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 200px);
+  min-height: 600px;
+}
+
+.waste-page-right-column {
+  grid-column: span 8;
+  min-width: 0;
+}
+
+@media (max-width: 1400px) {
+  .waste-page-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .waste-page-left-column {
+    grid-column: span 1;
+    height: auto;
+    min-height: 400px;
+  }
+  
+  .waste-page-right-column {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .waste-page-content {
+    padding: 16px;
+  }
+  
+  .waste-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .waste-page-controls {
+    flex-direction: column;
+  }
+  
+  .waste-page-control-select,
+  .waste-page-control-search,
+  .waste-page-record-button {
+    width: 100%;
+  }
+}
+

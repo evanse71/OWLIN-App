@@ -1,0 +1,44 @@
+/**
+ * Empty State Styles
+ */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.empty-state-icon {
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.empty-state-icon-check {
+  color: rgba(34, 197, 94, 1);
+}
+
+.empty-state-icon-info {
+  color: rgba(59, 130, 246, 1);
+}
+
+.empty-state-icon-alert {
+  color: rgba(251, 191, 36, 1);
+}
+
+.empty-state-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  margin: 0 0 8px 0;
+}
+
+.empty-state-message {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+  max-width: 300px;
+}
+

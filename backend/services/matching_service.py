@@ -14,7 +14,7 @@ from uuid import uuid4
 import difflib
 
 from contracts import MatchingPair, LineDiff, MatchReason, MatchingSummary
-from services.matching_config import get_matching_config, normalize_uom, convert_quantity
+from backend.services.matching_config import get_matching_config, normalize_uom, convert_quantity
 
 DB_PATH = os.path.join("data", "owlin.db")
 

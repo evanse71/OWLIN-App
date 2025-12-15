@@ -7,6 +7,7 @@ import sqlite3
 import csv
 from io import StringIO
 from datetime import datetime
+from backend.app.db import DB_PATH
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -20,7 +21,7 @@ def export_audit(
     Returns CSV with columns: ts, event, doc_id, invoice_id, stage, detail
     """
     try:
-        conn = sqlite3.connect("data/owlin.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         cursor = conn.cursor()
         
         # Build query

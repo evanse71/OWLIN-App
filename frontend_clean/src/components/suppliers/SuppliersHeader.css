@@ -1,0 +1,309 @@
+/**
+ * Suppliers Header Styles
+ */
+
+.suppliers-header {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px 32px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Row 1: Title + Search + Assistant */
+.suppliers-header-row-1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.suppliers-header-row-1-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.suppliers-header-title-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suppliers-header-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.87);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.suppliers-header-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+.suppliers-header-search {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px 16px;
+  gap: 12px;
+  min-width: 300px;
+  transition: all 0.2s ease;
+}
+
+.suppliers-header-assistant-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 12px;
+  color: rgba(59, 130, 246, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.suppliers-header-assistant-chip svg {
+  flex-shrink: 0;
+}
+
+.suppliers-header-search:focus-within {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.suppliers-header-search-icon {
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.suppliers-header-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.87);
+  font-size: 14px;
+  outline: none;
+}
+
+.suppliers-header-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.suppliers-header-search-clear {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.suppliers-header-search-clear:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.87);
+}
+
+/* Row 2: KPI Cards */
+.suppliers-header-row-2 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+/* Row 3: Filters + Sort + Clear */
+.suppliers-header-row-3 {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.suppliers-header-filters {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.suppliers-header-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.suppliers-header-filter-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+
+.suppliers-header-filter-chips {
+  display: flex;
+  gap: 8px;
+}
+
+.suppliers-header-filter-chip {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.suppliers-header-filter-chip:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.suppliers-header-filter-chip.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: rgba(59, 130, 246, 1);
+}
+
+.suppliers-header-sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.suppliers-header-sort-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.suppliers-header-sort-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.suppliers-header-sort-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.suppliers-header-sort-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.suppliers-header-sort-button.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: rgba(59, 130, 246, 1);
+}
+
+.suppliers-header-clear-filters {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.suppliers-header-clear-filters:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.suppliers-summary-tile {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.suppliers-summary-tile:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.suppliers-summary-tile-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.suppliers-summary-tile-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.87);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 768px) {
+  .suppliers-header-row-1 {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .suppliers-header-row-1-right {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .suppliers-header-search {
+    min-width: auto;
+    width: 100%;
+  }
+
+  .suppliers-header-row-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .suppliers-header-row-3 {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+

@@ -1,0 +1,150 @@
+/**
+ * Activity Ticker Styles
+ */
+
+.activity-ticker {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.activity-ticker-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.activity-ticker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.activity-ticker-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.activity-ticker-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.activity-ticker-action-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.activity-ticker-action-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.activity-ticker-content {
+  font-size: 12px;
+}
+
+.activity-ticker-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.activity-ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.activity-ticker-actor {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.activity-ticker-action {
+  flex: 1;
+}
+
+.activity-ticker-time {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+}
+
+.activity-ticker-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.activity-ticker-expanded::-webkit-scrollbar {
+  width: 6px;
+}
+
+.activity-ticker-expanded::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.activity-ticker-expanded::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.activity-ticker-item-full {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+.activity-ticker-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.activity-ticker-time-full {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.activity-ticker-action-full {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 4px;
+}
+
+.activity-ticker-detail {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: monospace;
+}
+
+.activity-ticker-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 20px;
+}
+

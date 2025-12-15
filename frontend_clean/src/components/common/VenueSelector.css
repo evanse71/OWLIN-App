@@ -1,0 +1,134 @@
+.venue-selector-container {
+  position: relative;
+  width: 100%;
+}
+
+.venue-selector-input {
+  position: relative;
+  width: 100%;
+}
+
+.venue-selector-input:focus-within .venue-selector-icon {
+  color: var(--accent-blue);
+}
+
+.venue-selector-icons {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.venue-selector-icon {
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+}
+
+.venue-selector-chevron {
+  color: var(--text-muted);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.venue-selector-chevron.open {
+  transform: rotate(180deg);
+  color: var(--accent-blue);
+}
+
+.venue-selector-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: #1f1f1f;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  animation: venueSelectorFadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(10px);
+  opacity: 1;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+@keyframes venueSelectorFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.venue-selector-option {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.venue-selector-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  transform: translateX(2px);
+}
+
+.venue-selector-option.selected {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.venue-selector-option.selected:hover {
+  background: rgba(59, 130, 246, 0.2);
+  transform: translateX(2px);
+}
+
+.venue-selector-option.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: var(--accent-blue);
+  border-radius: 0 2px 2px 0;
+}
+
+.venue-selector-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.venue-selector-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.venue-selector-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.venue-selector-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+

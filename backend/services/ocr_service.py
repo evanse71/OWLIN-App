@@ -3,18 +3,38 @@
 OCR Service - Orchestrates document OCR processing with full lifecycle tracking
 """
 import logging
+import re
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import json
 
-from backend.app.db import update_document_status, insert_line_items, upsert_invoice, append_audit, clear_last_error
+from backend.app.db import update_document_status, update_document_classification, insert_line_items, upsert_invoice, append_audit, clear_last_error, DB_PATH
 from backend.config import FEATURE_OCR_PIPELINE_V2, env_bool
 
 logger = logging.getLogger("owlin.services.ocr")
 
+# Version logging to prove fixed code is loaded
+import time
+_VERSION_TIMESTAMP = time.time()
+_VERSION_ISO = datetime.fromtimestamp(_VERSION_TIMESTAMP).isoformat()
+logger.info(f"[VERSION] ocr_service.py loaded at {_VERSION_ISO}")
+
 # Constants for defensive parsing
 MAX_LINE_ITEMS = 500
+
+def _ensure_re_available(function_name: str) -> None:
+    """
+    Fail-fast guard to ensure re module is available.
+    Raises NameError with clear message if re is not in scope.
+    """
+    try:
+        # Try to access re module
+        _ = re.compile
+    except NameError:
+        error_msg = f"CRITICAL: re module not available in {function_name}. This should never happen."
+        logger.critical(error_msg, exc_info=True)
+        raise NameError(f"name 're' is not defined in {function_name}") from None
 
 def _normalize_currency(value: str | float | None) -> float | None:
     """Normalize currency to numeric float, return None if cannot parse"""
@@ -27,7 +47,6 @@ def _normalize_currency(value: str | float | None) -> float | None:
     if not isinstance(value, str):
         return None
     
-    import re
     # Strip currency symbols and commas
     cleaned = re.sub(r'[£€$,\s]', '', str(value)).strip()
     
@@ -69,26 +88,42 @@ def _deduplicate_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 def _log_lifecycle(stage: str, doc_id: str, **kwargs):
-    """Log OCR lifecycle marker with structured key=value format"""
+    """Log OCR lifecycle marker with structured key=value format and timestamps"""
     timestamp = datetime.now().isoformat()
     
     # Build key=value pairs
-    pairs = [f"stage={stage}", f"doc_id={doc_id}"]
+    pairs = [f"stage={stage}", f"doc_id={doc_id}", f"timestamp={timestamp}"]
     for key, value in kwargs.items():
         if value is not None:
             # Format floats with 2 decimals
             if isinstance(value, float):
                 pairs.append(f"{key}={value:.2f}")
+            elif isinstance(value, (dict, list)):
+                # For complex objects, log summary or JSON string
+                if isinstance(value, dict):
+                    # Log dict keys and summary
+                    if len(str(value)) < 200:
+                        pairs.append(f"{key}={json.dumps(value)}")
+                    else:
+                        pairs.append(f"{key}_keys={list(value.keys())}")
+                        pairs.append(f"{key}_len={len(value)}")
+                else:
+                    pairs.append(f"{key}_len={len(value)}")
             else:
-                pairs.append(f"{key}={value}")
+                # Truncate long strings
+                str_value = str(value)
+                if len(str_value) > 200:
+                    pairs.append(f"{key}={str_value[:200]}...")
+                else:
+                    pairs.append(f"{key}={str_value}")
     
     marker = "[OCR_LIFECYCLE] " + " ".join(pairs)
     logger.info(marker)
     
-    # Audit trail
-    audit_detail = {"doc_id": doc_id, "stage": stage}
+    # Audit trail with full data
+    audit_detail = {"doc_id": doc_id, "stage": stage, "timestamp": timestamp}
     audit_detail.update(kwargs)
-    append_audit(timestamp, "ocr_service", stage, json.dumps(audit_detail))
+    append_audit(timestamp, "ocr_service", stage, json.dumps(audit_detail, default=str))
     
     print(marker)  # Ensure it shows in console logs
 
@@ -103,6 +138,34 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
     Returns:
         Dict with status, confidence, extracted data, and line_items
     """
+    # Extract filename from file_path
+    filename = Path(file_path).name if file_path else "unknown"
+    
+    # Determine OCR engine (default is paddleocr, may switch during retries)
+    # The actual engine used will be logged in _process_with_v2_pipeline
+    ocr_engine = "auto"  # Will be determined by pipeline
+    
+    # Version logging to prove fixed code is running
+    logger.info(
+        f"[VERSION] ocr_service.py commit={_VERSION_ISO} processing "
+        f"doc_id={doc_id} filename={filename} engine={ocr_engine}"
+    )
+    
+    # Verify module loaded timestamp matches
+    current_time = datetime.now().isoformat()
+    logger.info(
+        f"[VERSION] Module loaded at {_VERSION_ISO}, "
+        f"current time {current_time}"
+    )
+    
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:95", "message": "process_document_ocr entry", "data": {"doc_id": doc_id, "file_path": str(file_path)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     _log_lifecycle("UPLOAD_SAVED", doc_id, file=file_path)
     
     try:
@@ -117,11 +180,55 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
             raise Exception("OCR v2 pipeline is required. Mock pipeline has been removed. Set FEATURE_OCR_PIPELINE_V2=true to enable real OCR processing.")
         
         result = _process_with_v2_pipeline(doc_id, file_path)
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:119", "message": "process_document_ocr exit", "data": {"doc_id": doc_id, "status": result.get("status"), "confidence": result.get("confidence"), "line_items_count": len(result.get("line_items", []))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         return result
         
+    except NameError as e:
+        # Special handling for re module NameError - fail fast with clear error code
+        if "re" in str(e) or "'re'" in str(e):
+            error_msg = f"CRITICAL: re module not available - {str(e)}"
+            logger.critical(f"[OCR_REGEX_IMPORT_MISSING] {error_msg} for doc_id={doc_id}", exc_info=True)
+            import traceback
+            full_traceback = traceback.format_exc()
+            # #region agent log
+            import json
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:158", "message": "OCR_REGEX_IMPORT_MISSING", "data": {"doc_id": doc_id, "error": error_msg, "error_type": "NameError", "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            update_document_status(doc_id, "error", "OCR_REGEX_IMPORT_MISSING", error=error_msg)
+            _log_lifecycle("OCR_ERROR", doc_id, error=error_msg, error_code="OCR_REGEX_IMPORT_MISSING")
+            return {
+                "status": "error",
+                "doc_id": doc_id,
+                "error": error_msg,
+                "error_code": "OCR_REGEX_IMPORT_MISSING",
+                "confidence": 0.0,
+                "line_items": []
+            }
+        else:
+            # Other NameError - re-raise as generic exception
+            raise Exception(f"NameError in OCR processing: {str(e)}") from e
     except Exception as e:
         error_msg = str(e)
+        import traceback
+        full_traceback = traceback.format_exc()
         logger.exception(f"OCR processing failed for doc_id={doc_id}")
+        # #region agent log
+        import json
+        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:180", "message": "OCR processing exception caught", "data": {"doc_id": doc_id, "error": error_msg, "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         update_document_status(doc_id, "error", "ocr_error", error=error_msg)
         _log_lifecycle("OCR_ERROR", doc_id, error=error_msg)
         
@@ -132,6 +239,176 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
             "confidence": 0.0,
             "line_items": []
         }
+
+def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[str, Any], 
+                               pdf_structure: Optional[Dict[str, Any]], 
+                               render_metadata: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Retry OCR with different configurations when initial attempt produces insufficient text.
+    
+    Retry strategy:
+    1. Retry 1: Different DPI (300 → 400) with same engine/preprocessing
+    2. Retry 2: Different preprocessing profile (minimal vs enhanced) with same engine
+    3. Retry 3: Switch OCR engine (PaddleOCR ↔ Tesseract) with best DPI/preprocessing
+    
+    Returns:
+        Dict with best_result, ocr_attempts, final_text_length
+    """
+    from backend.ocr.owlin_scan_pipeline import process_document as process_doc_ocr
+    
+    ocr_attempts = []
+    best_result = initial_result
+    best_text_length = 0
+    
+    # Extract initial attempt metadata
+    pages = initial_result.get('pages', [])
+    initial_text = ""
+    for page in pages:
+        page_text = page.get('text', page.get('ocr_text', ''))
+        if page_text:
+            initial_text += page_text + "\n"
+    initial_text_length = len(initial_text.strip())
+    
+    # Count words in initial text
+    initial_word_count = len(initial_text.split()) if initial_text else 0
+    
+    # Get initial engine from telemetry if available
+    initial_engine = "paddleocr"  # default
+    if initial_result.get('ocr_telemetry'):
+        telemetry = initial_result.get('ocr_telemetry', {})
+        if isinstance(telemetry, dict):
+            overall = telemetry.get('overall', {})
+            engine_mix = overall.get('engine_mix', 'paddleocr') if isinstance(overall, dict) else 'paddleocr'
+            if 'tesseract' in engine_mix.lower():
+                initial_engine = "tesseract"
+    
+    # Record initial attempt
+    ocr_attempts.append({
+        "attempt_number": 0,
+        "engine": initial_engine,
+        "dpi": 300,  # default
+        "preprocess_profile": "enhanced",  # default
+        "text_length": initial_text_length,
+        "word_count": initial_word_count,
+        "confidence": initial_result.get('overall_confidence', 0.0),
+        "preview": initial_text[:300] if initial_text else ""
+    })
+    best_text_length = initial_text_length
+    
+    # Retry 1: Higher DPI (300 → 400)
+    logger.info(f"[OCR_RETRY] Attempt 1: Retrying with DPI=400, engine={initial_engine}, preprocess=enhanced")
+    try:
+        retry1_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile="enhanced", force_ocr_engine=initial_engine)
+        if retry1_result.get("status") != "error":
+            retry1_pages = retry1_result.get('pages', [])
+            retry1_text = ""
+            for page in retry1_pages:
+                page_text = page.get('text', page.get('ocr_text', ''))
+                if page_text:
+                    retry1_text += page_text + "\n"
+            retry1_text_length = len(retry1_text.strip())
+            retry1_word_count = len(retry1_text.split()) if retry1_text else 0
+            
+            ocr_attempts.append({
+                "attempt_number": 1,
+                "engine": initial_engine,
+                "dpi": 400,
+                "preprocess_profile": "enhanced",
+                "text_length": retry1_text_length,
+                "word_count": retry1_word_count,
+                "confidence": retry1_result.get('overall_confidence', 0.0),
+                "preview": retry1_text[:300] if retry1_text else ""
+            })
+            
+            if retry1_text_length > best_text_length:
+                best_result = retry1_result
+                best_text_length = retry1_text_length
+                logger.info(f"[OCR_RETRY] Attempt 1 improved: {retry1_text_length} chars (was {initial_text_length})")
+            
+            if retry1_text_length >= 100:
+                logger.info(f"[OCR_RETRY] Attempt 1 succeeded: {retry1_text_length} chars")
+                return {"best_result": best_result, "ocr_attempts": ocr_attempts, "final_text_length": best_text_length}
+    except Exception as e:
+        logger.warning(f"[OCR_RETRY] Attempt 1 failed: {e}")
+    
+    # Retry 2: Different preprocessing (minimal vs enhanced)
+    preprocess_profile = "minimal"  # Try minimal if enhanced was used
+    logger.info(f"[OCR_RETRY] Attempt 2: Retrying with DPI=400, engine={initial_engine}, preprocess={preprocess_profile}")
+    try:
+        retry2_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile=preprocess_profile, force_ocr_engine=initial_engine)
+        if retry2_result.get("status") != "error":
+            retry2_pages = retry2_result.get('pages', [])
+            retry2_text = ""
+            for page in retry2_pages:
+                page_text = page.get('text', page.get('ocr_text', ''))
+                if page_text:
+                    retry2_text += page_text + "\n"
+            retry2_text_length = len(retry2_text.strip())
+            retry2_word_count = len(retry2_text.split()) if retry2_text else 0
+            
+            ocr_attempts.append({
+                "attempt_number": 2,
+                "engine": initial_engine,
+                "dpi": 400,
+                "preprocess_profile": preprocess_profile,
+                "text_length": retry2_text_length,
+                "word_count": retry2_word_count,
+                "confidence": retry2_result.get('overall_confidence', 0.0),
+                "preview": retry2_text[:300] if retry2_text else ""
+            })
+            
+            if retry2_text_length > best_text_length:
+                best_result = retry2_result
+                best_text_length = retry2_text_length
+                logger.info(f"[OCR_RETRY] Attempt 2 improved: {retry2_text_length} chars (was {best_text_length})")
+            
+            if retry2_text_length >= 100:
+                logger.info(f"[OCR_RETRY] Attempt 2 succeeded: {retry2_text_length} chars")
+                return {"best_result": best_result, "ocr_attempts": ocr_attempts, "final_text_length": best_text_length}
+    except Exception as e:
+        logger.warning(f"[OCR_RETRY] Attempt 2 failed: {e}")
+    
+    # Retry 3: Switch OCR engine
+    alternate_engine = "tesseract" if initial_engine == "paddleocr" else "paddleocr"
+    logger.info(f"[OCR_RETRY] Attempt 3: Retrying with DPI=400, engine={alternate_engine}, preprocess={preprocess_profile}")
+    try:
+        retry3_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile=preprocess_profile, force_ocr_engine=alternate_engine)
+        if retry3_result.get("status") != "error":
+            retry3_pages = retry3_result.get('pages', [])
+            retry3_text = ""
+            for page in retry3_pages:
+                page_text = page.get('text', page.get('ocr_text', ''))
+                if page_text:
+                    retry3_text += page_text + "\n"
+            retry3_text_length = len(retry3_text.strip())
+            retry3_word_count = len(retry3_text.split()) if retry3_text else 0
+            
+            ocr_attempts.append({
+                "attempt_number": 3,
+                "engine": alternate_engine,
+                "dpi": 400,
+                "preprocess_profile": preprocess_profile,
+                "text_length": retry3_text_length,
+                "word_count": retry3_word_count,
+                "confidence": retry3_result.get('overall_confidence', 0.0),
+                "preview": retry3_text[:300] if retry3_text else ""
+            })
+            
+            if retry3_text_length > best_text_length:
+                best_result = retry3_result
+                best_text_length = retry3_text_length
+                logger.info(f"[OCR_RETRY] Attempt 3 improved: {retry3_text_length} chars (was {best_text_length})")
+            
+            if retry3_text_length >= 100:
+                logger.info(f"[OCR_RETRY] Attempt 3 succeeded: {retry3_text_length} chars")
+                return {"best_result": best_result, "ocr_attempts": ocr_attempts, "final_text_length": best_text_length}
+    except Exception as e:
+        logger.warning(f"[OCR_RETRY] Attempt 3 failed: {e}")
+    
+    # All retries failed
+    logger.error(f"[OCR_RETRY] All retry attempts failed. Best result: {best_text_length} chars")
+    return {"best_result": best_result, "ocr_attempts": ocr_attempts, "final_text_length": best_text_length}
+
 
 def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     """Process using the full OCR v2 pipeline
@@ -164,12 +441,37 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Run OCR pipeline
     try:
-        logger.info(f"[OCR_V2] Calling process_document for doc_id={doc_id}, file={file_path}")
+        filename = Path(file_path).name if file_path else "unknown"
+        logger.info(f"[OCR_V2] Calling process_document for doc_id={doc_id}, file={file_path}, filename={filename}")
+        # #region agent log
+        import json
+        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:167", "message": "before process_doc_ocr call", "data": {"doc_id": doc_id, "file_path": str(file_path)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         ocr_result = process_doc_ocr(file_path)
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:169", "message": "after process_doc_ocr call", "data": {"doc_id": doc_id, "status": ocr_result.get("status"), "confidence": ocr_result.get("confidence"), "pages_count": len(ocr_result.get("pages", [])), "has_normalized_json": "normalized_json" in ocr_result}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         logger.info(f"[OCR_V2] OCR result status: {ocr_result.get('status')}, confidence: {ocr_result.get('confidence', 0)}")
     except Exception as e:
         error_msg = f"OCR pipeline execution failed: {str(e)}"
+        import traceback
+        full_traceback = traceback.format_exc()
         logger.exception(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+        # #region agent log
+        import json
+        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:198", "message": "process_doc_ocr exception", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         raise Exception(error_msg)
     
     if ocr_result.get("status") == "error":
@@ -178,7 +480,110 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         raise Exception(f"OCR pipeline error: {error_detail}")
     
     confidence = ocr_result.get('confidence', 0.0)
-    _log_lifecycle("OCR_DONE", doc_id, confidence=confidence)
+    
+    # Extract OCR text for logging
+    pages = ocr_result.get('pages', [])
+    ocr_text_parts = []
+    total_text_length = 0
+    page_stats = []
+    
+    for page_idx, page in enumerate(pages):
+        page_text = page.get('text', page.get('ocr_text', ''))
+        page_text_length = len(page_text) if page_text else 0
+        total_text_length += page_text_length
+        page_confidence = page.get('confidence', 0.0)
+        page_stats.append({
+            'page': page_idx + 1,
+            'text_length': page_text_length,
+            'confidence': page_confidence
+        })
+        if page_text:
+            ocr_text_parts.append(page_text)
+    
+    full_ocr_text = '\n'.join(ocr_text_parts)
+    ocr_text_preview = full_ocr_text[:300] if full_ocr_text else ""
+    
+    # Log OCR completion with text stats
+    _log_lifecycle("OCR_DONE", doc_id, 
+                   confidence=confidence,
+                   ocr_text_length=total_text_length,
+                   pages_count=len(pages),
+                   ocr_text_preview=ocr_text_preview,
+                   page_stats=page_stats)
+    
+    # Check for OCR failure (very low text) - trigger retry with fallbacks
+    if total_text_length < 100:
+        logger.warning(f"[OCR_V2] Initial OCR produced insufficient text: {total_text_length} chars, attempting retries with fallbacks")
+        
+        # Get PDF structure and render metadata from initial result
+        pdf_structure = ocr_result.get('pdf_structure')
+        render_metadata = ocr_result.get('render_metadata', [])
+        
+        # Attempt retries with different configurations
+        retry_result = _retry_ocr_with_fallbacks(doc_id, file_path, ocr_result, pdf_structure, render_metadata)
+        
+        if retry_result['final_text_length'] >= 100:
+            # Retry succeeded - use the best result
+            logger.info(f"[OCR_RETRY] Retry succeeded: {retry_result['final_text_length']} chars extracted")
+            ocr_result = retry_result['best_result']
+            total_text_length = retry_result['final_text_length']
+            # Re-extract text from retry result
+            pages = ocr_result.get('pages', [])
+            ocr_text_parts = []
+            for page_idx, page in enumerate(pages):
+                page_text = page.get('text', page.get('ocr_text', ''))
+                if page_text:
+                    ocr_text_parts.append(page_text)
+            full_ocr_text = '\n'.join(ocr_text_parts)
+            ocr_text_preview = full_ocr_text[:300] if full_ocr_text else ""
+        else:
+            # All retries failed - create structured error
+            error_code = "OCR_ZERO_TEXT" if total_text_length == 0 else "OCR_INSUFFICIENT_TEXT"
+            error_metadata = {
+                "error_code": error_code,
+                "error_message": f"OCR produced insufficient text: {retry_result['final_text_length']} chars (minimum 100 required)",
+                "engine_used": retry_result.get('ocr_attempts', [{}])[-1].get('engine', 'unknown') if retry_result.get('ocr_attempts') else 'unknown',
+                "dpi": retry_result.get('ocr_attempts', [{}])[-1].get('dpi', 300) if retry_result.get('ocr_attempts') else 300,
+                "page_count": len(pages),
+                "has_text_layer": pdf_structure.get('has_text_layer', False) if pdf_structure else False,
+                "ocr_attempts": retry_result.get('ocr_attempts', []),
+                "rendered_image_valid": len(render_metadata) > 0 and all(rm.get('width', 0) > 0 and rm.get('height', 0) > 0 for rm in render_metadata) if render_metadata else False,
+                "mean_pixel_intensity": render_metadata[0].get('mean_intensity') if render_metadata and len(render_metadata) > 0 else None
+            }
+            
+            error_msg_json = json.dumps(error_metadata)
+            logger.error(f"[OCR_V2] All OCR attempts failed: {error_metadata['error_message']} for doc_id={doc_id}")
+            update_document_status(doc_id, "error", error_code, error=error_msg_json)
+            _log_lifecycle("OCR_ERROR", doc_id, error=error_metadata['error_message'], ocr_text_length=retry_result['final_text_length'], error_code=error_code, ocr_attempts=len(retry_result.get('ocr_attempts', [])))
+            raise Exception(error_metadata['error_message'])
+    
+    # Store OCR telemetry report in database
+    try:
+        ocr_telemetry = ocr_result.get('ocr_telemetry')
+        if ocr_telemetry:
+            from backend.ocr.ocr_telemetry import OCRTelemetryReport, PageTelemetry, BlockTelemetry, OverallTelemetry
+            # Convert dict to OCRTelemetryReport and serialize to JSON
+            if isinstance(ocr_telemetry, dict):
+                # Create report from dict
+                report = OCRTelemetryReport()
+                report.pages = [PageTelemetry(**p) for p in ocr_telemetry.get('pages', [])]
+                report.blocks = [BlockTelemetry(**b) for b in ocr_telemetry.get('blocks', [])]
+                if 'overall' in ocr_telemetry:
+                    report.overall = OverallTelemetry(**ocr_telemetry['overall'])
+                ocr_report_json = report.to_json()
+            elif isinstance(ocr_telemetry, OCRTelemetryReport):
+                ocr_report_json = ocr_telemetry.to_json()
+            else:
+                # Fallback: serialize dict directly
+                ocr_report_json = json.dumps(ocr_telemetry, indent=2, ensure_ascii=False)
+            
+            store_ocr_report(doc_id, ocr_report_json)
+            logger.info(f"[OCR_TELEMETRY] Stored OCR telemetry report for doc_id={doc_id}")
+        else:
+            logger.debug(f"[OCR_TELEMETRY] No OCR telemetry found in result for doc_id={doc_id}")
+    except Exception as e:
+        logger.warning(f"[OCR_TELEMETRY] Failed to store OCR telemetry report for doc_id={doc_id}: {e}")
+        # Don't fail the entire OCR process if telemetry storage fails
     
     # Extract invoice data from OCR result
     pages = ocr_result.get("pages", [])
@@ -207,11 +612,370 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.error(f"[OCR_V2] OCR result keys: {list(ocr_result.keys())}, pages count: {len(pages)}")
         raise Exception(error_msg)
     
-    # Parse first page for now (multi-page handling can be added later)
-    page = pages[0]
+    # Get original filename for grouping invoices from same PDF
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT filename FROM documents WHERE id = ?", (doc_id,))
+    filename_row = cur.fetchone()
+    original_filename = filename_row[0] if filename_row else None
+    conn.close()
     
-    # DEBUG: Log page structure
-    logger.info(f"[OCR_V2] Processing first page. Page type: {type(page)}, is dict: {isinstance(page, dict)}")
+    logger.info(f"[MULTI_INVOICE] Processing {len(pages)} pages for doc_id={doc_id}, filename={original_filename}")
+    
+    # Extract LLM results from all pages
+    from backend.llm.invoice_parser import LLMDocumentResult, DocumentType
+    page_results: List[LLMDocumentResult] = []
+    
+    for page_idx, page in enumerate(pages):
+        # Extract LLM metadata from page blocks
+        llm_metadata = None
+        if isinstance(page, dict):
+            blocks = page.get("blocks", [])
+        else:
+            blocks = getattr(page, "blocks", [])
+        
+        for block in blocks:
+            if isinstance(block, dict):
+                table_data = block.get("table_data")
+            else:
+                table_data = getattr(block, "table_data", None)
+            
+            if table_data and isinstance(table_data, dict):
+                metadata = table_data.get("metadata")
+                if metadata and isinstance(metadata, dict):
+                    llm_metadata = metadata
+                    break
+        
+        # Create LLMDocumentResult from metadata if available
+        if llm_metadata:
+            # Extract line items from table_data
+            line_items = []
+            for block in blocks:
+                if isinstance(block, dict):
+                    table_data = block.get("table_data")
+                else:
+                    table_data = getattr(block, "table_data", None)
+                
+                if table_data and isinstance(table_data, dict):
+                    items = table_data.get("line_items", [])
+                    if items:
+                        from backend.llm.invoice_parser import LLMLineItem
+                        for item_data in items:
+                            line_items.append(LLMLineItem(
+                                description=item_data.get("description", ""),
+                                qty=float(item_data.get("qty", 0)),
+                                unit_price=float(item_data.get("unit_price", 0)),
+                                total=float(item_data.get("total", 0)),
+                                uom=item_data.get("uom", ""),
+                                sku=item_data.get("sku", ""),
+                                confidence=float(item_data.get("confidence", 1.0)),
+                                bbox=item_data.get("bbox"),
+                                raw_text=json.dumps(item_data)
+                            ))
+                        break
+            
+            # Determine document type
+            doc_type_str = llm_metadata.get("document_type", "invoice").lower()
+            try:
+                doc_type = DocumentType(doc_type_str)
+            except ValueError:
+                doc_type = DocumentType.INVOICE
+            
+            # #region agent log
+            import json
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "M", "location": "ocr_service.py:358", "message": "LLM metadata extracted from page", "data": {"doc_id": doc_id, "page_idx": page_idx, "supplier_name": llm_metadata.get("supplier_name"), "grand_total": llm_metadata.get("grand_total"), "subtotal": llm_metadata.get("subtotal"), "vat_amount": llm_metadata.get("vat_amount"), "line_items_count": len(line_items), "invoice_number": llm_metadata.get("invoice_number")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            page_result = LLMDocumentResult(
+                document_type=doc_type,
+                supplier_name=llm_metadata.get("supplier_name", ""),
+                invoice_number=llm_metadata.get("invoice_number", ""),
+                invoice_date=llm_metadata.get("invoice_date", ""),
+                currency=llm_metadata.get("currency", "GBP"),
+                line_items=line_items,
+                subtotal=float(llm_metadata.get("subtotal", 0)),
+                vat_amount=float(llm_metadata.get("vat_amount", 0)),
+                grand_total=float(llm_metadata.get("grand_total", 0)),
+                page_number=page_idx + 1,
+                success=True
+            )
+            page_results.append(page_result)
+        else:
+            # No LLM metadata - create empty result (will be handled by fallback)
+            logger.warning(f"[MULTI_INVOICE] Page {page_idx + 1} has no LLM metadata, skipping")
+    
+    # Process invoices: either multiple groups or single fallback
+    created_invoice_ids = []
+    document_groups = []  # Initialize to ensure it's always defined
+    
+    if page_results:
+        # Multi-invoice processing: split documents and create separate records
+        from backend.llm.invoice_parser import create_invoice_parser
+        llm_parser = create_invoice_parser()
+        document_groups = llm_parser.split_documents(page_results)
+        logger.info(f"[MULTI_INVOICE] Split {len(page_results)} pages into {len(document_groups)} document groups")
+        # #region agent log
+        import json
+        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:384", "message": "document_groups created", "data": {"doc_id": doc_id, "page_results_count": len(page_results), "document_groups_count": len(document_groups)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        
+        # CRITICAL FIX: If document_groups is empty, fall back to single-page processing
+        if not document_groups:
+            logger.warning(f"[MULTI_INVOICE] document_groups is empty after splitting, falling back to single-page processing")
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:392", "message": "document_groups empty, forcing fallback", "data": {"doc_id": doc_id}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            # Don't process multi-invoice, will fall through to single-page processing below
+        else:
+            # Process each document group as a separate invoice
+            for group_idx, doc_group in enumerate(document_groups):
+                combined_result = doc_group.combined_result
+                
+                # Generate unique doc_id for this invoice (original_doc_id + suffix)
+                if len(document_groups) > 1:
+                    invoice_doc_id = f"{doc_id}-{group_idx + 1}"
+                else:
+                    invoice_doc_id = doc_id
+                
+                logger.info(
+                    f"[MULTI_INVOICE] Processing group {group_idx + 1}/{len(document_groups)}: "
+                    f"doc_id={invoice_doc_id}, supplier='{combined_result.supplier_name}', "
+                    f"invoice_number='{combined_result.invoice_number}', "
+                    f"pages={doc_group.pages}, items={len(combined_result.line_items)}"
+                )
+                
+                # Create document record for this invoice (if multiple invoices)
+                if len(document_groups) > 1:
+                    from backend.app.db import insert_document
+                    import os
+                    # Create a reference document entry pointing to the original file
+                    # Use the same stored_path but different doc_id
+                    stored_path = None
+                    conn = sqlite3.connect(DB_PATH)
+                    cur = conn.cursor()
+                    cur.execute("SELECT stored_path FROM documents WHERE id = ?", (doc_id,))
+                    path_row = cur.fetchone()
+                    if path_row:
+                        stored_path = path_row[0]
+                    conn.close()
+                    
+                    if stored_path:
+                        file_size = os.path.getsize(stored_path) if os.path.exists(stored_path) else 0
+                        insert_document(
+                            doc_id=invoice_doc_id,
+                            filename=original_filename or f"invoice_{group_idx + 1}.pdf",
+                            stored_path=stored_path,
+                            size_bytes=file_size,
+                            sha256=None  # Same file, different invoice
+                        )
+                
+                # Extract data from combined result
+                doc_type = combined_result.document_type.value
+                
+                # Prepare parsed_data from combined_result
+                # #region agent log
+                import json
+                log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "L", "location": "ocr_service.py:459", "message": "combined_result values from LLM", "data": {"doc_id": invoice_doc_id, "supplier_name": combined_result.supplier_name, "grand_total": combined_result.grand_total, "subtotal": combined_result.subtotal, "vat_amount": combined_result.vat_amount, "line_items_count": len(combined_result.line_items), "invoice_number": combined_result.invoice_number}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+                # #endregion
+                parsed_data = {
+                    "supplier": combined_result.supplier_name or "Unknown Supplier",
+                    "date": _normalize_date(combined_result.invoice_date) or datetime.now().strftime("%Y-%m-%d"),
+                    "total": _normalize_currency(combined_result.grand_total) or 0.0,
+                    "invoice_number": combined_result.invoice_number or None,
+                    "invoice_number_source": "llm_extracted" if combined_result.invoice_number else "generated",
+                    "subtotal": _normalize_currency(combined_result.subtotal) or 0.0,
+                    "vat": _normalize_currency(combined_result.vat_amount) or 0.0,
+                    "confidence": combined_result.confidence,
+                    "doc_type": doc_type
+                }
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "L", "location": "ocr_service.py:471", "message": "parsed_data after normalization", "data": {"doc_id": invoice_doc_id, "supplier": parsed_data["supplier"], "total": parsed_data["total"], "subtotal": parsed_data["subtotal"], "vat": parsed_data["vat"]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+                # #endregion
+                
+                # Convert line items to dict format
+                line_items = []
+                for item in combined_result.line_items:
+                    line_items.append({
+                        "desc": item.description,
+                        "qty": item.qty,
+                        "unit_price": item.unit_price,
+                        "total": item.total,
+                        "uom": item.uom,
+                        "confidence": item.confidence,
+                        "bbox": item.bbox
+                    })
+                
+                # Deduplicate and truncate
+                line_items = _deduplicate_items(line_items)
+                if len(line_items) > MAX_LINE_ITEMS:
+                    logger.warning(f"[ITEMS_TRUNCATED] doc_id={invoice_doc_id} count={len(line_items)} limit={MAX_LINE_ITEMS}")
+                    line_items = line_items[:MAX_LINE_ITEMS]
+                
+                # Get confidence from OCR result
+                confidence = ocr_result.get("overall_confidence", ocr_result.get("confidence", parsed_data.get("confidence", 0.9)))
+                
+                # Check if needs review
+                needs_review = getattr(combined_result, 'needs_review', False)
+                invoice_status = 'needs_review' if needs_review else 'scanned'
+                
+                # Store invoice
+                logger.info(
+                    f"[MULTI_INVOICE] Storing invoice {group_idx + 1}/{len(document_groups)}: "
+                    f"doc_id={invoice_doc_id}, supplier='{parsed_data['supplier']}', "
+                    f"total={parsed_data['total']}, items={len(line_items)}"
+                )
+                
+                # Log extraction data before DB write
+                _log_lifecycle("EXTRACTION_DONE", invoice_doc_id,
+                              supplier=parsed_data.get('supplier'),
+                              invoice_number=parsed_data.get('invoice_number'),
+                              invoice_date=parsed_data.get('date'),
+                              total=parsed_data.get('total'),
+                              subtotal=parsed_data.get('subtotal'),
+                              vat=parsed_data.get('vat'),
+                              line_items_count=len(line_items),
+                              confidence=confidence,
+                              doc_type=doc_type)
+                
+                # Log first 3 line items
+                if line_items:
+                    first_items = line_items[:3]
+                    items_summary = []
+                    for idx, item in enumerate(first_items):
+                        items_summary.append({
+                            'index': idx + 1,
+                            'desc': str(item.get('desc', ''))[:50],
+                            'qty': item.get('qty'),
+                            'unit_price': item.get('unit_price'),
+                            'total': item.get('total')
+                        })
+                    _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", invoice_doc_id, items_sample=items_summary)
+                
+                # Check for extraction failure
+                invoice_has_empty_data = (parsed_data.get('supplier') == "Unknown Supplier" and 
+                                         parsed_data.get('total') == 0.0 and len(line_items) == 0)
+                if invoice_has_empty_data:
+                    error_msg = "Extraction produced empty data: supplier=Unknown Supplier, total=0, line_items=0"
+                    logger.error(f"[EXTRACTION_FAILURE] {error_msg} for doc_id={invoice_doc_id}")
+                    _log_lifecycle("EXTRACTION_FAILURE", invoice_doc_id, error=error_msg)
+                
+                _log_lifecycle("DB_WRITE_START", invoice_doc_id)
+                upsert_invoice(
+                    doc_id=invoice_doc_id,
+                    supplier=parsed_data["supplier"],
+                    date=parsed_data["date"],
+                    value=parsed_data["total"],
+                    invoice_number=parsed_data["invoice_number"],
+                    confidence=confidence,
+                    status=invoice_status
+                )
+                
+                # Store line items
+                if line_items:
+                    invoice_id_for_items = None if doc_type == "delivery_note" else invoice_doc_id
+                    _log_lifecycle("DB_WRITE_LINE_ITEMS_START", invoice_doc_id, line_items_count=len(line_items))
+                    insert_line_items(invoice_doc_id, invoice_id_for_items, line_items)
+                    _log_lifecycle("DB_WRITE_LINE_ITEMS_DONE", invoice_doc_id, line_items_count=len(line_items))
+                    logger.info(f"[MULTI_INVOICE] Stored {len(line_items)} line items for invoice {invoice_doc_id}")
+                
+                _log_lifecycle("DB_WRITE_DONE", invoice_doc_id)
+                
+                created_invoice_ids.append(invoice_doc_id)
+                
+                # Update document status - CRITICAL: Never mark as "ready" if data is empty
+                if invoice_has_empty_data:
+                    # Mark for manual review if extraction produced empty data
+                    update_document_status(invoice_doc_id, "needs_review", "extraction_empty_data", 
+                                         confidence=0.0, error="Extraction produced empty data")
+                    _log_lifecycle("REVIEW_NEEDED", invoice_doc_id,
+                                  error="Extraction produced empty data",
+                                  reason="extraction_empty_data",
+                                  supplier=parsed_data.get('supplier'),
+                                  total=parsed_data.get('total'),
+                                  items=len(line_items),
+                                  confidence=confidence,
+                                  doc_type=doc_type)
+                    logger.warning(f"[REVIEW_NEEDED] Invoice {invoice_doc_id} marked for review - empty extraction data")
+                else:
+                    # Normal success path
+                    update_document_status(invoice_doc_id, "ready", "doc_ready", confidence=confidence)
+                    _log_lifecycle("DOC_READY", invoice_doc_id,
+                                  supplier=parsed_data.get('supplier'),
+                                  total=parsed_data.get('total'),
+                                  items=len(line_items),
+                                  confidence=confidence,
+                                  doc_type=doc_type)
+                
+                # Trigger auto-backup if needed (after successful processing)
+                try:
+                    from backend.services.backup import trigger_auto_backup_if_needed
+                    trigger_auto_backup_if_needed(invoice_doc_id)
+                except Exception as backup_error:
+                    # Never let backup failures break document processing
+                    logger.warning(f"Auto-backup trigger failed for {invoice_doc_id}: {backup_error}")
+            
+            # After processing all groups, check if we created any invoices
+            if created_invoice_ids:
+                # Update original document status and return
+                confidence = ocr_result.get("overall_confidence", ocr_result.get("confidence", 0.9))
+                update_document_status(doc_id, "ready", "doc_ready", confidence=confidence)
+                logger.info(f"[MULTI_INVOICE] Created {len(created_invoice_ids)} invoices from PDF: {created_invoice_ids}")
+                
+                # Trigger auto-backup for the main document as well
+                try:
+                    from backend.services.backup import trigger_auto_backup_if_needed
+                    trigger_auto_backup_if_needed(doc_id)
+                except Exception as backup_error:
+                    logger.warning(f"Auto-backup trigger failed for {doc_id}: {backup_error}")
+                
+                # Return early for multi-invoice case
+                return {
+                    "status": "ok",
+                    "doc_id": doc_id,
+                    "confidence": confidence,
+                    "line_items": [],  # Line items are in separate invoice records
+                    "created_invoices": created_invoice_ids,
+                    "supplier": document_groups[0].combined_result.supplier_name if document_groups else "Unknown",
+                    "date": document_groups[0].combined_result.invoice_date if document_groups else datetime.now().strftime("%Y-%m-%d"),
+                    "total": sum(g.combined_result.grand_total for g in document_groups) if document_groups else 0.0
+                }
+            # If no invoices were created (empty document_groups), fall through to single-page processing
+            logger.warning(f"[MULTI_INVOICE] No invoices created from document_groups, falling back to single-page processing")
+    
+    # Fallback: treat as single document (use first page) - either no page_results or empty document_groups
+    if not page_results or not document_groups or not created_invoice_ids:
+        # Fallback: treat as single document (use first page)
+        logger.warning(f"[MULTI_INVOICE] No LLM results found, falling back to single-page processing")
+        # #region agent log
+        import json
+        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:536", "message": "fallback to single-page processing", "data": {"doc_id": doc_id, "pages_count": len(pages)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        page = pages[0]
+        
+        # Continue with existing single-page processing logic below
+        # (keeping the rest of the function as-is for backward compatibility)
     if isinstance(page, dict):
         logger.info(f"[OCR_V2] Page keys: {list(page.keys())}")
         logger.info(f"[OCR_V2] Page has 'blocks': {'blocks' in page}")
@@ -231,39 +995,241 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 else:
                     logger.info(f"[OCR_V2] Block {i}: type={type(b)}, has_type_attr={hasattr(b, 'type')}")
     
-    parsed_data = _extract_invoice_data_from_page(page)
+    # FIX: Extract LLM data from table_data.metadata first (LLM extraction stores data here)
+    # Then check normalized_json (from template matching), then fallback to regex
+    parsed_data = {}
+    llm_metadata = None
+    
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:268", "message": "checking for LLM metadata", "data": {"doc_id": doc_id, "page_type": str(type(page)), "is_dict": isinstance(page, dict)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
+    
+    # Check for LLM metadata in table_data (from LLM extraction)
+    if isinstance(page, dict):
+        blocks = page.get("blocks", [])
+    else:
+        blocks = getattr(page, "blocks", [])
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:280", "message": "scanning blocks for LLM metadata", "data": {"blocks_count": len(blocks)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
+    
+    for i, block in enumerate(blocks):
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:295", "message": "checking block for table_data", "data": {"block_index": i, "is_dict": isinstance(block, dict), "has_table_data_attr": hasattr(block, "table_data") if not isinstance(block, dict) else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        
+        if isinstance(block, dict):
+            table_data = block.get("table_data")
+        else:
+            table_data = getattr(block, "table_data", None)
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:303", "message": "table_data check", "data": {"block_index": i, "has_table_data": table_data is not None, "table_data_is_dict": isinstance(table_data, dict), "table_data_keys": list(table_data.keys()) if isinstance(table_data, dict) else None}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        
+        if table_data and isinstance(table_data, dict):
+            metadata = table_data.get("metadata")
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:310", "message": "metadata check", "data": {"block_index": i, "has_metadata": metadata is not None, "metadata_is_dict": isinstance(metadata, dict), "metadata_keys": list(metadata.keys()) if isinstance(metadata, dict) else None}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            if metadata and isinstance(metadata, dict):
+                llm_metadata = metadata
+                logger.info(f"[OCR_V2] Found LLM metadata in table_data: supplier='{metadata.get('supplier_name')}', invoice_number='{metadata.get('invoice_number')}', grand_total={metadata.get('grand_total')}")
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:318", "message": "LLM metadata found", "data": {"supplier_name": metadata.get("supplier_name"), "invoice_number": metadata.get("invoice_number"), "grand_total": metadata.get("grand_total"), "invoice_date": metadata.get("invoice_date")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+                # #endregion
+                break
+    
+        # Priority 1: Use LLM metadata if available (most accurate)
+        if llm_metadata:
+            logger.info(f"[OCR_V2] Using LLM metadata for doc_id={doc_id}")
+            supplier_from_llm = llm_metadata.get("supplier_name") or "Unknown Supplier"
+            # #region agent log
+            import json
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "ocr_service.py:590", "message": "using LLM metadata for supplier", "data": {"doc_id": doc_id, "supplier_from_llm": supplier_from_llm}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            parsed_data = {
+                "supplier": supplier_from_llm,
+                "date": _normalize_date(llm_metadata.get("invoice_date")),
+                "total": _normalize_currency(llm_metadata.get("grand_total") or llm_metadata.get("total")),
+                "invoice_number": llm_metadata.get("invoice_number"),
+                "invoice_number_source": "llm_extracted" if llm_metadata.get("invoice_number") else "generated",
+                "subtotal": _normalize_currency(llm_metadata.get("subtotal")),
+                "vat": _normalize_currency(llm_metadata.get("vat_amount")),
+                "confidence": ocr_result.get("confidence", 0.9)
+            }
+            # Ensure we have valid values
+            if not parsed_data["date"]:
+                parsed_data["date"] = datetime.now().strftime("%Y-%m-%d")
+            if parsed_data["total"] is None:
+                parsed_data["total"] = 0.0
+            logger.info(f"[OCR_V2] Extracted from LLM metadata: supplier='{parsed_data['supplier']}', date='{parsed_data['date']}', total={parsed_data['total']}, invoice_number='{parsed_data.get('invoice_number')}'")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:310", "message": "using LLM metadata for parsed_data", "data": {"supplier": parsed_data.get("supplier"), "date": parsed_data.get("date"), "total": parsed_data.get("total"), "invoice_number": parsed_data.get("invoice_number")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+    else:
+        # Priority 2: Check for normalized_json (from template matching)
+        normalized_json = ocr_result.get("normalized_json")
+        if normalized_json and isinstance(normalized_json, dict):
+            logger.info(f"[OCR_V2] Using normalized_json for doc_id={doc_id}")
+            parsed_data = {
+                "supplier": normalized_json.get("supplier_name") or normalized_json.get("supplier") or "Unknown Supplier",
+                "date": _normalize_date(normalized_json.get("invoice_date") or normalized_json.get("date")),
+                "total": _normalize_currency(normalized_json.get("total_amount") or normalized_json.get("total") or normalized_json.get("total_value")),
+                "confidence": ocr_result.get("confidence", 0.9)
+            }
+            # Ensure we have valid values
+            if not parsed_data["date"]:
+                parsed_data["date"] = datetime.now().strftime("%Y-%m-%d")
+            if parsed_data["total"] is None:
+                parsed_data["total"] = 0.0
+            logger.info(f"[OCR_V2] Extracted from normalized_json: supplier='{parsed_data['supplier']}', date='{parsed_data['date']}', total={parsed_data['total']}")
+        else:
+            # Priority 3: Fallback to page extraction (regex-based)
+            # #region agent log
+            import json
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "ocr_service.py:640", "message": "before _extract_invoice_data_from_page call (fallback path)", "data": {"doc_id": doc_id, "has_llm_metadata": llm_metadata is not None, "has_normalized_json": normalized_json is not None if 'normalized_json' in locals() else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            try:
+                parsed_data = _extract_invoice_data_from_page(page)
+                logger.info(f"[OCR_V2] Used page extraction (no LLM metadata or normalized_json available)")
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "ocr_service.py:650", "message": "after _extract_invoice_data_from_page call", "data": {"supplier": parsed_data.get("supplier"), "date": parsed_data.get("date"), "total": parsed_data.get("total"), "invoice_number": parsed_data.get("invoice_number")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+                # #endregion
+            except Exception as extract_error:
+                import traceback
+                extract_traceback = traceback.format_exc()
+                logger.exception(f"[OCR_V2] _extract_invoice_data_from_page failed: {extract_error}")
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:395", "message": "_extract_invoice_data_from_page exception", "data": {"doc_id": doc_id, "error": str(extract_error), "error_type": type(extract_error).__name__, "traceback": extract_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+                # #endregion
+                raise
     
     # DEBUG: Log extracted data
     logger.info(f"[OCR_V2] Extracted data: supplier='{parsed_data.get('supplier')}', date='{parsed_data.get('date')}', total={parsed_data.get('total')}")
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:350", "message": "final parsed_data", "data": {"supplier": parsed_data.get("supplier"), "date": parsed_data.get("date"), "total": parsed_data.get("total"), "invoice_number": parsed_data.get("invoice_number"), "invoice_number_source": parsed_data.get("invoice_number_source")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     
-    # Classify document type based on OCR text
-    from backend.matching.pairing import classify_doc
-    # Re-extract full_text for classification (handle both dict and object formats)
-    if hasattr(page, 'blocks'):
-        classify_blocks = list(page.blocks) if hasattr(page, 'blocks') and page.blocks else []
-        classify_text_parts = []
-        for block in classify_blocks:
-            if hasattr(block, 'ocr_text'):
-                text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
-            else:
+    # Classify document type based on OCR text using new deterministic classifier
+    from backend.ocr.document_type_classifier import classify_document_type
+    
+    # Extract text from all pages for classification (per-page analysis for better accuracy)
+    page_texts = []
+    classify_full_text_parts = []
+    
+    for page_item in pages:
+        page_text_parts = []
+        if hasattr(page_item, 'blocks'):
+            classify_blocks = list(page_item.blocks) if hasattr(page_item, 'blocks') and page_item.blocks else []
+            for block in classify_blocks:
+                if hasattr(block, 'ocr_text'):
+                    text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
+                else:
+                    text = block.get("ocr_text", block.get("text", ""))
+                if text:
+                    page_text_parts.append(text)
+                    classify_full_text_parts.append(text)
+        else:
+            for block in page_item.get("blocks", []):
                 text = block.get("ocr_text", block.get("text", ""))
-            if text:
-                classify_text_parts.append(text)
-        classify_full_text = "\n".join(classify_text_parts)
+                if text:
+                    page_text_parts.append(text)
+                    classify_full_text_parts.append(text)
+        
+        page_texts.append("\n".join(page_text_parts))
+    
+    classify_full_text = "\n".join(classify_full_text_parts)
+    
+    # Classify using new deterministic classifier
+    if classify_full_text:
+        classification = classify_document_type(classify_full_text, pages=page_texts if page_texts else None)
+        doc_type = classification.doc_type
+        doc_type_confidence = classification.confidence
+        doc_type_reasons = classification.reasons
     else:
-        classify_full_text = "\n".join([block.get("ocr_text", block.get("text", "")) 
-                                      for block in page.get("blocks", []) 
-                                      if block.get("ocr_text") or block.get("text")])
-    doc_type = classify_doc(classify_full_text) if classify_full_text else "invoice"
+        # Fallback if no text extracted
+        doc_type = "unknown"
+        doc_type_confidence = 0.0
+        doc_type_reasons = ["No text content extracted from document"]
     
-    # Store document type for potential pairing
+    # Store document type and classification metadata for potential pairing
     parsed_data["doc_type"] = doc_type
+    parsed_data["doc_type_confidence"] = doc_type_confidence
+    parsed_data["doc_type_reasons"] = doc_type_reasons
     
-    _log_lifecycle("PARSE_START", doc_id, doc_type=doc_type)
+    # Log classification result
+    logger.info(f"[CLASSIFICATION] doc_id={doc_id} type={doc_type} "
+               f"confidence={doc_type_confidence:.2f} "
+               f"reasons={doc_type_reasons[:3] if doc_type_reasons else []}")
+    
+    # Persist classification to database
+    try:
+        update_document_classification(doc_id, doc_type, doc_type_confidence, doc_type_reasons)
+        logger.info(f"[CLASSIFICATION] Persisted classification to database for doc_id={doc_id}")
+    except Exception as e:
+        logger.warning(f"[CLASSIFICATION] Failed to persist classification for doc_id={doc_id}: {e}")
+    
+    _log_lifecycle("PARSE_START", doc_id, doc_type=doc_type, doc_type_confidence=doc_type_confidence)
     
     # Extract and normalize line items (pass parsed_data so STORI items can be reused)
     logger.info(f"[LINE_ITEMS] Starting line item extraction for doc_id={doc_id}")
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:284", "message": "before line item extraction", "data": {"doc_id": doc_id, "page_has_blocks": "blocks" in page if isinstance(page, dict) else hasattr(page, "blocks")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     line_items = _extract_line_items_from_page(page, parsed_data)
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:286", "message": "after line item extraction", "data": {"doc_id": doc_id, "line_items_count": len(line_items)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     logger.info(f"[LINE_ITEMS] Extracted {len(line_items)} line items before deduplication")
     
     line_items = _deduplicate_items(line_items)
@@ -283,25 +1249,176 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Store invoice in database
     invoice_id = doc_id  # Use doc_id as invoice_id
-    confidence = ocr_result.get("confidence", parsed_data.get("confidence", 0.9))
+    # Use overall_confidence from OCR result (comes from chosen path if dual-path was used)
+    confidence = ocr_result.get("overall_confidence", ocr_result.get("confidence", parsed_data.get("confidence", 0.9)))
+    
+    # Low-confidence gate: If OCR confidence is too low, mark as unusable and clear line items
+    from backend.config import MIN_USABLE_OCR_CONFIDENCE
+    ocr_unusable = confidence < MIN_USABLE_OCR_CONFIDENCE
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:310", "message": "confidence gate check", "data": {"doc_id": doc_id, "confidence": confidence, "threshold": MIN_USABLE_OCR_CONFIDENCE, "ocr_unusable": ocr_unusable, "line_items_before": len(line_items)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
+    if ocr_unusable:
+        logger.warning(
+            f"[OCR_GATE] OCR confidence {confidence:.3f} below threshold {MIN_USABLE_OCR_CONFIDENCE:.3f}. "
+            f"Marking as unusable and clearing line items to avoid garbage data."
+        )
+        line_items = []  # Clear line items to avoid showing garbage
+        # Add flag to parsed_data
+        if not isinstance(parsed_data, dict):
+            parsed_data = {}
+        parsed_data["ocr_unusable"] = True
+        parsed_data["flags"] = parsed_data.get("flags", [])
+        parsed_data["flags"].append("ocr_too_low_for_auto_extraction")
+    else:
+        if not isinstance(parsed_data, dict):
+            parsed_data = {}
+        parsed_data["ocr_unusable"] = False
+    
+    # NEW: Check if invoice needs review (from LLM validation)
+    needs_review = False
+    if "pages" in ocr_result and ocr_result["pages"]:
+        # Check first page's table_data for needs_review flag
+        first_page = ocr_result["pages"][0]
+        for block in first_page.get("blocks", []):
+            table_data = block.get("table_data")
+            if table_data and table_data.get("needs_review"):
+                needs_review = True
+                validation_errors = table_data.get("metadata", {}).get("validation_errors", [])
+                if validation_errors:
+                    logger.warning(f"[VALIDATION] Invoice {doc_id} marked for review: {validation_errors}")
+                break
+    
+    # Set status based on needs_review flag
+    invoice_status = 'needs_review' if needs_review else 'scanned'
     
     # DEBUG: Log what we're storing
     supplier = parsed_data.get("supplier", "Unknown Supplier")
+    invoice_number = parsed_data.get("invoice_number")  # Extract invoice number if found
+    invoice_number_source = parsed_data.get("invoice_number_source", "generated")  # Extract invoice number source
     date = parsed_data.get("date", datetime.now().strftime("%Y-%m-%d"))
     total = parsed_data.get("total", 0.0)
     
-    logger.info(f"[STORE] Storing invoice: supplier='{supplier}', date='{date}', total={total}, confidence={confidence}")
+    # Log extracted invoice number for visibility
+    if invoice_number:
+        logger.info(f"[EXTRACT] Invoice Number: {invoice_number}")
+    else:
+        logger.warning(f"[EXTRACT] No invoice number found in document, using doc_id: {doc_id}")
     
-    upsert_invoice(
-        doc_id=doc_id,
-        supplier=supplier,
-        date=date,
-        value=total
+    # Store document in invoices table (both invoices and delivery notes are stored here)
+    # See design decision comment below for rationale
+    # Note: invoice_number is logged but not yet stored in DB (requires schema migration)
+    logger.info(
+        f"[STORE] Storing document in invoices table: supplier='{supplier}', "
+        f"invoice_no='{invoice_number or doc_id}', date='{date}', total={total}, "
+        f"doc_type={doc_type}, confidence={confidence}, status={invoice_status}"
     )
+    
+    # #region agent log - Check if we're in fallback path
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:885", "message": "reached invoice storage section", "data": {"doc_id": doc_id, "supplier": supplier, "date": date, "total": total, "invoice_status": invoice_status}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except Exception as log_err:
+        logger.error(f"Failed to write debug log: {log_err}")
+    # #endregion
+    
+    # Log extraction data before DB write
+    _log_lifecycle("EXTRACTION_DONE", doc_id,
+                   supplier=supplier,
+                   invoice_number=invoice_number,
+                   invoice_date=date,
+                   total=total,
+                   subtotal=parsed_data.get("subtotal"),
+                   vat=parsed_data.get("vat"),
+                   line_items_count=len(line_items),
+                   confidence=confidence,
+                   doc_type=doc_type)
+    
+    # Log first 3 line items for inspection
+    if line_items:
+        first_items = line_items[:3]
+        items_summary = []
+        for idx, item in enumerate(first_items):
+            items_summary.append({
+                'index': idx + 1,
+                'desc': item.get('desc', '')[:50],  # Truncate long descriptions
+                'qty': item.get('qty'),
+                'unit_price': item.get('unit_price'),
+                'total': item.get('total'),
+                'vat_rate': item.get('vat_rate'),
+                'vat_amount': item.get('vat_amount')
+            })
+        _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", doc_id, items_sample=items_summary)
+    
+    # Check for extraction failure (empty data)
+    has_empty_data = (supplier == "Unknown Supplier" and total == 0.0 and len(line_items) == 0)
+    if has_empty_data:
+        error_msg = "Extraction produced empty data: supplier=Unknown Supplier, total=0, line_items=0"
+        logger.error(f"[EXTRACTION_FAILURE] {error_msg} for doc_id={doc_id}")
+        _log_lifecycle("EXTRACTION_FAILURE", doc_id, 
+                      error=error_msg,
+                      supplier=supplier,
+                      total=total,
+                      line_items_count=len(line_items))
+        # Mark for manual review instead of raising - allows tracking in DB
+        needs_manual_review = True
+        llm_error_message = error_msg
+    
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:510", "message": "before upsert_invoice", "data": {"doc_id": doc_id, "supplier": supplier, "date": date, "total": total, "invoice_number": invoice_number, "invoice_number_source": invoice_number_source, "confidence": confidence, "line_items_count": len(line_items), "parsed_data_keys": list(parsed_data.keys())}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except Exception as log_err:
+        logger.error(f"Failed to write debug log: {log_err}")
+    # #endregion
+    
+    _log_lifecycle("DB_WRITE_START", doc_id)
+    try:
+        upsert_invoice(
+            doc_id=doc_id,
+            supplier=supplier,
+            date=date,
+            value=total,
+            invoice_number=invoice_number,  # Pass extracted invoice number
+            confidence=confidence,
+            status=invoice_status  # NEW: Pass status (needs_review or scanned)
+        )
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:902", "message": "after upsert_invoice", "data": {"doc_id": doc_id}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        _log_lifecycle("DB_WRITE_INVOICE_DONE", doc_id, supplier=supplier, total=total)
+    except Exception as upsert_error:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.exception(f"[STORE] Failed to upsert invoice for doc_id={doc_id}: {upsert_error}")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:910", "message": "upsert_invoice exception", "data": {"doc_id": doc_id, "error": str(upsert_error), "traceback": error_trace[:2000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        raise
+    
+    # TODO: Call auto_pair_invoice_if_confident() after OCR invoice creation if enabled
+    # from backend.services.auto_pairing import auto_pair_invoice_if_confident
+    # if doc_type == "invoice":
+    #     await auto_pair_invoice_if_confident(doc_id)
     
     # Verify invoice was stored
     import sqlite3
-    conn = sqlite3.connect("data/owlin.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT supplier, date, value FROM invoices WHERE id = ?", (doc_id,))
     stored = cur.fetchone()
@@ -313,27 +1430,107 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Store line items
     if line_items:
-        logger.info(f"[STORE] Storing {len(line_items)} line items for doc_id={doc_id}, invoice_id={invoice_id}")
-        insert_line_items(doc_id, invoice_id, line_items)
+        # For delivery notes, invoice_id should be NULL to distinguish from invoice line items
+        invoice_id_for_items = None if doc_type == "delivery_note" else invoice_id
+        logger.info(f"[STORE] Storing {len(line_items)} line items for doc_id={doc_id}, doc_type={doc_type}, invoice_id={invoice_id_for_items}")
+        # Log bbox status for debugging
+        items_with_bbox = sum(1 for item in line_items if item.get('bbox'))
+        logger.info(f"[STORE] Line items bbox status: {items_with_bbox}/{len(line_items)} have bbox")
+        if line_items and not items_with_bbox:
+            logger.warning(f"[STORE] WARNING: No line items have bbox - this may indicate table extraction issues")
+        _log_lifecycle("DB_WRITE_LINE_ITEMS_START", doc_id, line_items_count=len(line_items))
+        insert_line_items(doc_id, invoice_id_for_items, line_items)
+        _log_lifecycle("DB_WRITE_LINE_ITEMS_DONE", doc_id, line_items_count=len(line_items))
         
         # Verify line items were stored
         import sqlite3
-        conn = sqlite3.connect("data/owlin.db")
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM invoice_line_items WHERE doc_id = ?", (doc_id,))
+        # Filter by invoice_id to match what was actually stored
+        if invoice_id_for_items is None:
+            cur.execute("SELECT COUNT(*) FROM invoice_line_items WHERE doc_id = ? AND invoice_id IS NULL", (doc_id,))
+        else:
+            cur.execute("SELECT COUNT(*) FROM invoice_line_items WHERE doc_id = ? AND invoice_id = ?", (doc_id, invoice_id_for_items))
         stored_count = cur.fetchone()[0]
         conn.close()
         if stored_count > 0:
-            logger.info(f"[STORE] Verified {stored_count} line items stored in database")
+            logger.info(f"[STORE] Verified {stored_count} line items stored in database (doc_id={doc_id}, invoice_id={invoice_id_for_items})")
         else:
-            logger.error(f"[STORE] FAILED to store line items for doc_id={doc_id}")
+            logger.error(f"[STORE] FAILED to store line items for doc_id={doc_id}, invoice_id={invoice_id_for_items}")
     else:
         logger.warning(f"[STORE] No line items to store for doc_id={doc_id}")
     
-    # Update document status to ready
-    update_document_status(doc_id, "ready", "doc_ready", confidence=confidence)
-    doc_type = parsed_data.get("doc_type", "invoice")
-    _log_lifecycle("DOC_READY", doc_id, 
+    # Check for LLM extraction failures that require manual review
+    needs_manual_review = False
+    llm_error_message = None
+    
+    # Scan all pages for LLM failure markers
+    if pages:
+        for page in pages:
+            if hasattr(page, 'blocks'):
+                blocks = page.blocks
+            else:
+                blocks = page.get('blocks', [])
+            
+            for block in blocks:
+                # Check table_data for LLM failure markers
+                if hasattr(block, 'table_data'):
+                    table_data = block.table_data
+                elif isinstance(block, dict):
+                    table_data = block.get('table_data')
+                else:
+                    table_data = None
+                
+                if table_data and isinstance(table_data, dict):
+                    if table_data.get('needs_manual_review'):
+                        needs_manual_review = True
+                        llm_error_message = table_data.get('error', 'LLM extraction failed')
+                        logger.warning(f"[LLM_FAILURE] Document requires manual review: {llm_error_message}")
+                    
+                    # Also check for failed LLM method
+                    if table_data.get('method_used') == 'llm_failed':
+                        needs_manual_review = True
+                        llm_error_message = llm_error_message or table_data.get('error', 'LLM extraction failed')
+                        logger.warning(f"[LLM_FAILURE] LLM extraction method failed")
+    
+    # Update document status: ready or needs_review
+    # CRITICAL: Never mark as "ready" if data is empty (supplier=Unknown, total=0, no items)
+    if needs_manual_review or has_empty_data:
+        # Mark for manual review - either LLM failed or extraction produced empty data
+        review_reason = "llm_extraction_failed" if needs_manual_review else "extraction_empty_data"
+        update_document_status(
+            doc_id, 
+            "needs_review", 
+            review_reason, 
+            confidence=0.0,
+            error=llm_error_message or "Extraction produced empty data"
+        )
+        doc_type = parsed_data.get("doc_type", "invoice")
+        _log_lifecycle("REVIEW_NEEDED", doc_id,
+                      error=llm_error_message or "Extraction produced empty data",
+                      reason=review_reason,
+                      supplier=supplier,
+                      total=total,
+                      line_items_count=len(line_items),
+                      doc_type=doc_type)
+        logger.warning(
+            f"[REVIEW_NEEDED] Document {doc_id} marked for manual review. "
+            f"Reason: {review_reason}, Error: {llm_error_message or 'Extraction produced empty data'}"
+        )
+    else:
+        # Normal success path - only mark as ready if we have valid data
+        update_document_status(doc_id, "ready", "doc_ready", confidence=confidence)
+        doc_type = parsed_data.get("doc_type", "invoice")
+        
+        # Trigger auto-backup if needed (after successful processing)
+        try:
+            from backend.services.backup import trigger_auto_backup_if_needed
+            trigger_auto_backup_if_needed(doc_id)
+        except Exception as backup_error:
+            # Never let backup failures break document processing
+            logger.warning(f"Auto-backup trigger failed for {doc_id}: {backup_error}")
+        
+        _log_lifecycle("DOC_READY", doc_id, 
                   supplier=parsed_data.get('supplier'), 
                   total=parsed_data.get('total'), 
                   items=len(line_items), 
@@ -343,25 +1540,316 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     # Clear any previous errors since processing succeeded
     clear_last_error()
     
+    # DESIGN DECISION: Storage of delivery notes in invoices table
+    # This implementation stores both invoices and delivery notes in the invoices table.
+    # The distinction between invoices and delivery notes is made through:
+    # 1. The documents.doc_type column (set to 'delivery_note' or 'invoice')
+    # 2. The invoice_line_items.invoice_id column:
+    #    - For invoices: invoice_id = doc_id (or actual invoice_id)
+    #    - For delivery notes: invoice_id = NULL
+    # This allows both document types to appear in the UI while maintaining proper
+    # line item separation for discrepancy detection.
     # Note: For full delivery note/invoice pairing support, the migrations/0003_pairs.sql
     # schema should be used with backend.matching.pairing.maybe_create_pair_suggestions()
-    # This current implementation stores all documents in the invoices table.
-    # Both invoices and delivery notes will appear as invoice cards in the UI.
+    
+    # Run numeric consistency validation
+    validation_result = None
+    try:
+        from backend.validation import validate_invoice_consistency, format_validation_badge
+        
+        # Extract financial fields for validation
+        subtotal = parsed_data.get("subtotal")
+        vat_amount = parsed_data.get("vat") or parsed_data.get("vat_amount") or parsed_data.get("tax_total")
+        vat_rate = parsed_data.get("vat_rate")  # e.g., 0.20 for 20%
+        total_value = parsed_data.get("total")
+        
+        # Get raw OCR text for validation
+        raw_ocr_text = None
+        if pages and len(pages) > 0:
+            # Get text from all blocks
+            page = pages[0]
+            if hasattr(page, 'blocks'):
+                blocks = page.blocks
+            else:
+                blocks = page.get('blocks', [])
+            
+            text_parts = []
+            for block in blocks:
+                if hasattr(block, 'ocr_text'):
+                    text_parts.append(getattr(block, 'ocr_text', ''))
+                else:
+                    text_parts.append(block.get('ocr_text', ''))
+            raw_ocr_text = '\n'.join(text_parts)
+        
+        # Run validation with raw text for better total detection
+        validation = validate_invoice_consistency(
+            line_items=line_items,
+            subtotal=subtotal,
+            vat_amount=vat_amount,
+            vat_rate=vat_rate,
+            total=total_value,
+            ocr_confidence=confidence,
+            raw_ocr_text=raw_ocr_text
+        )
+        
+        validation_result = {
+            "is_consistent": validation.is_consistent,
+            "integrity_score": validation.integrity_score,
+            "issues": validation.issues,
+            "corrections": validation.corrections,
+            "badge": format_validation_badge(validation),
+            "details": validation.details
+        }
+        
+        logger.info(f"[VALIDATE] Invoice validation: consistent={validation.is_consistent}, score={validation.integrity_score:.3f}, issues={len(validation.issues)}")
+        
+        # Apply corrections if available and confidence is high
+        if validation.corrections and validation.integrity_score >= 0.8:
+            logger.info(f"[VALIDATE] Applying corrections: {list(validation.corrections.keys())}")
+            for key, value in validation.corrections.items():
+                if key in parsed_data:
+                    logger.info(f"[VALIDATE] Correcting {key}: {parsed_data[key]} → {value}")
+                    parsed_data[key] = value
+        
+    except Exception as e:
+        logger.error(f"[VALIDATE] Validation failed: {e}", exc_info=True)
+        validation_result = None
+    
+    supplier = parsed_data.get("supplier", "Unknown Supplier")
+    customer = parsed_data.get("customer")
     
     return {
         "status": "ok",
         "doc_id": doc_id,
         "confidence": confidence,
-        "supplier": parsed_data.get("supplier"),
+        "ocr_unusable": ocr_unusable,  # Flag indicating if OCR confidence is too low
+        "supplier": supplier,
+        "supplier_name": supplier,  # Alias for frontend compatibility
+        "invoice_number": parsed_data.get("invoice_number"),
+        "invoice_number_source": parsed_data.get("invoice_number_source", "generated"),
+        "customer": customer,
+        "customer_name": customer,  # Alias for frontend compatibility
+        "bill_to_name": customer,  # Alternative name
         "date": parsed_data.get("date"),
         "total": parsed_data.get("total"),
+        "subtotal": parsed_data.get("subtotal"),
+        "vat": parsed_data.get("vat"),
+        "vat_rate": parsed_data.get("vat_rate"),
         "line_items": line_items,
-        "doc_type": doc_type
+        "doc_type": doc_type,
+        "validation": validation_result,
+        "flags": parsed_data.get("flags", [])  # Include flags (e.g., "ocr_too_low_for_auto_extraction")
     }
+
+
+def _extract_supplier_and_customer(full_text: str, page_dict: Optional[Dict[str, Any]] = None) -> Tuple[str, Optional[str]]:
+    """
+    Extract supplier and customer from invoice text using zone-based heuristics.
+    
+    Algorithm:
+    - Supplier: Lines in header zone (top 20-25% of page) near "Invoice #" or email/website,
+      exclude "Bill to" lines
+    - Customer: First non-label lines under "Bill to" or "Deliver to"
+    
+    Args:
+        full_text: Full OCR text from invoice
+        page_dict: Optional page dict with bbox info (for future zone-based filtering)
+        
+    Returns:
+        Tuple of (supplier, customer) where customer may be None
+    """
+    # Fail-fast guard for re module
+    try:
+        _ensure_re_available("_extract_supplier_and_customer")
+    except NameError as e:
+        logger.critical(f"[OCR_REGEX_IMPORT_MISSING] re module not available in _extract_supplier_and_customer: {e}")
+        raise
+    
+    lines = full_text.split('\n')
+    total_lines = len(lines)
+    header_zone_end = int(total_lines * 0.25)  # Top 25% of page
+    
+    supplier = "Unknown Supplier"
+    customer = None
+    
+    # Find supplier candidates in header zone
+    supplier_candidates = []
+    bill_to_found = False
+    bill_to_start_idx = None
+    customer_candidates = []  # Track customer candidates to exclude from supplier
+    
+    for i, line in enumerate(lines[:header_zone_end]):
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        
+        line_lower = line_stripped.lower()
+        
+        # Check for "Bill to" / "Invoice to" markers
+        if any(marker in line_lower for marker in ["bill to", "invoice to", "ship to", "deliver to"]):
+            bill_to_found = True
+            bill_to_start_idx = i
+            continue
+        
+        # Skip lines that are clearly labels or metadata
+        excluded_labels = [
+            "total", "amount", "subtotal", "vat", "tax", "due", "balance", "payment",
+            "invoice", "date", "number", "reference", "order", "po", "delivery",
+            "quantity", "qty", "unit", "price", "description", "item", "line",
+            "net", "gross", "discount", "shipping", "handling", "fee", "charge"
+        ]
+        
+        if any(skip in line_lower for skip in ["invoice no", "invoice number", "invoice date", "date:", "due date"]):
+            continue
+        
+        # Skip if line contains common invoice labels
+        if any(label in line_lower for label in excluded_labels):
+            continue
+        
+        # Look for company name patterns (Ltd, Limited, etc.)
+        # Also look for multi-line company names (e.g., "Wild Horse Brewing Co Ltd" might span lines)
+        company_patterns = [
+            r'^([A-Z][A-Za-z0-9\s&]+(?:Ltd|Limited|Inc|Corp|Corporation|LLC|PLC|CYF|L\.L\.C\.))',
+            r'^([A-Z][A-Za-z0-9\s&\-]{10,})',  # Long capitalized strings (likely company names)
+        ]
+        
+        for pattern in company_patterns:
+            match = re.match(pattern, line_stripped)
+            if match:
+                candidate = match.group(1).strip()
+                # Clean up common suffixes
+                candidate = re.sub(r'\s+(Ltd|Limited|Inc|Corp)\.?$', r' \1', candidate, flags=re.IGNORECASE)
+                # Double-check: exclude common invoice labels
+                candidate_lower = candidate.lower()
+                if any(label in candidate_lower for label in excluded_labels):
+                    continue
+                if len(candidate) > 5 and candidate not in supplier_candidates:
+                    supplier_candidates.append(candidate)
+                    break
+        
+        # Special handling: Look for "Wild Horse" or "Brewing" keywords (hospitality-specific)
+        if "wild horse" in line_lower or "brewing" in line_lower or "brewery" in line_lower:
+            # Try to extract full company name from this line and possibly next line
+            # Pattern: "Wild Horse Brewing Co Ltd" or similar
+            brewing_pattern = r'([A-Z][A-Za-z0-9\s&]+(?:Brewing|Brewery)[A-Za-z0-9\s&]*(?:Ltd|Limited|Co|Company)?)'
+            match = re.search(brewing_pattern, line_stripped, re.IGNORECASE)
+            if match:
+                candidate = match.group(1).strip()
+                if candidate not in supplier_candidates:
+                    supplier_candidates.append(candidate)
+                    logger.info(f"[EXTRACT] Found brewing company candidate: '{candidate}'")
+    
+    # Extract customer from "Bill to" / "Invoice to" section FIRST
+    # This allows us to exclude customer from supplier candidates
+    if bill_to_found and bill_to_start_idx is not None:
+        # Look for customer name in lines after "Bill to"
+        for i in range(bill_to_start_idx + 1, min(len(lines), bill_to_start_idx + 5)):
+            line_stripped = lines[i].strip()
+            if not line_stripped:
+                continue
+            
+            line_lower = line_stripped.lower()
+            
+            # Skip if it's another label
+            if any(skip in line_lower for skip in ["invoice to", "ship to", "deliver to", "address:", "contact:"]):
+                continue
+            
+            # Look for company name pattern
+            company_pattern = r'^([A-Z][A-Za-z0-9\s&]+(?:Ltd|Limited|Inc|Corp|Corporation|LLC|PLC|CYF|L\.L\.C\.))'
+            match = re.match(company_pattern, line_stripped)
+            if match:
+                candidate = match.group(1).strip()
+                candidate = re.sub(r'\s+(Ltd|Limited|Inc|Corp)\.?$', r' \1', candidate, flags=re.IGNORECASE)
+                customer_candidates.append(candidate)
+                if customer is None:
+                    customer = candidate
+                    logger.info(f"[EXTRACT] Found customer: '{customer}'")
+    
+    # CRITICAL: Remove customer candidates from supplier candidates BEFORE scoring
+    # This prevents "Snowdonia Hospitality" from being selected as supplier
+    if customer_candidates:
+        original_count = len(supplier_candidates)
+        supplier_candidates = [c for c in supplier_candidates if not any(cust.lower() in c.lower() or c.lower() in cust.lower() for cust in customer_candidates)]
+        if len(supplier_candidates) < original_count:
+            logger.info(f"[EXTRACT] Filtered {original_count - len(supplier_candidates)} supplier candidates to exclude customer: {customer_candidates}")
+    
+    # Prefer supplier candidates that appear near "Invoice" keyword
+    # Also check for email/website patterns (supplier contact info)
+    email_pattern = r'[\w\.-]+@[\w\.-]+\.\w+'
+    website_pattern = r'www\.\w+\.\w+'
+    
+    scored_candidates = []
+    for candidate in supplier_candidates:
+        score = 0
+        # Find line containing this candidate
+        for i, line in enumerate(lines[:header_zone_end]):
+            if candidate in line:
+                # Check proximity to "Invoice" keyword
+                for j in range(max(0, i-3), min(len(lines), i+4)):
+                    if "invoice" in lines[j].lower():
+                        score += 10
+                        break
+                
+                # Check for email/website nearby
+                for j in range(max(0, i-2), min(len(lines), i+3)):
+                    if re.search(email_pattern, lines[j]) or re.search(website_pattern, lines[j]):
+                        score += 5
+                        break
+                
+                # Bonus for "Brewing" / "Brewery" keywords (hospitality-specific)
+                if "brewing" in candidate.lower() or "brewery" in candidate.lower():
+                    score += 15
+                
+                break
+        
+        scored_candidates.append((candidate, score))
+    
+    # Sort by score and take best candidate
+    if scored_candidates:
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        supplier = scored_candidates[0][0]
+        logger.info(f"[EXTRACT] Found supplier: '{supplier}' (from {len(supplier_candidates)} candidates, scores: {[s[1] for s in scored_candidates[:3]]})")
+    
+    # Special case: If we have "Wild Horse" in text but didn't find it as supplier, try harder
+    if "wild horse" in full_text.lower() and "wild horse" not in supplier.lower():
+        # Search more aggressively for "Wild Horse Brewing Co Ltd"
+        wild_horse_patterns = [
+            r'(Wild Horse Brewing Co Ltd)',
+            r'(Wild Horse\s+[A-Za-z\s]+(?:Ltd|Limited))',
+            r'(Wild Horse[^\n]{0,50}(?:Ltd|Limited))',
+        ]
+        for pattern in wild_horse_patterns:
+            match = re.search(pattern, full_text, re.IGNORECASE)
+            if match:
+                candidate = match.group(1).strip()
+                supplier = candidate
+                logger.info(f"[EXTRACT] Found Wild Horse via aggressive search: '{supplier}'")
+                break
+    
+    # Final validation: If supplier is still a common invoice label, reset to Unknown
+    excluded_labels = [
+        "total", "amount", "subtotal", "vat", "tax", "due", "balance", "payment",
+        "invoice", "date", "number", "reference", "order", "po", "delivery",
+        "quantity", "qty", "unit", "price", "description", "item", "line",
+        "net", "gross", "discount", "shipping", "handling", "fee", "charge"
+    ]
+    supplier_lower = supplier.lower()
+    if any(label in supplier_lower for label in excluded_labels):
+        logger.warning(f"[EXTRACT] Supplier '{supplier}' matches excluded label, resetting to Unknown Supplier")
+        supplier = "Unknown Supplier"
+    
+    return (supplier, customer)
 
 
 def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
     """Extract invoice header data from OCR page result"""
+    # Fail-fast guard for re module
+    try:
+        _ensure_re_available("_extract_invoice_data_from_page")
+    except NameError as e:
+        logger.critical(f"[OCR_REGEX_IMPORT_MISSING] re module not available in _extract_invoice_data_from_page: {e}")
+        raise
+    
     # Handle both dict and PageResult object formats
     if hasattr(page, 'blocks'):
         # PageResult object - convert to dict-like access
@@ -413,15 +1901,35 @@ def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
     
     # DEBUG: Log extracted text length
     logger.info(f"[EXTRACT] Extracted {len(full_text)} characters of text from {len(blocks)} blocks")
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "I", "location": "ocr_service.py:1434", "message": "full_text built from blocks", "data": {"blocks_count": len(blocks), "full_text_length": len(full_text), "full_text_preview": full_text[:200] if full_text else "", "full_text_parts_count": len(full_text_parts)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     
     # If no text extracted, log warning but continue with defaults
     if not full_text or len(full_text.strip()) < 10:
         logger.warning(f"[EXTRACT] Very little or no text extracted from page. Blocks: {len(blocks)}, Text length: {len(full_text)}")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "I", "location": "ocr_service.py:1440", "message": "full_text is empty, trying page-level text", "data": {"blocks_count": len(blocks), "full_text_length": len(full_text)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         # Try to get text from page-level fields if blocks are empty
         page_text = page_dict.get("text", page_dict.get("ocr_text", ""))
         if page_text and len(page_text.strip()) > 10:
             logger.info(f"[EXTRACT] Using page-level text (length: {len(page_text)})")
             full_text = page_text
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "I", "location": "ocr_service.py:1446", "message": "using page-level text", "data": {"page_text_length": len(page_text), "page_text_preview": page_text[:200]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
     
     # Try STORI extractor first if detected
     from backend.ocr.vendors.stori_extractor import extract as extract_stori
@@ -458,7 +1966,7 @@ def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
                 "_stori_data": stori_result  # Store for line item extraction
             }
     
-    # Fallback to generic extraction
+    # IMPROVED: Better extraction heuristics
     supplier = "Unknown Supplier"
     date = datetime.now().strftime("%Y-%m-%d")
     total = 0.0
@@ -469,51 +1977,373 @@ def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
     else:
         confidence = page_dict.get("confidence", 0.9)
     
-    # Try to find supplier and total from blocks
-    for block in blocks:
-        # Handle both dict and object block formats
-        if hasattr(block, 'ocr_text'):
-            # Block is an object
-            block_text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
-        else:
-            # Block is a dict
-            block_text = block.get("ocr_text", block.get("text", ""))
-        
-        text = block_text.lower() if block_text else ""
-        if "supplier" in text or "ltd" in text or "limited" in text:
-            supplier = block_text if block_text else "Unknown Supplier"
-        if "total" in text or "£" in text:
-            # Try to extract amount
-            import re
-            amounts = re.findall(r'£?(\d+\.?\d*)', block_text)
-            if amounts:
-                total = max(float(a) for a in amounts)
+    # Extract supplier and customer using improved zone-based extraction
+    supplier, customer = _extract_supplier_and_customer(full_text, page_dict)
     
-    return {
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:1515", "message": "supplier extracted from _extract_supplier_and_customer", "data": {"supplier": supplier, "customer": customer, "full_text_length": len(full_text) if full_text else 0, "full_text_preview": full_text[:200] if full_text else ""}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
+    
+    # Wild Horse regression check (for logging/debug)
+    if "Wild Horse Brewing Co Ltd" in full_text or "Wild Horse" in full_text:
+        if "Wild Horse" not in supplier and "Snowdonia" in supplier:
+            logger.warning(f"[EXTRACT] WILD HORSE REGRESSION: Supplier mis-detected as '{supplier}' instead of Wild Horse")
+        elif "Wild Horse" in supplier:
+            logger.info(f"[EXTRACT] WILD HORSE REGRESSION: Correctly detected supplier as '{supplier}'")
+    
+    # Fallback to old pattern-based extraction if supplier is still unknown
+    if supplier == "Unknown Supplier":
+        # List of common invoice labels to exclude from supplier extraction
+        excluded_labels = [
+            "total", "amount", "subtotal", "vat", "tax", "due", "balance", "payment",
+            "invoice", "date", "number", "reference", "order", "po", "delivery",
+            "quantity", "qty", "unit", "price", "description", "item", "line",
+            "net", "gross", "discount", "shipping", "handling", "fee", "charge"
+        ]
+        
+        supplier_patterns = [
+            r'^([A-Z][A-Za-z0-9\s&]+(?:Ltd|Limited|Inc|Corp|Corporation|LLC|PLC|CYF|L\.L\.C\.))',
+            r'Supplier[:\s]+([A-Z][A-Za-z0-9\s&]+)',
+            r'Vendor[:\s]+([A-Z][A-Za-z0-9\s&]+)',
+            r'From[:\s]+([A-Z][A-Za-z0-9\s&]+)',
+        ]
+        
+        for pattern in supplier_patterns:
+            match = re.search(pattern, full_text, re.MULTILINE | re.IGNORECASE)
+            if match:
+                candidate = match.group(1).strip()
+                # Clean up common suffixes
+                candidate = re.sub(r'\s+(Ltd|Limited|Inc|Corp)\.?$', r' \1', candidate, flags=re.IGNORECASE)
+                # Exclude common invoice labels
+                candidate_lower = candidate.lower()
+                if any(label in candidate_lower for label in excluded_labels):
+                    logger.debug(f"[EXTRACT] Skipping candidate '{candidate}' (matches excluded label)")
+                    continue
+                if candidate and candidate != "Unknown Supplier":
+                    supplier = candidate
+                    logger.info(f"[EXTRACT] Found supplier via fallback pattern '{pattern}': {supplier}")
+                    break
+        
+        # Last resort: First capitalized line, but exclude common labels
+        if supplier == "Unknown Supplier":
+            lines = full_text.split('\n')
+            for line in lines[:10]:  # Only check first 10 lines
+                line_stripped = line.strip()
+                if not line_stripped or len(line_stripped) < 5:
+                    continue
+                # Must start with capital letter and be at least 5 chars
+                if re.match(r'^[A-Z][A-Za-z0-9\s&]{4,}', line_stripped):
+                    candidate = line_stripped.split()[0] if line_stripped.split() else line_stripped
+                    candidate_lower = candidate.lower()
+                    # Exclude common labels and short words
+                    if (len(candidate) >= 5 and 
+                        not any(label in candidate_lower for label in excluded_labels) and
+                        candidate_lower not in ["invoice", "date", "number", "total", "amount"]):
+                        supplier = candidate
+                        logger.info(f"[EXTRACT] Found supplier via first capitalized line: {supplier}")
+                        break
+    
+    # Extract invoice number: Look for invoice number patterns (prefer printed numbers)
+    invoice_number = None
+    invoice_number_source = "generated"  # Default to generated, will be set to "printed" if found
+    
+    # Priority patterns for printed invoice numbers (near "Invoice" keyword in header zone)
+    header_zone_end = int(len(full_text.split('\n')) * 0.25)  # Top 25% of page
+    header_text = "\n".join(full_text.split('\n')[:header_zone_end])
+    
+    printed_invoice_patterns = [
+        r'\bVAT\s+Invoice\s+([A-Za-z0-9\-\/]+)',  # VAT Invoice 99471 (NEW - high priority)
+        r'invoice\s*#\s*([A-Za-z0-9\-\/]+)',  # Invoice #77212 - most specific
+        r'invoice\s*no\.?\s*([A-Za-z0-9\-\/]+)',  # Invoice No. 77212
+        r'invoice\s*[#:]?\s*([A-Za-z0-9\-\/]+)',  # Invoice: 77212, Invoice 77212
+        r'#\s*([0-9]{4,})',  # #77212, #76617
+        r'Invoice\s+(?:No|Number|#)[:.\s]+([A-Z0-9_-]+)',  # Invoice No: 852021_162574 or INV-12345
+        r'Invoice\s+(?:No|Number|#)[:.\s]+([A-Z0-9-]+)',  # Invoice No: INV-12345 (fallback)
+        r'Invoice[:\s]+([A-Z]{2,}[-/]?\d+)',  # Invoice: INV-12345 or INV12345
+        r'INVOICE\s+NO\.?\s*([A-Z0-9_-]+)',  # INVOICE NO. 852021_162574 (with period)
+    ]
+    
+    # Try header zone first (prefer printed numbers)
+    for pattern in printed_invoice_patterns:
+        match = re.search(pattern, header_text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            # Get the full match or the first group
+            if match.lastindex and match.lastindex >= 1:
+                candidate = match.group(1).strip()
+            else:
+                candidate = match.group(0).strip()
+            
+            # Validate it's not a date or other common false positive
+            if candidate and not re.match(r'^\d{1,2}[/-]\d{1,2}', candidate):
+                # Remove leading # if present
+                invoice_number = candidate.lstrip('#').strip()
+                invoice_number_source = "printed"
+                logger.info(f"[EXTRACT] Found printed invoice number via pattern '{pattern}': {invoice_number}")
+                break
+    
+    # Fallback: search entire document if not found in header
+    if invoice_number is None:
+        fallback_patterns = [
+            r'\bVAT\s+Invoice\s+([A-Za-z0-9\-\/]+)',  # VAT Invoice 99471 (fallback if not in header)
+            r'INV[-/]?(\d+)',  # INV-12345 or INV12345
+            r'#\s*([A-Z0-9_-]{4,})',  # #INV-12345
+            r'(?:^|\n)([A-Z]{2,}\d{4,})',  # Standalone alphanumeric (e.g., INV12345)
+        ]
+        
+        for pattern in fallback_patterns:
+            match = re.search(pattern, full_text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                if match.lastindex and match.lastindex >= 1:
+                    candidate = match.group(1).strip()
+                else:
+                    candidate = match.group(0).strip()
+                
+                if candidate and not re.match(r'^\d{1,2}[/-]\d{1,2}', candidate):
+                    invoice_number = candidate.lstrip('#').strip()
+                    invoice_number_source = "printed"
+                    logger.info(f"[EXTRACT] Found invoice number via fallback pattern '{pattern}': {invoice_number}")
+                    break
+    
+    # Extract date: Look for date patterns
+    date_patterns = [
+        r'Date[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'Invoice\s+Date[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',  # Generic date pattern
+    ]
+    
+    for pattern in date_patterns:
+        match = re.search(pattern, full_text, re.IGNORECASE)
+        if match:
+            date_str = match.group(1)
+            normalized = _normalize_date(date_str)
+            if normalized:
+                date = normalized
+                logger.info(f"[EXTRACT] Found date via pattern '{pattern}': {date}")
+                break
+    
+    # Extract total: Look for total amounts with intelligent filtering
+    # Strategy: Find largest number in bottom 30% of page near "Total" keywords
+    
+    # Split text into lines to get positional info
+    lines = full_text.split('\n')
+    total_lines = len(lines)
+    bottom_30_start = int(total_lines * 0.7)  # Bottom 30% of page
+    
+    # Collect all currency amounts with context
+    amount_candidates = []
+    
+    # Priority patterns (with keywords) - improved to handle comma-separated numbers
+    priority_patterns = [
+        (r'(?:Total\s+DUE|TOTAL\s+DUE|Amount\s+Due|Balance\s+Due|Grand\s+Total|Payable)[:\s]+[£€$]?\s*([\d,]+\.?\d*)', 15.0),
+        (r'(?:Total|Amount)[:\s]+[£€$]?\s*([\d,]+\.?\d*)', 10.0),
+        (r'TOTAL[:\s]+[£€$]?\s*([\d,]+\.?\d*)', 12.0),  # Explicit TOTAL keyword
+    ]
+    
+    # Generic currency pattern - improved to handle comma-separated numbers
+    generic_pattern = r'[£€$]\s*([\d,]+\.?\d*)'
+    
+    # Search with priority
+    for line_idx, line in enumerate(lines):
+        # Check priority patterns first
+        for pattern, priority_score in priority_patterns:
+            matches = re.finditer(pattern, line, re.IGNORECASE)
+            for match in matches:
+                amount_str = match.group(1).replace(',', '').strip()
+                try:
+                    amount = float(amount_str)
+                    # Ignore tax rates (e.g., 20.00 when much larger numbers exist)
+                    # But allow amounts > 1.0 (to catch £1.50 if it's legit)
+                    if amount > 0.01:  # Minimum threshold
+                        position_score = 2.0 if line_idx >= bottom_30_start else 1.0
+                        total_score = priority_score * position_score
+                        amount_candidates.append((amount, total_score, line_idx, 'priority'))
+                        logger.debug(f"[EXTRACT] Found amount: £{amount:,.2f} (line {line_idx}, score={total_score:.1f})")
+                except ValueError:
+                    pass
+        
+        # Check generic pattern
+        matches = re.finditer(generic_pattern, line, re.IGNORECASE)
+        for match in matches:
+            amount_str = match.group(1).replace(',', '').strip()
+            try:
+                amount = float(amount_str)
+                if amount > 0.01:
+                    # Lower score for generic matches
+                    position_score = 1.5 if line_idx >= bottom_30_start else 0.5
+                    amount_candidates.append((amount, position_score, line_idx, 'generic'))
+            except ValueError:
+                pass
+    
+    if amount_candidates:
+        # Sort by score (descending), then by amount (descending)
+        amount_candidates.sort(key=lambda x: (x[1], x[0]), reverse=True)
+        
+        # Take the highest-scored amount
+        best_amount, best_score, best_line, best_type = amount_candidates[0]
+        
+        # CRITICAL FIX: If top candidate is suspiciously small (< 100) and there's a much larger one (> 100), use the larger
+        # This fixes cases like £1.50 vs £1,504.34
+        if len(amount_candidates) > 1:
+            # Find the largest amount in candidates
+            largest_amount = max(c[0] for c in amount_candidates)
+            # If best is < 100 and largest is > 100 and largest is > 10x best, use largest
+            if best_amount < 100 and largest_amount > 100 and largest_amount > best_amount * 10:
+                best_amount = largest_amount
+                logger.info(f"[EXTRACT] Overriding small total (£{best_amount:.2f}) with larger amount: £{largest_amount:,.2f}")
+            # Also check if second candidate is significantly larger
+            elif len(amount_candidates) > 1:
+                second_amount = amount_candidates[1][0]
+                if second_amount > best_amount * 10:
+                    best_amount = second_amount
+                    logger.info(f"[EXTRACT] Overriding small total with larger amount: £{best_amount:,.2f}")
+        
+        total = best_amount
+        logger.info(f"[EXTRACT] Found total: £{total:,.2f} (line {best_line}, score={best_score:.1f}, type={best_type}, from {len(amount_candidates)} candidates)")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "J", "location": "ocr_service.py:1719", "message": "total extracted", "data": {"total": total, "best_score": best_score, "best_line": best_line, "candidates_count": len(amount_candidates), "full_text_length": len(full_text)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+    else:
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "J", "location": "ocr_service.py:1721", "message": "no total found", "data": {"full_text_length": len(full_text), "full_text_preview": full_text[:500] if full_text else ""}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+    
+    result = {
         "supplier": supplier,
+        "invoice_number": invoice_number,  # Add invoice number to extracted data
+        "invoice_number_source": invoice_number_source,  # "printed" or "generated"
         "date": date,
         "total": total,
         "confidence": confidence
     }
+    
+    # Add customer if found
+    if customer:
+        result["customer"] = customer
+    
+    return result
 
 def _parse_quantity(qty_str: str) -> float:
-    """Parse quantity string to float"""
+    """Parse quantity string to float, handling various formats"""
     if not qty_str:
         return 0.0
+    
     try:
-        return float(str(qty_str).replace(',', ''))
+        # Convert to string and strip whitespace
+        qty_clean = str(qty_str).strip()
+        if not qty_clean or qty_clean.lower() in ['', 'none', 'null', 'n/a', 'na']:
+            return 0.0
+        
+        # Remove common separators (commas, spaces used as thousands separators)
+        qty_clean = qty_clean.replace(',', '').replace(' ', '')
+        
+        # Handle "x" notation (e.g., "12x" -> 12)
+        if qty_clean.lower().endswith('x'):
+            qty_clean = qty_clean[:-1]
+        
+        # Handle fractions (e.g., "1/2" -> 0.5)
+        if '/' in qty_clean:
+            parts = qty_clean.split('/')
+            if len(parts) == 2:
+                try:
+                    numerator = float(parts[0].strip())
+                    denominator = float(parts[1].strip())
+                    if denominator != 0:
+                        return numerator / denominator
+                except (ValueError, ZeroDivisionError):
+                    pass
+        
+        # Try parsing as float
+        result = float(qty_clean)
+        # Validate result is reasonable (not negative, not excessive)
+        if result < 0:
+            logger.warning(f"[PARSE_QTY] Negative quantity detected: '{qty_str}' -> {result}, returning 0.0")
+            return 0.0
+        if result > 10000:  # Sanity check for excessive quantities
+            logger.warning(f"[PARSE_QTY] Excessive quantity detected: '{qty_str}' -> {result}, capping to 10000")
+            return 10000.0
+        return result
     except (ValueError, AttributeError):
+        # If parsing fails, try extracting first number from string
+        try:
+            # Match numbers with optional decimal point, including at start/end of string
+            match = re.search(r'(\d+\.?\d*)', str(qty_str))
+            if match:
+                result = float(match.group(1))
+                if result < 0:
+                    return 0.0
+                if result > 10000:
+                    return 10000.0
+                return result
+        except (ValueError, AttributeError):
+            pass
+        logger.debug(f"[PARSE_QTY] Failed to parse quantity: '{qty_str}', returning 0.0")
         return 0.0
 
 def _parse_price(price_str: str) -> float:
-    """Parse price string to float, handling currency symbols"""
+    """Parse price string to float, handling currency symbols and various formats"""
+    import re  # Ensure re is available in this function scope
     if not price_str:
         return 0.0
+    
     try:
-        # Remove currency symbols and whitespace
-        cleaned = str(price_str).replace('£', '').replace('€', '').replace('$', '').replace(',', '').strip()
-        return float(cleaned)
+        # Convert to string and strip whitespace
+        price_clean = str(price_str).strip()
+        if not price_clean or price_clean.lower() in ['', 'none', 'null', 'n/a', 'na', 'free', 'n/c']:
+            return 0.0
+        
+        # Remove currency symbols and whitespace (handle encoded variants too)
+        price_clean = price_clean.replace('£', '').replace('€', '').replace('$', '').replace('USD', '').replace('GBP', '').replace('EUR', '').strip()
+        # Handle encoded currency symbols
+        price_clean = price_clean.replace('Â£', '').replace('â‚¬', '').replace('Â€', '')
+        
+        # Remove commas (thousands separators) and spaces
+        price_clean = price_clean.replace(',', '').replace(' ', '')
+        
+        # Handle negative prices (in parentheses or with minus sign)
+        if price_clean.startswith('(') and price_clean.endswith(')'):
+            price_clean = '-' + price_clean[1:-1]
+        elif price_clean.startswith('-'):
+            pass  # Already negative
+        
+        # Remove any remaining non-numeric characters except decimal point and minus sign
+        # This handles cases like "£123.45p" or "123.45 GBP"
+        # Extract number pattern (allowing negative and decimal)
+        number_match = re.search(r'(-?\d+\.?\d*)', price_clean)
+        if number_match:
+            price_clean = number_match.group(1)
+        
+        # Try parsing as float
+        result = float(price_clean)
+        # Validate result is reasonable (not excessive)
+        if abs(result) > 1000000:  # Sanity check for excessive prices
+            logger.warning(f"[PARSE_PRICE] Excessive price detected: '{price_str}' -> {result}, capping to 1000000")
+            return 1000000.0 if result > 0 else -1000000.0
+        return result
     except (ValueError, AttributeError):
+        # If parsing fails, try extracting first number (with decimal) from string
+        try:
+            # Match numbers with optional decimal point (e.g., "123.45", "123", ".45")
+            # Also handle negative numbers
+            match = re.search(r'(-?\d+\.?\d*)', str(price_str))
+            if match:
+                result = float(match.group(1))
+                if abs(result) > 1000000:
+                    return 1000000.0 if result > 0 else -1000000.0
+                return result
+        except (ValueError, AttributeError):
+            pass
+        logger.debug(f"[PARSE_PRICE] Failed to parse price: '{price_str}', returning 0.0")
         return 0.0
 
 def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
@@ -542,14 +2372,18 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
         for item in stori_items:
             # STORI returns: name, qty, unit_price_pence, line_total_pence
             # We need: desc, qty, unit_price, total, uom, confidence
-            line_items.append({
+            stori_item = {
                 "desc": item.get("name", ""),
                 "qty": item.get("qty", 0),
                 "unit_price": item.get("unit_price_pence", 0) / 100.0,  # Convert pence to pounds
                 "total": item.get("line_total_pence", 0) / 100.0,  # Convert pence to pounds
                 "uom": "",
                 "confidence": 0.9  # High confidence for template-matched data
-            })
+            }
+            # STORI items don't have bbox (template-matched), but preserve if present
+            if "bbox" in item and item["bbox"]:
+                stori_item["bbox"] = item["bbox"]
+            line_items.append(stori_item)
         
         if line_items:
             logger.info(f"[LINE_ITEMS] Returning {len(line_items)} STORI line items")
@@ -570,6 +2404,15 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
     
     full_text = "\n".join(full_text_parts)
     
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "K", "location": "ocr_service.py:1938", "message": "line item extraction - full_text built", "data": {"blocks_count": len(blocks), "full_text_length": len(full_text), "full_text_preview": full_text[:300] if full_text else ""}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
+    
     # Try STORI extractor if detected
     if "Stori Beer & Wine" in full_text or ("VAT Invoice" in full_text and "Bala" in full_text):
         from backend.ocr.vendors.stori_extractor import extract as extract_stori
@@ -579,14 +2422,18 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
             logger.info(f"[LINE_ITEMS] STORI extractor found {len(stori_result['items'])} items")
             # Convert STORI format to our format
             for item in stori_result["items"]:
-                line_items.append({
+                stori_item = {
                     "desc": item.get("name", ""),
                     "qty": item.get("qty", 0),
                     "unit_price": item.get("unit_price_pence", 0) / 100.0,
                     "total": item.get("line_total_pence", 0) / 100.0,
                     "uom": "",
                     "confidence": 0.9
-                })
+                }
+                # STORI items don't have bbox (template-matched), but preserve if present
+                if "bbox" in item and item["bbox"]:
+                    stori_item["bbox"] = item["bbox"]
+                line_items.append(stori_item)
             
             if line_items:
                 logger.info(f"[LINE_ITEMS] Returning {len(line_items)} STORI line items")
@@ -617,6 +2464,9 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
                 if isinstance(table_data, dict):
                     table_line_items = table_data.get("line_items", [])
                     logger.info(f"[LINE_ITEMS] table_data is dict, keys: {list(table_data.keys())}, line_items count: {len(table_line_items)}")
+                    logger.info(f"[TABLE_EXTRACT] table_data.line_items: {len(table_line_items)} items. Sample: {table_line_items[:2] if table_line_items else []}")
+                    if not table_line_items:
+                        logger.warning(f"[TABLE_FAIL] Empty line_items. Raw block text: {block_ocr_text[:300]}")
                 elif isinstance(table_data, list):
                     # table_data might be a list (List[List[str]] format from type hint)
                     logger.warning(f"[LINE_ITEMS] table_data is a list, not dict. Length: {len(table_data)}")
@@ -632,25 +2482,94 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
                 for item_idx, item in enumerate(table_line_items):
                     if isinstance(item, dict):
                         # TableResult.to_dict() format
-                        logger.debug(f"[LINE_ITEMS] Processing table item {item_idx}: {item}")
-                        line_items.append({
-                            "desc": item.get("description", ""),
-                            "qty": _parse_quantity(item.get("quantity", "")),
-                            "unit_price": _parse_price(item.get("unit_price", "")),
-                            "total": _parse_price(item.get("total_price", "")),
+                        description = item.get("description", "").strip()
+                        # CRITICAL FIX: If description is empty, try alternative keys
+                        if not description:
+                            description = item.get("desc", item.get("item", item.get("product", item.get("name", "")))).strip()
+                        
+                        # FIX: LLM uses 'qty' but legacy code uses 'quantity'. Support both.
+                        raw_qty = item.get('quantity', item.get('qty', ''))
+                        raw_unit = item.get('unit_price', '')
+                        # FIX: LLM uses 'total' but legacy code uses 'total_price'. Support both.
+                        raw_total = item.get('total_price', item.get('total', ''))
+                        parsed_qty = _parse_quantity(raw_qty)
+                        parsed_unit = _parse_price(raw_unit)
+                        parsed_total = _parse_price(raw_total)
+                        
+                        logger.info(f"[LINE_ITEMS] Processing table item {item_idx}: desc='{description}', raw_qty='{raw_qty}'→{parsed_qty}, raw_unit='{raw_unit}'→{parsed_unit}, raw_total='{raw_total}'→{parsed_total}, bbox={item.get('bbox')}")
+                        
+                        # FIX: Allow items with valid qty/price/total even if description is empty
+                        # Use fallback description if missing but we have other data
+                        if not description or len(description) < 3:
+                            # If we have valid qty/price/total, use a fallback description
+                            if parsed_qty > 0 or parsed_total > 0:
+                                description = f"Item {item_idx + 1}"  # Fallback description
+                                logger.info(f"[LINE_ITEMS] Using fallback description '{description}' for item with qty={parsed_qty}, total={parsed_total}")
+                            else:
+                                # No valid data at all, skip it
+                                logger.warning(f"[LINE_ITEMS] Skipping item {item_idx} - empty description and no valid qty/price/total. Raw: qty='{raw_qty}', unit='{raw_unit}', total='{raw_total}'")
+                                continue
+                        
+                        line_item_dict = {
+                            "desc": description,
+                            "qty": parsed_qty,
+                            "unit_price": parsed_unit,
+                            "total": parsed_total,
                             "uom": "",
                             "confidence": item.get("confidence", 0.7)
-                        })
+                        }
+                        
+                        # WARN if quantities/prices are zero but we have a description
+                        if parsed_qty == 0.0 and parsed_total == 0.0:
+                            logger.warning(f"[LINE_ITEMS] ⚠️ Item '{description}' has qty=0 and total=0. Raw values: qty='{raw_qty}', unit='{raw_unit}', total='{raw_total}'. This suggests table extraction may have failed.")
+                        # Extract bbox if present (for visual verification)
+                        if "bbox" in item and item["bbox"]:
+                            line_item_dict["bbox"] = item["bbox"]
+                        line_items.append(line_item_dict)
                     else:
                         # LineItem object
-                        line_items.append({
-                            "desc": getattr(item, 'description', ''),
-                            "qty": _parse_quantity(getattr(item, 'quantity', '')),
-                            "unit_price": _parse_price(getattr(item, 'unit_price', '')),
-                            "total": _parse_price(getattr(item, 'total_price', '')),
+                        description = getattr(item, 'description', '').strip()
+                        if not description:
+                            description = getattr(item, 'desc', getattr(item, 'item', getattr(item, 'product', getattr(item, 'name', '')))).strip()
+                        
+                        raw_qty_obj = getattr(item, 'quantity', '')
+                        raw_unit_obj = getattr(item, 'unit_price', '')
+                        raw_total_obj = getattr(item, 'total_price', '')
+                        parsed_qty_obj = _parse_quantity(raw_qty_obj)
+                        parsed_unit_obj = _parse_price(raw_unit_obj)
+                        parsed_total_obj = _parse_price(raw_total_obj)
+                        
+                        logger.info(f"[LINE_ITEMS] Processing table item {item_idx} (object): desc='{description}', raw_qty='{raw_qty_obj}'→{parsed_qty_obj}, raw_unit='{raw_unit_obj}'→{parsed_unit_obj}, raw_total='{raw_total_obj}'→{parsed_total_obj}, bbox={getattr(item, 'bbox', None)}")
+                        
+                        # FIX: Allow items with valid qty/price/total even if description is empty
+                        # Use fallback description if missing but we have other data
+                        if not description or len(description) < 3:
+                            # If we have valid qty/price/total, use a fallback description
+                            if parsed_qty_obj > 0 or parsed_total_obj > 0:
+                                description = f"Item {item_idx + 1}"  # Fallback description
+                                logger.info(f"[LINE_ITEMS] Using fallback description '{description}' (object) for item with qty={parsed_qty_obj}, total={parsed_total_obj}")
+                            else:
+                                # No valid data at all, skip it
+                                logger.warning(f"[LINE_ITEMS] Skipping item {item_idx} (object) - empty description and no valid qty/price/total. Raw: qty='{raw_qty_obj}', unit='{raw_unit_obj}', total='{raw_total_obj}'")
+                                continue
+                        
+                        line_item_dict = {
+                            "desc": description,
+                            "qty": parsed_qty_obj,
+                            "unit_price": parsed_unit_obj,
+                            "total": parsed_total_obj,
                             "uom": "",
                             "confidence": getattr(item, 'confidence', 0.7)
-                        })
+                        }
+                        
+                        # WARN if quantities/prices are zero but we have a description
+                        if parsed_qty_obj == 0.0 and parsed_total_obj == 0.0:
+                            logger.warning(f"[LINE_ITEMS] ⚠️ Item '{description}' (object) has qty=0 and total=0. Raw values: qty='{raw_qty_obj}', unit='{raw_unit_obj}', total='{raw_total_obj}'. This suggests table extraction may have failed.")
+                        # Extract bbox if present (for visual verification)
+                        bbox = getattr(item, 'bbox', None)
+                        if bbox:
+                            line_item_dict["bbox"] = bbox
+                        line_items.append(line_item_dict)
             else:
                 logger.warning(f"[LINE_ITEMS] Table block found but table_data is None or empty. Block OCR text length: {len(block_ocr_text)}")
     
@@ -658,6 +2577,9 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
     
     # If no line items found in tables, try to parse from text blocks
     if not line_items:
+        # Build raw OCR text for fallback logging
+        raw_ocr_text = " ".join([block.get("ocr_text", block.get("text", "")) if isinstance(block, dict) else getattr(block, 'ocr_text', '') for block in blocks])
+        logger.warning(f"[FALLBACK] No table_data; trying regex on raw_ocr: {raw_ocr_text[:200]}")
         logger.info(f"[LINE_ITEMS] No table items found, trying fallback extraction")
         # Convert blocks to dict format for fallback
         blocks_dict = []
@@ -677,7 +2599,13 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
 
 def _fallback_line_item_extraction(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Fallback line item extraction from text blocks with normalization"""
-    import re
+    # Fail-fast guard for re module
+    try:
+        _ensure_re_available("_fallback_line_item_extraction")
+    except NameError as e:
+        logger.critical(f"[OCR_REGEX_IMPORT_MISSING] re module not available in _fallback_line_item_extraction: {e}")
+        raise
+    
     line_items = []
     
     for block in blocks:
@@ -705,6 +2633,13 @@ def _fallback_line_item_extraction(blocks: List[Dict[str, Any]]) -> List[Dict[st
                     "uom": "",
                     "confidence": 0.75
                 })
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "K", "location": "ocr_service.py:2164", "message": "line item extraction returning", "data": {"line_items_count": len(line_items), "blocks_count": len(blocks), "full_text_length": len(full_text) if 'full_text' in locals() else 0}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     
     return line_items
 

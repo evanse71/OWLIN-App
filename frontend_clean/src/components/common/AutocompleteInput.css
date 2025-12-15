@@ -1,0 +1,29 @@
+.autocomplete-input-wrapper {
+  position: relative;
+  width: 100%;
+  display: inline-block;
+}
+
+.autocomplete-input-wrapper .autocomplete-input {
+  width: 100%;
+  position: relative;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+/* When used in line-items-table, inherit table input styles */
+.line-items-table .autocomplete-input-wrapper .autocomplete-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.line-items-table .autocomplete-input-wrapper .autocomplete-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+

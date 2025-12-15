@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Test the upload → OCR → DB → status flow"""
+import requests
+import time
+import json
+import sys
+from pathlib import Path
+
+API_BASE = "http://127.0.0.1:8000"
+
+def test_upload(pdf_path: str):
+    """Upload a PDF and poll for status"""
+    print(f"\n{'='*60}")
+    print(f"Testing upload: {pdf_path}")
+    print(f"{'='*60}\n")
+    
+    # Step 1: Upload
+    print("1. Uploading file...")
+    with open(pdf_path, 'rb') as f:
+        files = {'file': (Path(pdf_path).name, f, 'application/pdf')}
+        response = requests.post(f"{API_BASE}/api/upload", files=files)
+    
+    if response.status_code != 200:
+        print(f"[ERROR] Upload failed: {response.status_code}")
+        print(response.text)
+        return None
+    
+    upload_data = response.json()
+    doc_id = upload_data.get('doc_id')
+    print(f"[OK] Upload successful: doc_id={doc_id}")
+    print(f"   Status: {upload_data.get('status')}")
+    print(f"   Format: {upload_data.get('format')}")
+    
+    # Step 2: Poll for status
+    print("\n2. Polling for OCR completion...")
+    max_attempts = 40
+    for attempt in range(max_attempts):
+        time.sleep(1.5)
+        status_response = requests.get(f"{API_BASE}/api/upload/status", params={'doc_id': doc_id})
+        
+        if status_response.status_code != 200:
+            print(f"[WARN] Status check failed: {status_response.status_code}")
+            continue
+        
+        status_data = status_response.json()
+        status = status_data.get('status', 'processing')
+        has_items = len(status_data.get('items', [])) > 0
+        has_parsed = status_data.get('parsed') is not None
+        
+        print(f"   Attempt {attempt+1}/{max_attempts}: status={status}, has_items={has_items}, has_parsed={has_parsed}")
+        
+        if status in ['ready', 'scanned', 'completed'] or has_items:
+            print(f"\n[OK] Processing complete!")
+            print(f"\n3. Final status data:")
+            print(json.dumps(status_data, indent=2, default=str))
+            return status_data
+    
+    print(f"\n[WARN] Timeout after {max_attempts} attempts")
+    return None
+
+if __name__ == "__main__":
+    # Try to find a test PDF
+    test_files = [
+        "demo_invoice.pdf",
+        "test_invoice.pdf",
+        "test_invoice_A.pdf",
+        "test_invoice_B.pdf",
+    ]
+    
+    pdf_path = None
+    for f in test_files:
+        if Path(f).exists():
+            pdf_path = f
+            break
+    
+    if not pdf_path:
+        print("[ERROR] No test PDF found")
+        sys.exit(1)
+    
+    result = test_upload(pdf_path)
+    if result:
+        print("\n[OK] Test completed successfully!")
+        sys.exit(0)
+    else:
+        print("\n[ERROR] Test failed")
+        sys.exit(1)

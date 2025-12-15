@@ -1,4 +1,48 @@
-<!-- 0a78b26f-b45a-49cd-8bfb-40ac8a6e054e 407d12fa-4879-401e-9db8-9d8d73bf7808 -->
+---
+name: Force LLM to Analyze Actual Code Instead of Generic Responses
+overview: ""
+todos:
+  - id: 0d2a403d-6c58-4a76-a747-9896dbe3fd27
+    content: Add question classification system to detect question types (debugging, how-to, what-is, flow, comparison)
+    status: pending
+  - id: b1157a91-bd5f-4055-b485-68cc0e8aad4c
+    content: Fix fallback response to actually read and display files instead of generic messages
+    status: pending
+  - id: 5f8dbdb8-72d8-4b31-ae67-b85bf403c77e
+    content: Add smart file path resolution in code_reader.py (try direct path, then search by name)
+    status: pending
+  - id: dd15fdf8-44fd-456f-841b-bfecaffdb5e3
+    content: Improve error log integration to automatically include relevant code when debugging errors
+    status: pending
+  - id: a722d18e-ccf2-4e79-b67e-6a6a80d28647
+    content: Enhance code search functionality with better matching and more context
+    status: pending
+  - id: f12c3dd6-260d-44e3-bc86-de92b899f2a5
+    content: Add logging and error handling improvements throughout the code reading system
+    status: pending
+  - id: 6c3e9cdf-f35c-40b9-86bf-aa672e3d207e
+    content: Replace debugging system prompt with mandatory structured response format (5 required steps)
+    status: pending
+  - id: 180873da-da30-4d9b-b31b-f7f49038dde8
+    content: Add examples section showing good vs bad responses
+    status: pending
+  - id: 03f28cb0-abaf-4b5c-a4a2-94e13f7f59d7
+    content: Enhance code snippet formatting with line numbers and file headers
+    status: pending
+  - id: 7e95285a-0cf2-4e22-8c75-7ce09f339665
+    content: Add chain-of-thought requirement to show reasoning for each file
+    status: pending
+  - id: ff4ddffa-2b10-4a8e-99f3-5870e77ae324
+    content: Add response validation checklist instructions
+    status: pending
+  - id: 933b24e6-d375-48c9-b42a-2ecf505d4b94
+    content: Strengthen post-code-context instructions from suggestions to requirements
+    status: pending
+  - id: 1141fdbe-cd49-45a8-ab92-a5134a58e28d
+    content: Add code flow diagram requirement for complex questions
+    status: pending
+---
+
 # Force LLM to Analyze Actual Code Instead of Generic Responses
 
 ## Problem
@@ -112,19 +156,3 @@ The LLM will respond with:
 4. "Fix: Update line 236 to also check `statusData.status === 'ready'`..."
 
 Instead of generic troubleshooting steps.
-
-### To-dos
-
-- [ ] Add question classification system to detect question types (debugging, how-to, what-is, flow, comparison)
-- [ ] Fix fallback response to actually read and display files instead of generic messages
-- [ ] Add smart file path resolution in code_reader.py (try direct path, then search by name)
-- [ ] Improve error log integration to automatically include relevant code when debugging errors
-- [ ] Enhance code search functionality with better matching and more context
-- [ ] Add logging and error handling improvements throughout the code reading system
-- [ ] Replace debugging system prompt with mandatory structured response format (5 required steps)
-- [ ] Add examples section showing good vs bad responses
-- [ ] Enhance code snippet formatting with line numbers and file headers
-- [ ] Add chain-of-thought requirement to show reasoning for each file
-- [ ] Add response validation checklist instructions
-- [ ] Strengthen post-code-context instructions from suggestions to requirements
-- [ ] Add code flow diagram requirement for complex questions

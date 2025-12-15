@@ -1,0 +1,183 @@
+/**
+ * Metric Tile Styles
+ */
+
+.metric-tile {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 300ms ease;
+  min-height: 100px;
+}
+
+.metric-tile:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.metric-tile:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+}
+
+.metric-tile-expanded {
+  min-height: 200px;
+}
+
+.metric-tile-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.metric-tile-icon {
+  color: rgba(147, 197, 253, 1);
+  flex-shrink: 0;
+}
+
+.metric-tile-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.metric-tile-title {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.metric-tile-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  line-height: 1.2;
+}
+
+.metric-tile-delta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.metric-tile-delta-positive {
+  color: rgba(34, 197, 94, 1);
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.metric-tile-delta-negative {
+  color: rgba(239, 68, 68, 1);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.metric-tile-delta-neutral {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.metric-tile-expanded-content {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  animation: slideDown 300ms ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.metric-tile-sparkline-container {
+  margin-bottom: 16px;
+}
+
+.metric-tile-sparkline {
+  width: 100%;
+  height: 40px;
+  color: rgba(147, 197, 253, 0.6);
+}
+
+.metric-tile-sparkline-empty {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+
+.metric-tile-severity-breakdown {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.metric-tile-severity-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.metric-tile-severity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.metric-tile-severity-high {
+  background: rgba(239, 68, 68, 1);
+}
+
+.metric-tile-severity-medium {
+  background: rgba(251, 191, 36, 1);
+}
+
+.metric-tile-severity-low {
+  background: rgba(34, 197, 94, 1);
+}
+
+.metric-tile-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.metric-tile-action-button {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+
+.metric-tile-action-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.metric-tile-action-button:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+}
+

@@ -1,0 +1,429 @@
+/* Smart Discrepancy Widget v2 - "System Health Assistant" Design */
+
+.smart-discrepancy-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ============================================
+   Container & Global Layout
+   ============================================ */
+
+.analysis-widget {
+  width: 360px;
+  background: #1A1D24;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0px 12px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.analysis-widget-collapsed {
+  height: 60px;
+}
+
+.analysis-widget-pulse {
+  animation: widgetPulse 1.5s ease-out;
+}
+
+@keyframes widgetPulse {
+  0%, 100% {
+    box-shadow: 0px 12px 24px rgba(0, 0, 0, 0.4);
+  }
+  50% {
+    box-shadow: 0px 12px 24px rgba(0, 0, 0, 0.4), 0 0 0 4px rgba(227, 90, 90, 0.2);
+  }
+}
+
+/* ============================================
+   Header (Status Anchor)
+   ============================================ */
+
+.analysis-widget-header {
+  height: 56px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-bottom-color 0.2s ease;
+}
+
+.analysis-widget-collapsed .analysis-widget-header {
+  border-bottom: none;
+}
+
+.analysis-widget-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  line-height: 1;
+}
+
+.analysis-widget-badge {
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.analysis-widget-badge-issues {
+  background: rgba(239, 68, 68, 0.15);
+  color: #FCA5A5;
+}
+
+.analysis-widget-badge-clear {
+  background: rgba(34, 197, 94, 0.15);
+  color: #86EFAC;
+}
+
+.analysis-widget-chevron {
+  color: rgba(255, 255, 255, 0.6);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.analysis-widget-chevron-collapsed {
+  transform: rotate(-90deg);
+}
+
+/* ============================================
+   Body
+   ============================================ */
+
+.analysis-widget-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Focus Section (Hero Card - Critical Issue)
+   ============================================ */
+
+.analysis-widget-focus {
+  margin: 0 0 24px 0;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, transparent 100%);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: 12px;
+  position: relative;
+}
+
+.analysis-widget-focus-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.analysis-widget-focus-icon {
+  color: #EF4444;
+  flex-shrink: 0;
+}
+
+.analysis-widget-focus-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  line-height: 1.4;
+}
+
+.analysis-widget-focus-context {
+  font-size: 13px;
+  color: #9CA3AF;
+  margin-top: 8px;
+  padding-left: 28px;
+  line-height: 1.5;
+}
+
+.analysis-widget-focus-action {
+  margin-top: 12px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.analysis-widget-focus-group:hover .analysis-widget-focus-action {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.analysis-widget-focus-button {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(239, 68, 68, 0.2);
+  color: #FCA5A5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.analysis-widget-focus-button:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-1px);
+}
+
+.analysis-widget-focus-button:active {
+  transform: translateY(0);
+}
+
+/* ============================================
+   Quick Fix List (Secondary Issues)
+   ============================================ */
+
+.analysis-widget-quickfix {
+  margin: 0 0 20px 0;
+}
+
+.analysis-widget-quickfix-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6B7280;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.analysis-widget-quickfix-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analysis-widget-quickfix-item {
+  height: 44px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.analysis-widget-quickfix-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateX(2px);
+}
+
+.analysis-widget-quickfix-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #D9A63D;
+  flex-shrink: 0;
+}
+
+.analysis-widget-quickfix-text {
+  flex: 1;
+  font-size: 13px;
+  color: #D1D5DB;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-widget-quickfix-arrow {
+  color: #6B7280;
+  flex-shrink: 0;
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.analysis-widget-quickfix-item:hover .analysis-widget-quickfix-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ============================================
+   Empty State (Delight Factor)
+   ============================================ */
+
+.analysis-widget-empty {
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  position: relative;
+  background: radial-gradient(circle at center, rgba(34, 197, 94, 0.05) 0%, transparent 70%);
+}
+
+.analysis-widget-empty-icon {
+  color: rgba(34, 197, 94, 0.5);
+  margin-bottom: 12px;
+  stroke-width: 1.5;
+}
+
+.analysis-widget-empty-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #9CA3AF;
+  line-height: 1.5;
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+
+@media (max-width: 768px) {
+  .analysis-widget {
+    width: 100%;
+    max-width: 360px;
+  }
+}
+
+/* ============================================
+   Legacy Support (for DeliveryNotesCardsSection)
+   ============================================ */
+
+.discrepancy-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: all 0.2s ease-out;
+  box-shadow: var(--shadow-card);
+}
+
+.discrepancy-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-hover);
+}
+
+.discrepancy-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-glass);
+}
+
+.discrepancy-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.discrepancy-badge {
+  background: var(--accent-red);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.discrepancy-card-content {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+}
+
+.discrepancy-card-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.discrepancy-card-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.discrepancy-card-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.discrepancy-card-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.discrepancy-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.discrepancy-empty-state svg {
+  color: var(--accent-green);
+  margin-bottom: 16px;
+  opacity: 0.8;
+}
+
+.discrepancy-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.discrepancy-empty-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.discrepancy-refresh-spinner {
+  animation: spin 1s linear infinite;
+}

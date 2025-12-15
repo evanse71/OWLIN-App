@@ -71,6 +71,10 @@ export default function InvoiceCard({
   onChange,
   onRetry
 }: InvoiceCardProps) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/2a78fcc7-60eb-4c7a-8f83-82b59dfebdf9',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InvoiceCard.tsx:66',message:'InvoiceCard received invoice data',data:{invoice_id:invoice?.id,supplier:invoice?.supplier,supplier_name:invoice?.supplier_name,total_value:invoice?.total_value,total_p:invoice?.total_p,total_amount:invoice?.total_amount,subtotal_p:invoice?.subtotal_p,vat_total_p:invoice?.vat_total_p,invoice_number:invoice?.invoice_number,invoice_date:invoice?.invoice_date,status:invoice?.status,has_line_items:!!(invoice?.line_items || invoice?.items || items),line_items_count:(invoice?.line_items || invoice?.items || items || []).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
+  
   const [isExpanded, setIsExpanded] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   

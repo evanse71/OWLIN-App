@@ -1,0 +1,190 @@
+name: Single-Port Demo Validation
+
+on:
+  push:
+    branches: [ main, feat/lovable-ui-integration ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  single-port-demo:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'tmp_lovable/package-lock.json'
+    
+    - name: Install Python dependencies
+      run: |
+        pip install fastapi uvicorn python-multipart
+    
+    - name: Install frontend dependencies
+      run: |
+        cd tmp_lovable
+        npm ci
+    
+    - name: Build frontend
+      run: |
+        cd tmp_lovable
+        VITE_API_BASE_URL=http://127.0.0.1:8000 npm run build
+    
+    - name: Start single-port demo
+      run: |
+        OWLIN_SINGLE_PORT=1 python test_backend_simple.py &
+        sleep 5
+    
+    - name: Run single-port smoke test
+      run: |
+        bash scripts/smoke_single_port.sh
+    
+    - name: Test deep links (SPA fallback)
+      run: |
+        curl -sS http://127.0.0.1:8000/dashboard | grep -qi "<!doctype html"
+        curl -sS http://127.0.0.1:8000/invoices | grep -qi "<!doctype html"
+        curl -sS http://127.0.0.1:8000/suppliers | grep -qi "<!doctype html"
+        echo "✅ Deep links working"
+    
+    - name: Test API endpoints
+      run: |
+        curl -sf http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
+        echo "✅ API health check passed"
+    
+    - name: Test file upload
+      run: |
+        echo "test upload" > test_ci.txt
+        curl -sf -X POST http://127.0.0.1:8000/api/upload -F "file=@test_ci.txt" | grep -q '"ok":'
+        echo "✅ File upload working"
+        rm test_ci.txt
+    
+    - name: Non-PDF rejected with 400
+      run: |
+        echo "hello" > /tmp/not.pdf
+        test "$(curl -s -o /dev/null -w '%{http_code}' -F 'file=@/tmp/not.pdf' http://127.0.0.1:8000/api/upload)" = "400"
+        echo "✅ Non-PDF files correctly rejected with 400"
+    
+    - name: Oversize rejected with 413
+      run: |
+        dd if=/dev/zero of=/tmp/big.pdf bs=1M count=30
+        test "$(curl -s -o /dev/null -w '%{http_code}' -F 'file=@/tmp/big.pdf' http://127.0.0.1:8000/api/upload)" = "413"
+        echo "✅ Oversize files correctly rejected with 413"
+    
+    - name: Test support pack generation
+      run: |
+        curl -sf -X POST http://127.0.0.1:8000/api/support-pack -o support_pack.zip
+        if [ -f support_pack.zip ]; then
+          echo "✅ Support pack generated"
+          unzip -l support_pack.zip
+        else
+          echo "❌ Support pack generation failed"
+          exit 1
+        fi
+        rm -f support_pack.zip
+    
+    - name: Test upload security - reject non-PDF
+      run: |
+        echo "hello" > /tmp/a.txt
+        code=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@/tmp/a.txt" http://127.0.0.1:8000/api/upload)
+        if [ "$code" = "400" ]; then
+          echo "✅ Non-PDF files rejected"
+        else
+          echo "❌ Non-PDF files not rejected (got $code)"
+          exit 1
+        fi
+        rm -f /tmp/a.txt
+    
+    - name: Rate-limit returns 429
+      run: |
+        printf "%s" "%PDF-1.4\n%%EOF" > /tmp/tiny.pdf
+        RC=0
+        for i in $(seq 1 20); do
+          code=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@/tmp/tiny.pdf" http://127.0.0.1:8000/api/upload)
+          echo "$i -> $code"
+          if [ "$i" -gt 10 ] && [ "$code" != "429" ]; then RC=1; fi
+        done
+        if [ $RC -eq 0 ]; then
+          echo "✅ Rate limiting working (429 status)"
+        else
+          echo "❌ Rate limiting not working"
+          exit 1
+        fi
+        rm -f /tmp/tiny.pdf
+    
+    - name: Test upload security - reject oversize
+      run: |
+        dd if=/dev/zero of=/tmp/big.pdf bs=1M count=30
+        code=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@/tmp/big.pdf" http://127.0.0.1:8000/api/upload)
+        if [ "$code" = "413" ]; then
+          echo "✅ Oversize files rejected"
+        else
+          echo "⚠️  Oversize test got $code (may be acceptable if limits changed)"
+        fi
+        rm -f /tmp/big.pdf
+    
+    - name: Check log files
+      run: |
+        ls -la data/logs/
+        echo "✅ Log files created"
+    
+        - name: Health Banner Test
+          run: |
+            npx playwright test tests/health-banner.spec.ts --project=chromium
+          env:
+            OWLIN_SINGLE_PORT: 1
+            VITE_API_BASE_URL: http://127.0.0.1:8000
+
+        - name: HTTPS Mixed-Content Test
+          run: |
+            # Install mkcert for local HTTPS
+            if command -v mkcert >/dev/null 2>&1; then
+              mkcert -install
+              mkcert localhost 127.0.0.1
+              # Start HTTPS frontend server
+              npx http-server tmp_lovable/dist -S -C localhost.pem -K localhost-key.pem -p 8443 &
+              HTTPS_PID=$!
+              sleep 3
+              # Test mixed-content warning
+              npx playwright test tests/health-banner.spec.ts --project=chromium --config=playwright.https.config.ts
+              kill $HTTPS_PID
+            else
+              echo "mkcert not available, skipping HTTPS test"
+            fi
+          env:
+            OWLIN_SINGLE_PORT: 1
+            VITE_API_BASE_URL: http://127.0.0.1:8000
+
+        - name: Proxy Cache Test
+          run: |
+            # Start nginx with aggressive caching
+            docker run --rm -d --name owlin-proxy -p 8888:80 \
+              -v $PWD/tmp_lovable/dist:/usr/share/nginx/html \
+              -e NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx \
+              nginx:alpine
+            sleep 5
+            # Test cache-busting works
+            curl -s "http://127.0.0.1:8888/api/health?t=$(date +%s)" | jq -e '.status == "ok"'
+            docker stop owlin-proxy
+          env:
+            OWLIN_SINGLE_PORT: 1
+            VITE_API_BASE_URL: http://127.0.0.1:8000
+
+    - name: Upload artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: owlin-artifacts-${{ github.run_number }}
+        path: |
+          data/logs/app.log
+          support_pack_*.zip
+          playwright-report/
+        retention-days: 7

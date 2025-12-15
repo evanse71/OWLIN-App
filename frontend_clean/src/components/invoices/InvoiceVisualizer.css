@@ -1,0 +1,227 @@
+.invoice-visualizer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  background: var(--bg-secondary, #1e293b);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.invoice-visualizer.error {
+  padding: 32px;
+  text-align: center;
+}
+
+.error-message {
+  color: var(--text-secondary, #94a3b8);
+}
+
+.error-message p {
+  margin: 8px 0;
+}
+
+.error-detail {
+  font-size: 0.875rem;
+  color: var(--text-tertiary, #64748b);
+}
+
+/* Controls */
+.visualizer-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle-boxes-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary, #334155);
+  border: 1px solid var(--border-color, #475569);
+  border-radius: 6px;
+  color: var(--text-primary, #f1f5f9);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.toggle-boxes-btn:hover {
+  background: var(--bg-hover, #475569);
+  border-color: var(--border-hover, #64748b);
+}
+
+.toggle-boxes-btn:active {
+  transform: scale(0.98);
+}
+
+.box-count {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+/* Image Container */
+.image-container {
+  position: relative;
+  width: 100%;
+  background: var(--bg-primary, #0f172a);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, #475569);
+  min-height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.invoice-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+  position: relative;
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bg-secondary, #1e293b);
+  color: var(--text-secondary, #94a3b8);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Bounding Box Overlay Container */
+.bbox-overlay-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.bbox-overlay {
+  pointer-events: all;
+  position: absolute;
+  border-radius: 2px;
+}
+
+.bbox-overlay:hover {
+  transform: scale(1.02);
+}
+
+/* Tooltip */
+.bbox-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.tooltip-content {
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #475569);
+  border-radius: 6px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+
+.tooltip-content strong {
+  color: var(--text-primary, #f1f5f9);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.tooltip-content span {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.75rem;
+}
+
+/* Tooltip Arrow */
+.bbox-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--bg-primary, #0f172a);
+}
+
+/* Legend */
+.visualizer-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-color, #475569);
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.legend-box {
+  width: 16px;
+  height: 16px;
+  border: 2px solid;
+  border-radius: 2px;
+  background: transparent;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .invoice-visualizer {
+    padding: 12px;
+  }
+
+  .visualizer-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .visualizer-legend {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+

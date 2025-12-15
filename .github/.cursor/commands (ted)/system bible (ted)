@@ -1,0 +1,708 @@
+Owlin System Bible v1.0
+
+Full Technical & Architectural Specification
+(Cursor-ready + Owner’s inline notes)
+ 
+0  Meta & Global Architecture
+
+Owner Note
+
+Owlin is a fully offline invoice and delivery-verification platform for hospitality venues. It runs entirely on local machines—no cloud, no remote DB—and uses local OCR and analytics to give Finance, GMs, and Shift Leads a single picture of spend, delivery accuracy, and supplier reliability.
+ 
+0.1  Core Principles
+Principle	Description
+Offline-first	All functions work without internet. Sync or export is manual.
+Local transparency	SQLite DB and JSON logs are human-readable.
+Deterministic behaviour	Every action follows a defined input → process → output chain.
+Role-aware access	GM / Finance / Shift Lead rights baked into DB + UI.
+Graceful failure	No hard crashes—any failure returns a coded message and locked UI state.
+ 
+0.2  Technology Stack
+Layer	Technology	License	Reason
+Frontend	React 18 + Vite + Tailwind + TanStack Query	MIT	Fast, reactive, offline-buildable
+Backend API	FastAPI (Python 3.12+)	MIT	Async, lightweight, easy local serve
+Database	SQLite WAL mode (+ DuckDB sidecar analytics)	Public / MIT	File-based, durable, analytics-friendly
+OCR Engines	PaddleOCR VL-0.9B → docTR → Tesseract 5.x → Calamari (optional)	Apache 2.0 / MIT	Full coverage, CPU-only
+Image Preproc	OpenCV + Pillow-HEIF	BSD / MIT	Deskew + denoise + HEIC decode
+Agent Reasoning	Python rules + scikit-learn + local LLM (optional)	BSD / Apache 2.0	Credit/insight generation
+UI Wrapper	Tauri (optional)	MIT / Apache 2.0	Desktop packaging, small footprint
+ 
+0.3  Directory Structure
+Owlin/
+├── app/
+│   ├── backend/
+│   │   ├── main.py
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── models/
+│   ├── frontend/
+│   │   └── src/
+│   │       ├── components/
+│   │       ├── pages/
+│   │       └── api/
+│   ├── data/
+│   │   ├── owlin.db
+│   │   └── backups/
+│   ├── license/
+│   ├── support_packs/
+│   └── updates/
+ 
+0.4  Environment Variables (.env example)
+Key	Default	Purpose
+OWLIN_ENV	local	Run mode
+OCR_ENGINE_PRIMARY	paddleocr	Primary engine
+OCR_CONF_GOOD	80	Confidence threshold
+OCR_CONF_MIN	70	Low-conf cutoff
+PDF_MAX_PAGES	250	Hard limit
+UPLOAD_MAX_MB	25	File size limit
+SHEPHERD_PATH	data/shepherd/	Shared vault root
+DUCKDB_ANALYTICS	true	Enable sidecar DB
+AGENT_ENABLED	true	Owlin Agent toggle
+PORT_BACKEND	8000	API port
+PORT_FRONTEND	5173	UI port
+ 
+1  Data Flow Overview
+
+Owner Note
+
+Everything that happens in Owlin follows one river: Upload → OCR → Parse → Normalize → Match → Detect Issues → Forecast → Dashboard.
+Nothing is hidden; every intermediate result is visible on screen or logged locally.
+ 
+1.1  High-Level Pipeline
+Stage	Input	Process	Output	Storage
+Upload	PDF/JPG/PNG/HEIC	Validate + hash + store	File record	uploaded_files
+Preprocess	Raw image	OpenCV deskew + denoise + binarize	Enhanced image	temp cache
+OCR	Preprocessed image	PaddleOCR/docTR/Tesseract	Text + boxes + confidence	ocr_pages
+Parsing	OCR output	regex + ML rules	supplier, date, total etc.	invoices draft
+Normalization	supplier/item strings	rapidfuzz + embedding	canonical IDs	suppliers,items
+Matching	invoices vs delivery notes	date + supplier logic	matched pairs	invoice_pairs
+Issue Detection	pairs + rules	quantity/price checks	flagged issues	issues
+Forecasting	price history	OLS trend + bands	forecasts	supplier_price_history
+Dashboard	aggregated tables	analytics queries	KPIs + graphs	DuckDB cache
+ 
+1.2  Timing Budgets
+Operation	Target	Max
+Upload parse (≤ 10 pages)	< 4 s	6 s
+Image receipt OCR	< 5 s	8 s
+Dashboard refresh	< 1.5 s	3 s
+Forecast update (batch)	< 2 s	5 s
+ 
+1.3  Failure Codes (Top Level)
+
+UPLOAD_FORMAT_UNSUPPORTED | PDF_MAX_PAGES | OCR_LOW_CONFIDENCE | PARSE_TOTALS_MISMATCH | MATCH_NOT_FOUND | DB_WRITE_FAIL | FORECAST_ERROR
+ 
+1.4  Owner Perspective Summary
+•	Upload file → instant card appears below.
+•	Card shows supplier/date/value/confidence.
+•	“Submit to Owlin” locks document and updates dashboard numbers.
+•	Low-confidence pages show orange badges and open debug panel.
+ 
+
+Owlin System Bible v1.0 — Part 2
+(Backend Specification and Modules)
+
+
+
+
+
+
+
+
+
+2  Backend Specification
+
+🧠 Owner Note
+
+Everything behind the Upload button is managed by a chain of Python modules inside /backend/services.
+Each one does one job and passes clean data forward. If any step fails, it returns a coded message instead of crashing, so the UI always knows what happened.
+ 
+2.1  Module Map
+Module	Purpose	Key Functions	Feeds Into
+preproc.py	Clean & normalize images for OCR	deskew(), denoise(), binarize(), enhance_receipt()	engine_select
+engine_select.py	Choose best OCR engine based on file type	select_engine(), get_config()	ocr_pipeline
+ocr_pipeline.py	Run OCR per page, aggregate results	process_page(), merge_results(), save_meta()	receipt_parser / invoice_parser
+receipt_parser.py	Extract data for self-fulfilled receipts	extract_totals(), detect_vat(), classify_self_fulfilled()	normalizer
+invoice_parser.py	Extract structured invoice lines	extract_table(), parse_header()	normalizer
+classifier.py	Detect document type	classify_doc()	router for parsers
+normalizer.py	Supplier & item canonical matching	normalize_supplier(), normalize_item()	match_engine
+match_engine.py	Invoice ↔ delivery note pairing	find_matches(), score_pairs()	issue_detector
+issue_detector.py	Detect mismatches / missing items	detect_price_mismatch(), detect_short_delivery()	DB issues
+forecast_engine.py	Price trend prediction	fit_trend(), predict_band()	UI graphs
+backup_manager.py	ZIP/WAL backups & restore	create_snapshot(), restore_snapshot()	System Health
+license_manager.py	RSA/ECDSA license validation	verify_license()	startup
+audit_logger.py	Record every action	log_action(user,event,payload)	audit_log
+ 
+2.2  Core Flow (Upload to DB)
+1.	routes/upload.py receives multipart form → validates mime & size → writes to data/uploads → computes SHA-256 hash.
+2.	classifier.classify_doc() runs quick heuristics (PDF metadata, text fragments, page layout) → sets document_type.
+3.	preproc.* cleans pages → engine_select decides engine.
+4.	ocr_pipeline streams pages to engine → stores ocr_pages and confidence scores.
+5.	receipt_parser or invoice_parser extracts structured data → temporary JSON → DB draft_invoices.
+6.	User reviews card → presses Submit to Owlin → routes/documents.submit() finalizes record and triggers post-processing:
+ • normalize supplier/items
+ • match delivery notes
+ • detect issues
+ • update metrics and forecast
+ • append audit log
+ 
+2.3  Service Interaction Graph (textual)
+upload.py
+ ├─> classifier.py
+ ├─> preproc.py
+ │     └─> engine_select.py
+ │           └─> ocr_pipeline.py
+ ├─> receipt_parser.py | invoice_parser.py
+ ├─> normalizer.py
+ ├─> match_engine.py
+ ├─> issue_detector.py
+ ├─> forecast_engine.py
+ └─> audit_logger.py
+ 
+2.4  OCR Engines & Selection Logic
+
+Priority order:
+1.	PaddleOCR (VL-0.9B) — default for multi-language PDFs.
+2.	docTR — triggered when layout = table-dense or multi-column.
+3.	Tesseract 5.x — fallback for thermal receipts or monochrome scans.
+4.	Calamari (optional) — printed legacy docs.
+if is_receipt:
+    engine = "tesseract"
+elif layout_score > 0.6:
+    engine = "doctr"
+else:
+    engine = "paddleocr"
+ 
+2.5  Supplier & Item Normalization
+•	rapidfuzz.token_sort_ratio() ≥ 90 → auto-match
+•	85–90 → flag for user confirmation
+•	<85 → create new supplier record
+•	Sentence-transformer embedding fallback for ambiguous cases.
+
+All matches logged in normalization_log table.
+ 
+2.6  Matching Logic (Invoice ↔ Delivery Note)
+•	Date window ± 3 days
+•	Supplier must match
+•	Total difference ≤ 1 % or ≤ £2 absolute
+•	Line-item match score > 0.8 → confirmed pair
+•	If no pair found → status UNMATCHED → visible in Dashboard “Unmatched Notes”.
+ 
+2.7  Forecasting Algorithm
+•	Source: supplier_price_history (item_id, price_ex_vat, observed_at)
+•	Method: Ordinary Least Squares regression
+•	Outputs: trend slope, intercept, 95 % confidence band, R².
+•	Forecast points 1, 3, 12 months → forecast_points table.
+ 
+2.8  Backup & Shepherd Vault
+•	Every save writes WAL + daily ZIP to data/backups/YYYY-MM-DD_HHMM.zip
+•	Shepherd folder =data/shepherd/<venue_id>/
+ Contains: owlin.db, manifest.json, lockfile.sha256, backups/
+•	If another device accesses same vault, lockfile prevents simultaneous write.
+•	Integrity check PRAGMA integrity_check runs nightly.
+ 
+2.9  Error Handling Template
+try:
+    result = process_invoice(file)
+except OCRConfidenceError as e:
+    return JSONResponse(code="OCR_LOW_CONFIDENCE", detail=str(e))
+except ParseError as e:
+    return JSONResponse(code="PARSE_TOTALS_MISMATCH", detail=str(e))
+except Exception as e:
+    log.error(e)
+    return JSONResponse(code="SERVER_ERROR", detail="Unhandled exception")
+ 
+2.10  Audit Log Schema
+Column	Type	Example
+id	INTEGER PK	1
+timestamp	TEXT	2025-10-27T13:14:33Z
+user	TEXT	gm@venue
+event	TEXT	invoice_submit
+payload	JSON	{"supplier":"Brakes","total":312.45}
+ 
+2.11  API Routes Summary (Backend)
+Endpoint	Method	Purpose
+/api/health	GET	Return status + version pins
+/api/upload	POST	Upload file, run OCR draft
+/api/documents/submit	POST	Finalize docs, trigger analytics
+/api/invoices	GET	List filtered invoices
+/api/invoices/{id}	GET	Invoice detail
+/api/issues	GET/POST	Query or resolve issues
+/api/metrics/overview	GET	Dashboard KPIs
+/api/forecast/{item_id}	GET	Forecast data
+/api/export/issues.csv	GET	CSV export
+/api/license/verify	POST	Check license file
+ 
+
+
+
+ 
+3.9  API ↔ Frontend Integration Matrix
+
+(Every endpoint listed with its direct UI consumer so Cursor knows what must refresh together.)
+API Endpoint	Consumed By	On-Screen Effect	Notes
+/api/health	SystemHealth card + launch banner	Displays build OK + model versions	polled at app start
+/api/upload	UploadSection	Adds new card to InvoiceCardsPanel	returns file meta + scan state
+/api/documents/submit	UploadSection → global invalidate	Locks cards + refreshes dashboard	atomic commit
+/api/invoices	InvoicesPage list	Shows filtered cards	reacts to filters/date range
+/api/invoices/{id}	InvoiceDetailBox	Populates line table + issues	used by expand view
+/api/issues	FlaggedIssuesBox	Shows open issues	POST resolves issue + refresh
+/api/metrics/overview	DashboardPage	Updates KPI tiles	recalculated after submit
+/api/forecast/{item}	UniversalTrendGraph	Renders forecast line + band	async load on graph focus
+/api/suppliers/:id/scorecard	SupplierScorecard	Supplier summary	triggers after supplier change
+/api/export/issues.csv	FlaggedIssuesBox export btn	Downloads CSV	local CSV generator
+/api/license/verify	LicenseManager	Locks/unlocks edit features	offline RSA check
+ 
+3.10 Event Propagation and Reactivity
+
+Sequence: “Submit to Owlin” → Dashboard Update
+User click
+ └─> POST /api/documents/submit
+      ├─ updates invoices/invoice_lines/supplier_price_history
+      ├─ triggers forecast_engine
+      ├─ refresh metrics_daily
+      └─ returns touched IDs
+Frontend:
+ ├─ optimistic lock of cards
+ ├─ invalidateQueries(["invoices","dashboard","suppliers","forecast"])
+ └─ render new KPI values within 1.5 s
+Guaranteed reaction order
+1.	Invoice cards → locked state
+2.	Dashboard KPIs → animated counter update
+3.	Unmatched list → filters out resolved docs
+4.	Supplier scorecards → refetched only for affected IDs
+5.	Forecast graphs → append today’s point
+ 
+3.11 Category and Product Intelligence (Frontend View)
+•	Each invoice_line mapped to an item → category.
+•	Category pie graph = SUM(total_ex_vat) GROUP BY category_id for date range.
+•	Hovering category filters invoice cards to that category.
+•	Clicking product name opens Trend Graph modal with forecast band.
+•	Cached queries expire after 10 minutes idle.
+ 
+3.12 Visual Interaction Budget
+Event	Max Latency	User Feedback
+Upload → Card Visible	< 1.0 s	progress bar + “Scanning…”
+OCR Complete → Parsed Data	< 4 s for ≤ 10 pages	“Preview ready”
+Submit → Dashboard Update	< 1.5 s	numbers animate
+Error → Toast Visible	< 0.2 s	distinct sound + color
+Forecast Graph Load	< 1.2 s	skeleton placeholder
+ 
+3.13 Keyboard & Accessibility Shortcuts
+•	Ctrl + U / Cmd + U → open Upload dialog
+•	Ctrl + F → focus filter bar
+•	Enter on selected card → expand Invoice Detail
+•	Shift + R → refresh dashboard
+•	Alt + E → export issues CSV
+All elements WCAG AA contrast; tooltips for icons.
+ 
+3.14 Owner Perspective
+
+The front end behaves like a local desktop finance console:
+upload files, watch them convert to cards, press Submit, and the numbers shift in real time.
+Every action is instant, traceable, and reversible.
+ 
+
+
+ 
+5  Analytics & Forecasting Engine
+
+🧠 Owner Note
+
+Every number on the Dashboard and Supplier pages—match rate, spend, price trend—comes from deterministic local analytics.
+No cloud BI, no external API.
+Everything is computed on your own machine using SQLite + DuckDB + Python.
+ 
+5.1  Data Sources
+Source Table	Columns Used	Consumer
+invoices, invoice_lines	supplier_id, item_id, total_ex_vat, date	Spend & category pie
+issues	type, severity, status	Flagged issue count
+supplier_price_history	item_id, price_ex_vat, observed_at	Forecast graphs
+metrics_daily	pre-aggregated KPIs	Dashboard tiles
+ 
+5.2  Metric Computation (backend 
+metrics_engine.py
+)
+1.	Spend Total = Σ (invoice.total_ex_vat) per day/venue
+2.	Match Rate = matched invoices ÷ total invoices
+3.	Issue Rate = open issues ÷ total docs
+4.	Avg Confidence = mean(OCR page confidence)
+5.	Volatility Score = σ(price change % per item)
+
+Results → metrics_daily(venue_id,date,kpi,value)
+Frontend reads aggregate over range.
+ 
+5.3  Forecast Computation (backend 
+forecast_engine.py
+)
+for item in items:
+    hist = fetch_price_history(item)
+    if len(hist) > 3:
+        slope, intercept = ols(hist.dates, hist.prices)
+        conf_band = compute_95ci(hist.prices)
+        save_forecast(item, slope, intercept, conf_band)
+UI Graph → actual line (blue) + forecast (broken sage) + band (transparent).
+ 
+5.4  Supplier Scorecard Algorithm
+Metric	Formula	Colour Code
+Mismatch Rate	mismatched_lines ÷ total_lines	amber > 3 %
+Delivery Delays	late deliveries ÷ total deliveries	red > 5 %
+Price Volatility	σ(price change)	amber > 10 %
+Issue Resolution Time	avg days(open→closed)	grey > 7 days
+ 
+5.5  Analytics Cache
+•	DuckDB mirror refreshed on Submit or when older than 1 hour.
+•	Cached queries:
+• dashboard_overview() – 3 s
+• forecast_series(item) – 1 s
+• category_spend() – 0.8 s
+ 
+6  Owlin Agent (Reasoning & Credit Suggestion)
+
+🧠 Owner Note
+
+Owlin Agent acts as a local advisor. It reads flagged issues and OCR confidence and suggests next actions—credit requests, rescan alerts, or supplier warnings—all offline.
+ 
+6.1  Data Inputs
+•	issues table (open and recent)
+•	invoice_lines for flagged invoices
+•	supplier_price_history (3-month trend)
+•	OCR confidence values < 75 %
+•	user role (for tone / permissions)
+ 
+6.2  Reasoning Pipeline
+1.	Gather – query flagged issues + context.
+2.	Classify issue type → PRICE / QUANTITY / DELIVERY / MISC.
+3.	Decide Action
+• Price error → draft credit suggestion.
+• Quantity short → mark “verify delivery logs.”
+• Repeated supplier fault → “Escalate to Finance.”
+4.	Generate Output (rule or LLM template).
+5.	Store Result in agent_suggestions table with confidence score.
+ 
+6.3  Credit Suggestion Engine
+Input	Rule	Output
+Line total mismatch > £1	credit_value = abs(diff)	“Request £X credit from Supplier”
+VAT calc error > 0.5 %	“Check VAT rounding on Supplier invoice”	advice
+3 + same issue supplier month	“Flag Supplier for review”	escalation
+Optional local LLM (quantized Mistral/Llama ≤ 4 GB) to rewrite into email-ready text.
+ 
+6.4  UI Integration
+•	Appears as 🧩 Agent Panel inside InvoiceDetailBox.
+•	Shows suggestions list with confidence badge.
+•	Clicking copy icon → copies email draft.
+•	Low confidence (< 60 %) → greyed out “review manually.”
+ 
+6.5  Agent Audit
+
+Each agent decision logged → audit_log (event = “agent_suggestion”).
+User can disable agent in Settings → toggle AGENT_ENABLED=false.
+ 
+7  Defensive & Integrity Systems
+
+🧠 Owner Note
+
+Owlin is built for kitchen-floor conditions — power cuts, duplicate files, USB copies. Nothing corrupts the database or loses records.
+ 
+7.1  Integrity Stack
+Layer	Tool	Function
+Upload	SHA-256 hash	Prevent duplicate files
+Database	SQLite WAL mode	Atomic writes
+Daily Check	PRAGMA integrity_check	Detect corruption
+Shepherd Vault	Manifest + lock file	Multi-device sync safety
+Backup	ZIP + sha256 manifest	Versioned restore
+ 
+7.2  Failure Escalation Matrix
+Failure	Recovery Action	User Feedback
+File hash exists	Skip processing	“Duplicate upload ignored.”
+DB write error	Rollback + mark retry	“Retry saved data.”
+Integrity fail	Enter Recovery Mode	Banner + restore options
+Low disk space	Pause OCR	“Storage low – free space.”
+License expired	Lock edit functions	“Read-only mode.”
+ 
+7.3  Backup and Restore Protocol
+1.	On backup trigger:
+owlin.db + audit_log + version_log → ZIP.
+2.	Compute sha256 → manifest.json.
+3.	Store under data/backups/DATE_TIME.zip.
+4.	Restore mode in UI → select backup → confirm → import.
+5.	Conflicts resolved via render_table_diff() UI.
+ 
+7.4  System Health Checks
+Check	Frequency	Result
+API status (/api/health)	every 30 s	badge green/red
+DB integrity	daily on launch	modal on fail
+OCR model hashes	on startup	displayed in System Health
+Shepherd lock	before write	prevents multi-edit
+ 
+7.5  Version Log Example
+Module	Version Hash	Date
+paddleocr	b8f7e4a	2025-10-20
+doctr	1d39fe2	2025-10-20
+tesseract	5.4.1-eng	2025-10-20
+backend schema	v1.0.0	2025-10-27
+Displayed via System Health → “Versions.”		
+ 
+7.6  Security and Permissions
+•	Users stored with bcrypt password hash.
+•	Roles enforced in API via dependency injection.
+•	Local requests only (CORS: localhost 127.0.0.1).
+•	File paths sandboxed to data/uploads/.
+ 
+7.7  System Limits
+Parameter	Limit	Rationale
+Upload size	25 MB	offline performance
+Pages per PDF	250	memory bound
+Concurrent uploads	4	CPU budget
+Forecast window	12 months	UX clarity
+Backups retained	30 days	storage efficiency
+ 
+
+ 
+8  Acceptance & Validation Framework
+
+🧠 Owner Note
+
+Every build of Owlin must pass this table before release.
+If all tests succeed, the app is guaranteed to:
+•	read any PDF / image invoice,
+•	update all analytics instantly,
+•	maintain database integrity,
+•	recover from power loss,
+•	and never show an undefined state.
+ 
+8.1  Functional Test Matrix
+#	Scenario	Action	Expected Result	Threshold
+1	PDF invoice (2 pages)	Upload → Submit	Supplier/date/total extracted; conf ≥ 80	Pass ≥ 80
+2	Complex table invoice	Upload	docTR triggered; all rows parsed	conf ≥ 75
+3	Thermal receipt (JPG)	Upload → Submit	Receipt classified SELF-FULFILLED; total accurate	conf ≥ 70
+4	HEIC receipt	Upload → auto-convert	Handled via Pillow-HEIF; same result as JPG	no error
+5	250-page PDF	Upload	Rejected with PDF_MAX_PAGES	error shown
+6	Unmatched invoice	Submit	Appears in Dashboard Unmatched list	visible within 1.5 s
+7	Price mismatch	Submit	Issue created → Flagged Issues panel	1 row added
+8	Resolve issue	Click resolve	Issue status → closed; dashboard count -1	sync ≤ 1.5 s
+9	Forecast update	Submit invoice with item X	Dashboard trend graph adds today point	delay ≤ 2 s
+10	Agent suggestion	Flag price error	Agent shows credit value recommendation	text generated
+11	Backup restore	Run manual backup → restore	DB and metrics identical post-restore	diff = 0
+12	Integrity fail simulation	Corrupt DB	Recovery mode activates	banner shown
+13	License expiry	Expire file	UI read-only	no writes
+ 
+8.2  Performance Benchmarks
+Operation	Target	Max Acceptable
+Upload → Card visible	< 1 s	2 s
+OCR (≤ 10 pages)	< 4 s	6 s
+Submit → Dashboard update	< 1.5 s	3 s
+Forecast recalc (batch 50 items)	< 2 s	5 s
+Full backup ZIP creation	< 3 s	5 s
+ 
+8.3  Regression Guards
+•	Smoke test for each endpoint → HTTP 200.
+•	DB integrity check = ok.
+•	No duplicate hashes in uploaded_files.
+•	UI snapshot diff < 0.1 %.
+ 
+9  Appendices
+
+9.1  Environment File (.env.example)
+OWLIN_ENV=local
+OCR_ENGINE_PRIMARY=paddleocr
+OCR_CONF_GOOD=80
+OCR_CONF_MIN=70
+PDF_MAX_PAGES=250
+UPLOAD_MAX_MB=25
+SHEPHERD_PATH=data/shepherd/
+DUCKDB_ANALYTICS=true
+AGENT_ENABLED=true
+PORT_BACKEND=8000
+PORT_FRONTEND=5173
+ 
+9.2  Model Version Table
+Engine	Model / Langdata	Hash	Date
+PaddleOCR VL-0.9B	ppocrv5_multilang	b8f7e4a	2025-10-20
+docTR	doctr_db_resnet50	1d39fe2	2025-10-20
+Tesseract	eng.traineddata v5.4.1	5x9af4c	2025-10-20
+Calamari	latin_printed	0c23ba7	2025-10-20
+ 
+9.3  Error Code Reference
+Code	Meaning	User Action
+UPLOAD_FORMAT_UNSUPPORTED	File type not PDF/JPG/PNG/HEIC	Upload valid format
+PDF_MAX_PAGES	PDF too large	Split file
+OCR_LOW_CONFIDENCE	Page conf < 70	Review text
+PARSE_TOTALS_MISMATCH	Total calc error	Check invoice
+MATCH_NOT_FOUND	No delivery note	Manual pair
+DB_WRITE_FAIL	SQLite write error	Retry
+FORECAST_ERROR	Trend fit failed	Ignore update
+LICENSE_EXPIRED	License invalid	Renew file
+INTEGRITY_FAIL	DB corruption	Restore backup
+ 
+9.4  Fixture Set (for tests)
+•	/fixtures/pdf/invoice_simple.pdf
+•	/fixtures/pdf/invoice_table.pdf
+•	/fixtures/img/receipt_thermal.jpg
+•	/fixtures/img/receipt_crumpled.jpg
+•	/fixtures/img/receipt_heic.heic
+•	/fixtures/pdf/invoice_large.pdf
+ 
+9.5  Third-Party Licenses
+
+All open-source components used under MIT / Apache 2.0 / BSD / Public Domain licenses:
+•	FastAPI, React, Vite, Tailwind, TanStack Query – MIT
+•	PaddleOCR, docTR, Tesseract, Calamari, OpenCV, Pillow-HEIF – Apache 2.0 / MIT / BSD
+•	DuckDB, SQLite – MIT / Public Domain
+•	cryptography, PyCryptodome – Apache 2.0 / BSD
+•	scikit-learn, rapidfuzz, sentence-transformers – BSD / MIT / Apache 2.0
+ 
+9.6  Glossary
+Term	Definition
+Shepherd Vault	Shared venue folder holding SQLite DB + manifest + backups.
+Confidence	Average OCR trust score (0–100 %).
+Flagged Issue	Detected mismatch requiring manual check.
+Forecast Band	Predicted price range (95 % confidence).
+Agent Suggestion	Automated credit or action recommendation by Owlin Agent.
+Limited Mode	Read-only state when license invalid or vault locked.
+Support Pack	ZIP export containing DB + logs for diagnostics.
+ 
+9.7  Release Checklist
+1.	✅ Run all 13 acceptance tests.
+2.	✅ Verify model hashes in /api/health.
+3.	✅ Confirm Shepherd manifest present and valid.
+4.	✅ Generate support pack ZIP before shipping.
+5.	✅ Tag Git commit with version hashes.
+ 
+9.8  Owner Closing Note
+
+When all boxes are green, Owlin is production-ready.
+Every button, every card, every number is reproducible from the information inside this document.
+Cursor can rebuild the entire system from these pages alone.
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+Appendix B – Architectural Audit & Hardening Plan
+
+(Post-specification production-readiness review conducted October 2025.)
+ 
+B.1 Executive Critique
+
+Owlin’s current architecture is fundamentally strong:
+•	Deterministic, fully offline design
+•	Clean module isolation (upload → OCR → parse → store → analyze → display)
+•	Robust audit and recovery mechanisms
+•	Role-aware UI and permissions
+
+However, to reach true “unbreakable” commercial-grade reliability, several subsystems must be reinforced: concurrent writes, OCR fallback automation, alias-learning, backup UX, and live monitoring.
+ 
+B.2 Critical System Improvements
+
+1 Database Reliability (WAL + Shared Vault)
+•	Risk: SQLite WAL over SMB/NAS may corrupt under simultaneous writes.
+•	Action → Implement enforced single-writer tokens; evaluate LiteFS/Litestream replication if concurrent editing is essential.
+
+2 OCR Pipeline Robustness
+•	Risk: fallback path too shallow.
+•	Action → Add ocr_triage.py queue that auto-reruns low-confidence pages with alternate preprocessing + engine; log all retries.
+
+3 Supplier Normalization Enhancement
+•	Risk: alias drift and manual cleanup debt.
+•	Action → Create supplier_alias_review table + UI panel prompting user to confirm new vendor strings.
+
+4 Backup / Restore UX
+•	Risk: blind restores.
+•	Action → Build Backup Browser Modal with timeline slider + JSON diff preview; require confirmation before overwrite.
+
+5 Multi-User Concurrency
+•	Risk: simultaneous writers corrupt data.
+•	Action → Use startup check in vault_lock.py to issue edit token; refuse secondary write sessions.
+
+6 System Health Monitoring
+•	Risk: silent stalls or disk exhaustion.
+•	Action → Add health_watchdog.py (Python watchdog) monitoring uploads folder, disk space, and process liveness; expose /api/system/health/live.
+
+7 UX & Error Handling
+•	Risk: passive error toasts.
+•	Action → Replace with contextual modals (“Recover from backup?” / “Split file now?”) + log user choices to audit trail.
+
+8 Security & Licensing
+•	Risk: potential local tampering.
+•	Action → Store license manifest hashes; extend auth.py to argon2id rehash policy with salt rotation.
+
+9 Performance & Scalability
+•	Risk: UI thrash at >10 k records.
+•	Action → Implement chunked background processing, throttle TanStack Query invalidations, guard against memory exhaustion with cool-down logic.
+ 
+B.3 Red Flag Risks
+Category	Description	Required Safeguard
+File-based Concurrency	SQLite over SMB	Single-writer token or LiteFS
+Restore Process	No dry-run preview	Mandatory diff preview
+OCR Preprocessing	Aggressive filters	Configurable per type
+Supplier Alias	Drift over time	Monthly review UI
+Credentials & Licenses	Weak storage	Argon2id rehash + manifest hash
+ 
+B.4 Integration Tasks
+Module	File / Component	Function
+backend	ocr_triage.py	OCR retry queue and logging
+backend	vault_lock.py	Single-writer token enforcement
+backend	health_watchdog.py	Folder + process monitor
+frontend	BackupBrowserModal.tsx	Interactive restore UI
+frontend	SupplierAliasReviewPanel.tsx	Vendor alias approval panel
+docs	Appendix_B_Architectural_Hardening.md	This plan as stand-alone doc
+ 
+B.5 Action Checklist for Final Cursor Sprint
+#	Task	Owner	Status
+1	Add LiteFS or single-writer token	Backend	☐
+2	Build OCR Triage Queue	Backend	☐
+3	Implement Alias Review Panel	Frontend	☐
+4	Add Backup Browser Modal	Frontend	☐
+5	Integrate Watchdog Health Monitor	Backend	☐
+6	Replace error toasts with context modals	Frontend	☐
+7	Enforce argon2id rehash policy	Backend	☐
+8	Stress-test 10 k+ records and optimize cache	QA	☐
+Mark all ☑ before tagging release v1.1.0.
+ 
+B.6 Summary Judgment
+
+Owlin now meets professional offline-software engineering standards.
+Final focus:
+•	Lock the vault (no concurrent writes)
+•	Preview before restore
+•	Automate triage + monitoring
+•	Keep supplier mappings clean
+•	Secure everything by default
+
+When all items in § B.5 are green, Owlin achieves “deterministic commercial-grade resilience.”
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

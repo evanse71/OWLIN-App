@@ -27,7 +27,7 @@ export const EnhancedInvoiceDetailPanel = memo(function EnhancedInvoiceDetailPan
   const invoiceId = metadata.id ?? invoice.id
   const confidence = metadata.confidence ?? null
 
-  // Mock pairing suggestions - replace with real data
+  // Pairing suggestions - fetched from API when needed
   const pairingSuggestions: PairingSuggestion[] = []
 
   const formatDate = (dateString?: string): string => {

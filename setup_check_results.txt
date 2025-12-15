@@ -1,0 +1,1 @@
+Setup check completed - see console output above

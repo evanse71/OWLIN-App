@@ -1,0 +1,104 @@
+/**
+ * Dashboard Page Styles
+ * Dark, desaturated surfaces with neon accents for status/progress
+ * 12-column grid system with responsive breakpoints
+ */
+
+.dashboard-container {
+  min-height: 100vh;
+  background: #1a1a1a;
+  color: rgba(255, 255, 255, 0.87);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 24px;
+  padding: 24px;
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+/* Primary Status Row - Four Metric Tiles */
+.dashboard-metrics-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1400px) {
+  .dashboard-metrics-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-metrics-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Main Content Area - Two Columns */
+.dashboard-main-content {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 1200px) {
+  .dashboard-main-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-left-column {
+  min-width: 0;
+}
+
+.dashboard-right-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Full Width Sections */
+.dashboard-trends-section {
+  grid-column: 1 / -1;
+}
+
+.dashboard-unmatched-section {
+  grid-column: 1 / -1;
+}
+
+.dashboard-activity-section {
+  grid-column: 1 / -1;
+}
+
+/* Smooth transitions */
+.dashboard-container * {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+/* Scrollbar styling */
+.dashboard-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dashboard-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dashboard-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.dashboard-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+

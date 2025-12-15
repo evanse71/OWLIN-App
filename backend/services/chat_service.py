@@ -13,6 +13,7 @@ import uuid
 import json
 import os
 import threading
+import math
 from typing import List, Dict, Any, Optional, Tuple, Callable
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
@@ -309,6 +310,9 @@ class ChatService:
             failure_threshold=config.circuit_breaker_threshold,
             timeout=config.circuit_breaker_timeout
         )
+        # Cache for relevance scores (key: (file_path, query_hash), value: score)
+        self._relevance_score_cache: Dict[Tuple[str, str], float] = {}
+        self._file_access_count: Dict[str, int] = {}  # Track file access frequency
         self.ollama_available = self._check_ollama_available()
         
         # Initialize model registry
@@ -318,9 +322,10 @@ class ChatService:
         if models:
             self.models = models
         else:
-            # Default priority order
+            # Default priority order (32B first for best code understanding)
             self.models = [
-                "qwen2.5-coder:7b",
+                "qwen2.5-coder:32b",  # Best quality for code analysis
+                "qwen2.5-coder:7b",   # Fast fallback
                 "deepseek-coder:6.7b",
                 "codellama:7b",
                 "llama3.2:3b"
@@ -2475,8 +2480,8 @@ Try asking:
             if func_name.lower() in common_words or len(func_name) < 3:
                 continue  # Skip common words and very short names
             
-            # IMPROVED: More strict check - verify function actually exists
-            exists = self._function_exists_in_codebase(func_name, files_read_tracker)
+            # IMPROVED: More strict check - verify function actually exists with signature
+            exists, func_info = self._function_exists_in_codebase(func_name, files_read_tracker)
             
             if not exists:
                 # Check if it's mentioned in a "Functions Found" section (should only list existing functions)
@@ -2503,15 +2508,26 @@ Try asking:
                 if func_name.lower() in common_words or len(func_name) < 3:
                     continue
                 # If function is claimed as missing but actually exists, that's an issue
-                if self._function_exists_in_codebase(func_name, files_read_tracker):
-                    issues.append(f"Function '{func_name}' is claimed as missing but actually exists in codebase")
+                exists, func_info = self._function_exists_in_codebase(func_name, files_read_tracker)
+                if exists:
+                    file_info = f" in {func_info['file']}:{func_info['line']}" if func_info else ""
+                    issues.append(f"Function '{func_name}' is claimed as missing but actually exists{file_info}")
         
         return issues
     
-    def _function_exists_in_codebase(self, func_name: str, files_read_tracker: set) -> bool:
+    def _function_exists_in_codebase(self, func_name: str, files_read_tracker: set) -> Tuple[bool, Optional[Dict]]:
         """
         Check if function exists in codebase using grep.
         More strict: only matches actual function definitions, not assignments or calls.
+        Returns function signature and file location if found.
+        
+        Returns:
+            Tuple of (exists: bool, function_info: Optional[Dict]) where function_info contains:
+            - file: file path
+            - line: line number
+            - signature: function signature
+            - is_private: whether function is private (starts with _)
+            - is_async: whether function is async
         """
         try:
             # Use code_explorer to search for function definition
@@ -2523,20 +2539,47 @@ Try asking:
             
             # Filter results to ensure they're actual function definitions, not just mentions
             valid_results = []
-            for result in results:
-                match_text = result.get("match", "").lower()
-                # Check if it's a function definition (starts with def or async def)
-                if match_text.strip().startswith(("def ", "async def ")):
-                    # Make sure it's not just a comment or string
-                    line = result.get("context", result.get("match", ""))
-                    # Skip if it's in a comment
-                    if not line.strip().startswith("#"):
-                        valid_results.append(result)
+            for file_path, line_numbers in results.items():
+                for line_num in line_numbers[:5]:  # Check first 5 matches per file
+                    try:
+                        # Read the file to get the actual function signature
+                        file_data = self.code_reader.read_file(file_path, max_lines=line_num + 5)
+                        if file_data.get("success"):
+                            lines = file_data.get("content", "").split('\n')
+                            if line_num <= len(lines):
+                                line = lines[line_num - 1].strip()
+                                
+                                # Check if it's a function definition (starts with def or async def)
+                                if line.startswith(("def ", "async def ")) and func_name in line:
+                                    # Extract function signature
+                                    signature = line
+                                    # Check if it's private (starts with _)
+                                    is_private = func_name.startswith('_')
+                                    # Check if it's async
+                                    is_async = line.startswith("async def ")
+                                    
+                                    valid_results.append({
+                                        "file": file_path,
+                                        "line": line_num,
+                                        "signature": signature,
+                                        "is_private": is_private,
+                                        "is_async": is_async
+                                    })
+                    except Exception as e:
+                        logger.debug(f"Error reading file {file_path} at line {line_num}: {e}")
+                        continue
             
-            return len(valid_results) > 0
+            if valid_results:
+                # Return the first valid result (prefer files in files_read_tracker)
+                for result in valid_results:
+                    if result["file"] in files_read_tracker:
+                        return True, result
+                return True, valid_results[0]
+            
+            return False, None
         except Exception as e:
             logger.warning(f"Error checking function existence for '{func_name}': {e}")
-            return False  # Conservative: assume doesn't exist if check fails
+            return False, None  # Conservative: assume doesn't exist if check fails
     
     def _verify_file_paths(self, response: str) -> List[str]:
         """Verify that file paths mentioned in response actually exist."""
@@ -3484,16 +3527,17 @@ If you give generic advice again, your response will be rejected."""
         formatted.append("\n=== END FINDINGS ===\n")
         return "\n".join(formatted)
     
-    def _smart_truncate_content(self, content: str, max_length: int = 500) -> str:
+    def _smart_truncate_content(self, content: str, max_length: int = 500, start_line: int = 1) -> str:
         """
-        Smart truncation: keep function definitions, preserve structure, remove comments.
+        Smart truncation: preserve code structure, truncate at boundaries, show line numbers.
         
         Args:
             content: Content to truncate
             max_length: Maximum length
+            start_line: Starting line number (for line number display)
             
         Returns:
-            Truncated content
+            Truncated content with line numbers and boundary markers
         """
         if len(content) <= max_length:
             return content
@@ -3501,37 +3545,97 @@ If you give generic advice again, your response will be rejected."""
         lines = content.split('\n')
         important_lines = []
         current_length = 0
+        line_num = start_line
+        in_function = False
+        in_class = False
+        brace_count = 0
+        bracket_count = 0
+        paren_count = 0
+        last_important_line = 0
         
-        for line in lines:
+        # Track indentation to preserve structure
+        base_indent = 0
+        if lines:
+            first_line = lines[0]
+            base_indent = len(first_line) - len(first_line.lstrip())
+        
+        for i, line in enumerate(lines):
             stripped = line.strip()
+            line_indent = len(line) - len(line.lstrip())
             
-            # Prioritize function/class definitions
-            if re.match(r'^\s*(def|class|async\s+def|@)', stripped):
-                important_lines.append(line)
+            # Count brackets/braces/parens to detect boundaries
+            brace_count += line.count('{') - line.count('}')
+            bracket_count += line.count('[') - line.count(']')
+            paren_count += line.count('(') - line.count(')')
+            
+            # Detect function/class boundaries
+            is_function_def = bool(re.match(r'^\s*(def|async\s+def)\s+', stripped))
+            is_class_def = bool(re.match(r'^\s*class\s+', stripped))
+            is_decorator = bool(re.match(r'^\s*@', stripped))
+            is_import = bool(re.match(r'^\s*(import|from)\s+', stripped))
+            is_type_hint = bool(re.match(r'^\s*[A-Z][a-zA-Z0-9_]*\s*:', stripped))  # Type hints
+            
+            # Prioritize important code patterns
+            is_important = (
+                is_function_def or
+                is_class_def or
+                is_decorator or
+                is_import or
+                is_type_hint or
+                (stripped and not stripped.startswith('#') and not stripped.startswith('"""') and not stripped.startswith("'''"))
+            )
+            
+            # Check if we're at a natural boundary (end of function/class)
+            at_boundary = (
+                (brace_count == 0 and bracket_count == 0 and paren_count == 0) or
+                (in_function and is_function_def) or  # New function starts
+                (in_class and is_class_def)  # New class starts
+            )
+            
+            # If we're approaching the limit and at a boundary, truncate here
+            if current_length > max_length * 0.9 and at_boundary and not is_important:
+                break
+            
+            # Add line if important or we have room
+            if is_important or current_length < max_length * 0.7:
+                important_lines.append((line_num, line))
                 current_length += len(line) + 1
-            # Keep code lines (not just comments)
-            elif stripped and not stripped.startswith('#'):
-                important_lines.append(line)
-                current_length += len(line) + 1
-            # Skip standalone comments if we're over limit
-            elif current_length > max_length * 0.8:
-                continue
-            else:
-                important_lines.append(line)
+                last_important_line = line_num
+                
+                if is_function_def:
+                    in_function = True
+                if is_class_def:
+                    in_class = True
+            elif current_length < max_length:
+                # Add non-important lines if we have room
+                important_lines.append((line_num, line))
                 current_length += len(line) + 1
             
+            # Stop if we've exceeded the limit
             if current_length > max_length:
                 break
+            
+            line_num += 1
         
-        result = '\n'.join(important_lines)
+        # Build result with line numbers
+        result_lines = []
+        for line_num, line in important_lines:
+            result_lines.append(f"{line_num:4d} | {line}")
+        
+        result = '\n'.join(result_lines)
+        
+        # Add truncation marker with line range
         if len(content) > len(result):
-            result += f"\n... (truncated from {len(content)} chars, showing {len(result)} chars)"
+            original_lines = len(lines)
+            shown_lines = len(important_lines)
+            result += f"\n... (truncated: showing lines {start_line}-{last_important_line} of {original_lines} total lines, {len(result)}/{len(content)} chars)"
         
         return result
     
     def _resolve_file_path(self, file_path: str, files_read_tracker: Optional[set] = None) -> Tuple[str, float]:
         """
         Resolve file path with fuzzy matching for typos and path variations.
+        Uses Levenshtein-like distance (SequenceMatcher) and caches resolved paths.
         
         Args:
             file_path: Original file path (may have typos)
@@ -3542,9 +3646,20 @@ If you give generic advice again, your response will be rejected."""
         """
         from pathlib import Path
         
+        # Cache resolved paths to avoid repeated lookups
+        if not hasattr(self, '_path_resolution_cache'):
+            self._path_resolution_cache = {}
+        
+        # Check cache first
+        cache_key = (file_path, tuple(sorted(files_read_tracker)) if files_read_tracker else None)
+        if cache_key in self._path_resolution_cache:
+            return self._path_resolution_cache[cache_key]
+        
         # Try exact match first
         if Path(file_path).exists():
-            return file_path, 1.0
+            result = (file_path, 1.0)
+            self._path_resolution_cache[cache_key] = result
+            return result
         
         # Try common path variations
         possible_paths = [
@@ -3563,7 +3678,9 @@ If you give generic advice again, your response will be rejected."""
         # Check exact matches in variations
         for path in possible_paths:
             if Path(path).exists():
-                return path, 0.9
+                result = (path, 0.9)
+                self._path_resolution_cache[cache_key] = result
+                return result
         
         # If we have files_read_tracker, use it for fuzzy matching
         if files_read_tracker:
@@ -3571,14 +3688,16 @@ If you give generic advice again, your response will be rejected."""
             best_score = 0.0
             
             for known_file in files_read_tracker:
-                # Calculate similarity using SequenceMatcher
+                # Calculate similarity using SequenceMatcher (Levenshtein-like distance)
                 similarity = SequenceMatcher(None, file_path.lower(), known_file.lower()).ratio()
                 if similarity > best_score and similarity > 0.7:  # 70% similarity threshold
                     best_score = similarity
                     best_match = known_file
             
             if best_match:
-                return best_match, best_score
+                result = (best_match, best_score)
+                self._path_resolution_cache[cache_key] = result
+                return result
         
         # Try fuzzy matching against all files in workspace
         try:
@@ -3611,12 +3730,16 @@ If you give generic advice again, your response will be rejected."""
                     best_match = workspace_file
             
             if best_match:
-                return best_match, best_score * 0.8  # Lower confidence for workspace search
+                result = (best_match, best_score * 0.8)  # Lower confidence for workspace search
+                self._path_resolution_cache[cache_key] = result
+                return result
         except Exception as e:
             logger.debug(f"Error in fuzzy file matching: {e}")
         
         # Return original path with low confidence if no match found
-        return file_path, 0.0
+        result = (file_path, 0.0)
+        self._path_resolution_cache[cache_key] = result
+        return result
     
     def _validate_command(self, cmd: Dict) -> Tuple[bool, Optional[str], Optional[str]]:
         """
@@ -3632,8 +3755,13 @@ If you give generic advice again, your response will be rejected."""
         
         if cmd_type == "READ":
             file_path = cmd.get("file")
+            # Validate parameter type
             if not file_path:
                 return False, "READ command missing 'file' field", "Specify a file path: READ backend/main.py"
+            if not isinstance(file_path, str):
+                return False, f"READ command 'file' must be a string, got {type(file_path).__name__}", "Specify a file path as a string: READ backend/main.py"
+            if not file_path.strip():
+                return False, "READ command 'file' field is empty", "Specify a non-empty file path: READ backend/main.py"
             
             # Try to resolve path
             resolved_path, confidence = self._resolve_file_path(file_path)
@@ -3642,40 +3770,67 @@ If you give generic advice again, your response will be rejected."""
                 if confidence > 0.0:
                     suggestions.append(f"Did you mean: {resolved_path}?")
                 suggestions.append("Check the file path spelling and location.")
-                return False, f"File '{file_path}' not found", " | ".join(suggestions)
+                return False, f"File '{file_path}' not found (confidence: {confidence:.0%})", " | ".join(suggestions)
             
             # Update command with resolved path if different
             if resolved_path != file_path:
                 cmd["file"] = resolved_path
-                logger.info(f"Resolved file path: {file_path} -> {resolved_path}")
+                logger.info(f"Resolved file path: {file_path} -> {resolved_path} (confidence: {confidence:.0%})")
             
             return True, None, None
         
         elif cmd_type == "GREP":
             pattern = cmd.get("pattern")
+            # Validate parameter type
             if not pattern:
                 return False, "GREP command missing 'pattern' field", "Specify a search pattern: GREP def function_name"
+            if not isinstance(pattern, str):
+                return False, f"GREP command 'pattern' must be a string, got {type(pattern).__name__}", "Specify a search pattern as a string: GREP def function_name"
+            if not pattern.strip():
+                return False, "GREP command 'pattern' field is empty", "Specify a non-empty search pattern: GREP def function_name"
             
-            # Validate regex pattern syntax
+            # Pre-validate regex pattern syntax
             try:
                 re.compile(pattern)
             except re.error as e:
-                return False, f"Invalid regex pattern: {str(e)}", "Check regex syntax. Use READ to see the file first."
+                error_msg = str(e)
+                suggestion = "Check regex syntax. Common issues:\n"
+                suggestion += "- Unclosed brackets: use \\[ or \\] for literal brackets\n"
+                suggestion += "- Invalid escape sequences: use \\\\ for backslash\n"
+                suggestion += "- Unmatched parentheses: check all ( and ) are balanced\n"
+                suggestion += "Use READ to see the file first, then use a simpler pattern."
+                return False, f"Invalid regex pattern: {error_msg}", suggestion
             
             return True, None, None
         
         elif cmd_type == "SEARCH":
             term = cmd.get("term")
-            if not term or not term.strip():
+            # Validate parameter type
+            if not term:
                 return False, "SEARCH command missing 'term' field", "Specify a search term: SEARCH upload endpoint"
+            if not isinstance(term, str):
+                return False, f"SEARCH command 'term' must be a string, got {type(term).__name__}", "Specify a search term as a string: SEARCH upload endpoint"
+            if not term.strip():
+                return False, "SEARCH command 'term' field is empty", "Specify a non-empty search term: SEARCH upload endpoint"
             
             return True, None, None
         
         elif cmd_type == "TRACE":
             start = cmd.get("start")
             end = cmd.get("end")
-            if not start or not end:
-                return False, "TRACE command missing 'start' or 'end' field", "Specify both start and end: TRACE upload → database"
+            # Validate parameter types and presence
+            if not start:
+                return False, "TRACE command missing 'start' field", "Specify start point: TRACE upload → database"
+            if not isinstance(start, str):
+                return False, f"TRACE command 'start' must be a string, got {type(start).__name__}", "Specify start point as a string: TRACE upload → database"
+            if not start.strip():
+                return False, "TRACE command 'start' field is empty", "Specify a non-empty start point: TRACE upload → database"
+            if not end:
+                return False, "TRACE command missing 'end' field", "Specify end point: TRACE upload → database"
+            if not isinstance(end, str):
+                return False, f"TRACE command 'end' must be a string, got {type(end).__name__}", "Specify end point as a string: TRACE upload → database"
+            if not end.strip():
+                return False, "TRACE command 'end' field is empty", "Specify a non-empty end point: TRACE upload → database"
             
             return True, None, None
         
@@ -3685,19 +3840,33 @@ If you give generic advice again, your response will be rejected."""
         else:
             return False, f"Unknown command type: {cmd_type}", "Supported commands: READ, SEARCH, GREP, TRACE, ANALYZE"
     
-    def _categorize_error(self, error: Exception, cmd: Dict) -> Tuple[str, bool]:
+    def _categorize_error(self, error: Exception, cmd: Dict) -> Tuple[str, bool, Dict[str, Any]]:
         """
-        Categorize error as permanent or transient.
+        Categorize error as permanent or transient with detailed context.
         
         Args:
             error: Exception that occurred
             cmd: Command that failed
             
         Returns:
-            Tuple of (error_category, should_retry) where category is 'permanent' or 'transient'
+            Tuple of (error_category, should_retry, error_context) where:
+            - error_category is 'permanent' or 'transient'
+            - should_retry is True if error should be retried
+            - error_context is a dict with error details (file, line, command_type, error_type, error_message)
         """
         error_str = str(error).lower()
         error_type = type(error).__name__
+        cmd_type = cmd.get("type", "UNKNOWN")
+        
+        # Build error context
+        error_context = {
+            "error_type": error_type,
+            "error_message": str(error),
+            "command_type": cmd_type,
+            "file": cmd.get("file") if cmd_type == "READ" else None,
+            "pattern": cmd.get("pattern") if cmd_type == "GREP" else None,
+            "term": cmd.get("term") if cmd_type == "SEARCH" else None,
+        }
         
         # Permanent errors (don't retry)
         permanent_indicators = [
@@ -3712,6 +3881,13 @@ If you give generic advice again, your response will be rejected."""
             'filenotfounderror',
             'permission denied',
             'access denied',
+            'is a directory',
+            'is not a file',
+            'invalid path',
+            'malformed',
+            'bad request',
+            '400',  # HTTP 400 Bad Request
+            '404',  # HTTP 404 Not Found
         ]
         
         # Transient errors (should retry)
@@ -3728,81 +3904,189 @@ If you give generic advice again, your response will be rejected."""
             'timedout',
             'connectionerror',
             'timeouterror',
+            '503',  # HTTP 503 Service Unavailable
+            '502',  # HTTP 502 Bad Gateway
+            '504',  # HTTP 504 Gateway Timeout
+            'rate limit',
+            'too many requests',
+            '429',  # HTTP 429 Too Many Requests
         ]
         
         # Check error message
         for indicator in permanent_indicators:
             if indicator in error_str:
-                return 'permanent', False
+                error_context["category_reason"] = f"Permanent error detected: '{indicator}' in error message"
+                return 'permanent', False, error_context
         
         for indicator in transient_indicators:
             if indicator in error_str:
-                return 'transient', True
+                error_context["category_reason"] = f"Transient error detected: '{indicator}' in error message"
+                return 'transient', True, error_context
         
         # Check error type
-        if error_type in ['FileNotFoundError', 'PermissionError', 'ValueError', 'SyntaxError']:
-            return 'permanent', False
+        permanent_error_types = [
+            'FileNotFoundError', 
+            'PermissionError', 
+            'ValueError', 
+            'SyntaxError',
+            'KeyError',
+            'AttributeError',
+            'TypeError',
+            'IndexError',
+            'PatternError',  # re.PatternError for invalid regex
+            'error',  # re.error (base class for regex errors)
+        ]
         
-        if error_type in ['TimeoutError', 'ConnectionError', 'requests.exceptions.Timeout', 'requests.exceptions.ConnectionError']:
-            return 'transient', True
+        transient_error_types = [
+            'TimeoutError', 
+            'ConnectionError', 
+            'requests.exceptions.Timeout', 
+            'requests.exceptions.ConnectionError',
+            'OSError',  # Often transient (EAGAIN, EINTR)
+            'IOError',  # Often transient
+        ]
+        
+        if error_type in permanent_error_types:
+            error_context["category_reason"] = f"Permanent error type: {error_type}"
+            return 'permanent', False, error_context
+        
+        if error_type in transient_error_types:
+            error_context["category_reason"] = f"Transient error type: {error_type}"
+            return 'transient', True, error_context
         
         # Default: treat as transient for unknown errors (safer to retry)
-        return 'transient', True
+        error_context["category_reason"] = "Unknown error type, treating as transient (safer to retry)"
+        return 'transient', True, error_context
     
     def _aggregate_errors(self, errors: List[Dict]) -> Dict[str, Any]:
         """
-        Aggregate errors from parallel operations.
+        Aggregate errors from parallel operations with intelligent grouping and actionable suggestions.
         
         Args:
-            errors: List of error dicts with 'error', 'command', 'type' fields
+            errors: List of error dicts with 'error', 'command', 'type', 'error_category', 'error_context' fields
             
         Returns:
-            Aggregated error summary dict
+            Aggregated error summary dict with groups, suggestions, and retry information
         """
         if not errors:
-            return {"total": 0, "groups": [], "summary": ""}
+            return {"total": 0, "groups": [], "summary": "", "suggestions": [], "retry_info": {}}
         
-        # Group errors by type
+        # Group errors by category and type for better organization
         error_groups = {}
+        permanent_count = 0
+        transient_count = 0
+        retry_attempts = {}
+        
         for error_info in errors:
             error_msg = error_info.get("error", "Unknown error")
             cmd_type = error_info.get("command", {}).get("type", "UNKNOWN")
+            error_category = error_info.get("error_category", "unknown")
+            error_context = error_info.get("error_context", {})
+            suggestion = error_info.get("suggestions")
             
-            # Create group key
-            group_key = f"{cmd_type}:{error_msg[:50]}"
+            # Track error categories
+            if error_category == "permanent":
+                permanent_count += 1
+            elif error_category == "transient":
+                transient_count += 1
+            
+            # Create group key based on category, command type, and error message
+            # This groups similar errors together more intelligently
+            error_key = error_msg[:100]  # Use first 100 chars for grouping
+            group_key = f"{error_category}:{cmd_type}:{error_key}"
             
             if group_key not in error_groups:
                 error_groups[group_key] = {
                     "count": 0,
+                    "category": error_category,
                     "cmd_type": cmd_type,
                     "error": error_msg,
-                    "commands": []
+                    "error_type": error_context.get("error_type", "Unknown"),
+                    "commands": [],
+                    "suggestions": [],
+                    "files": set(),
+                    "patterns": set(),
                 }
             
             error_groups[group_key]["count"] += 1
             error_groups[group_key]["commands"].append(error_info.get("command", {}))
+            
+            # Collect suggestions (deduplicate)
+            if suggestion and suggestion not in error_groups[group_key]["suggestions"]:
+                error_groups[group_key]["suggestions"].append(suggestion)
+            
+            # Collect file paths for READ errors
+            if cmd_type == "READ" and error_context.get("file"):
+                error_groups[group_key]["files"].add(error_context["file"])
+            
+            # Collect patterns for GREP errors
+            if cmd_type == "GREP" and error_context.get("pattern"):
+                error_groups[group_key]["patterns"].add(error_context["pattern"])
         
-        # Create summary
+        # Build actionable summary with suggestions
         summary_parts = []
+        all_suggestions = []
+        
         for group_key, group_info in error_groups.items():
             count = group_info["count"]
             cmd_type = group_info["cmd_type"]
             error = group_info["error"]
+            category = group_info["category"]
             
+            # Build error description
             if count == 1:
-                summary_parts.append(f"{cmd_type} error: {error}")
+                error_desc = f"{cmd_type} error ({category}): {error}"
             else:
-                summary_parts.append(f"{count} {cmd_type} errors: {error}")
+                error_desc = f"{count} {cmd_type} errors ({category}): {error}"
+            
+            # Add file/pattern context if available
+            if group_info["files"]:
+                files_list = list(group_info["files"])[:3]  # Show first 3 files
+                error_desc += f" [Files: {', '.join(files_list)}]"
+            if group_info["patterns"]:
+                patterns_list = list(group_info["patterns"])[:2]  # Show first 2 patterns
+                error_desc += f" [Patterns: {', '.join(patterns_list)}]"
+            
+            summary_parts.append(error_desc)
+            
+            # Collect suggestions
+            if group_info["suggestions"]:
+                all_suggestions.extend(group_info["suggestions"])
+        
+        # Convert sets to lists for JSON serialization
+        for group_info in error_groups.values():
+            group_info["files"] = list(group_info["files"])
+            group_info["patterns"] = list(group_info["patterns"])
+        
+        # Build retry information
+        retry_info = {
+            "permanent_errors": permanent_count,
+            "transient_errors": transient_count,
+            "total_errors": len(errors),
+            "should_retry": transient_count > 0,
+        }
+        
+        # Deduplicate suggestions
+        unique_suggestions = []
+        seen_suggestions = set()
+        for suggestion in all_suggestions:
+            suggestion_lower = suggestion.lower().strip()
+            if suggestion_lower and suggestion_lower not in seen_suggestions:
+                unique_suggestions.append(suggestion)
+                seen_suggestions.add(suggestion_lower)
         
         return {
             "total": len(errors),
             "groups": list(error_groups.values()),
-            "summary": " | ".join(summary_parts)
+            "summary": " | ".join(summary_parts),
+            "suggestions": unique_suggestions[:5],  # Limit to top 5 suggestions
+            "retry_info": retry_info,
         }
     
     def _score_result_relevance(self, result: Dict, query_context: Optional[str] = None, files_read_tracker: Optional[set] = None) -> float:
         """
         Score result relevance based on match quality, file importance, and context.
+        Uses caching for repeated queries and tracks file access frequency.
         
         Args:
             result: Result dict with 'type', 'file', 'match', 'line', etc.
@@ -3812,87 +4096,212 @@ If you give generic advice again, your response will be rejected."""
         Returns:
             Relevance score between 0.0 and 1.0
         """
-        score = 0.5  # Base score
-        
         result_type = result.get("type", "")
         file_path = result.get("file", "")
         match_text = result.get("match", result.get("content", "")).lower()
         
-        # Boost score for exact matches
+        # Check cache first (use query hash for cache key)
+        if query_context:
+            import hashlib
+            query_hash = hashlib.md5(query_context.lower().encode()).hexdigest()[:8]
+            cache_key = (file_path, query_hash)
+            if cache_key in self._relevance_score_cache:
+                return self._relevance_score_cache[cache_key]
+        
+        score = 0.5  # Base score
+        
+        # Enhanced match quality scoring with semantic matching
         if query_context:
             query_lower = query_context.lower()
-            if query_lower in match_text:
-                score += 0.2
-            # Check for keyword matches
             query_words = set(query_lower.split())
+            
+            # Exact phrase match (highest priority)
+            if query_lower in match_text:
+                score += 0.3
+            
+            # Word-level matching with position weighting
             match_words = set(match_text.split())
             common_words = query_words & match_words
+            
             if common_words:
-                score += min(len(common_words) / len(query_words), 0.15)
+                # Calculate word overlap ratio
+                overlap_ratio = len(common_words) / max(len(query_words), 1)
+                score += overlap_ratio * 0.2
+                
+                # Boost for important keywords (longer words, function names, etc.)
+                important_words = [w for w in common_words if len(w) > 4 or w.isalnum()]
+                if important_words:
+                    score += min(len(important_words) * 0.05, 0.1)
+            
+            # Semantic matching: check for related terms (simple heuristic)
+            # Boost if match contains words that often appear with query words
+            semantic_boost = 0.0
+            if 'function' in query_lower and ('def' in match_text or 'function' in match_text):
+                semantic_boost += 0.05
+            if 'class' in query_lower and 'class' in match_text:
+                semantic_boost += 0.05
+            if 'error' in query_lower and ('error' in match_text or 'exception' in match_text):
+                semantic_boost += 0.05
+            score += semantic_boost
         
-        # Boost score for frequently accessed files
-        if files_read_tracker and file_path in files_read_tracker:
-            score += 0.1
+        # File importance weighting based on access frequency
+        file_importance = 0.0
+        if file_path:
+            # Track file access
+            self._file_access_count[file_path] = self._file_access_count.get(file_path, 0) + 1
+            
+            # Boost for frequently accessed files (importance = log(access_count + 1) / 10)
+            access_count = self._file_access_count[file_path]
+            file_importance = min(math.log(access_count + 1) / 10, 0.15)
+            score += file_importance
+            
+            # Boost for files in current context
+            if files_read_tracker and file_path in files_read_tracker:
+                score += 0.1
         
-        # Boost score for specific result types
+        # Result type weighting
         if result_type == "read":
-            score += 0.1  # File reads are important
+            score += 0.15  # File reads are most important
         elif result_type == "search":
+            score += 0.08
+        elif result_type == "grep":
             score += 0.05
+        elif result_type == "trace":
+            score += 0.1  # Traces are important for understanding flow
         
         # Penalize very long matches (less focused)
         if len(match_text) > 500:
             score -= 0.1
+        elif len(match_text) < 20:
+            score += 0.05  # Short, focused matches are often better
+        
+        # Boost for results with line numbers (more specific)
+        if result.get("line") is not None:
+            score += 0.05
+        
+        # Cache the score
+        if query_context:
+            cache_key = (file_path, query_hash)
+            # Limit cache size to prevent unbounded growth
+            if len(self._relevance_score_cache) < 1000:
+                self._relevance_score_cache[cache_key] = score
         
         # Ensure score is between 0.0 and 1.0
         return max(0.0, min(1.0, score))
     
     def _deduplicate_results(self, results: List[Dict]) -> List[Dict]:
         """
-        Deduplicate similar results (same file, nearby lines).
+        Deduplicate similar results with intelligent merging of line ranges and context.
+        Merges results from same file with nearby lines (within 10 lines) into line ranges.
         
         Args:
             results: List of result dicts
             
         Returns:
-            Deduplicated list of results
+            Deduplicated list of results with merged line ranges and best context
         """
         if not results:
             return results
         
-        deduplicated = []
-        seen_keys = set()
+        # Group results by file and type for efficient merging
+        grouped_results: Dict[Tuple[str, str], List[Dict]] = {}
         
         for result in results:
             result_type = result.get("type", "")
             file_path = result.get("file", "")
-            line = result.get("line", 0)
+            group_key = (file_path, result_type)
             
-            # Create key for deduplication
+            if group_key not in grouped_results:
+                grouped_results[group_key] = []
+            grouped_results[group_key].append(result)
+        
+        deduplicated = []
+        
+        for (file_path, result_type), group_results in grouped_results.items():
             if result_type == "read":
-                key = f"read:{file_path}"
-            elif result_type in ["search", "grep"]:
-                # Group results from same file within 10 lines
-                line_group = (line // 10) * 10
-                key = f"{result_type}:{file_path}:{line_group}"
-            else:
-                # For other types, use full details
-                key = f"{result_type}:{file_path}:{line}:{result.get('match', '')[:50]}"
+                # For READ results, keep only one per file (most recent or with most context)
+                best_result = max(group_results, key=lambda r: len(r.get("content", r.get("match", ""))))
+                deduplicated.append(best_result)
             
-            if key not in seen_keys:
-                seen_keys.add(key)
-                deduplicated.append(result)
+            elif result_type in ["search", "grep"]:
+                # Sort by line number for range merging
+                sorted_results = sorted(group_results, key=lambda r: r.get("line", 0))
+                
+                # Merge nearby results (within 10 lines) into ranges
+                merged_ranges = []
+                current_range = None
+                
+                for result in sorted_results:
+                    line = result.get("line", 0)
+                    match_text = result.get("match", "")
+                    context = result.get("context", "")
+                    
+                    if current_range is None:
+                        # Start new range
+                        current_range = {
+                            "type": result_type,
+                            "file": file_path,
+                            "line": line,
+                            "line_end": line,
+                            "matches": [match_text],
+                            "contexts": [context] if context else [],
+                            "result": result  # Keep original result structure
+                        }
+                    else:
+                        # Check if this result is within 10 lines of current range
+                        if line <= current_range["line_end"] + 10:
+                            # Extend current range
+                            current_range["line_end"] = line
+                            if match_text and match_text not in current_range["matches"]:
+                                current_range["matches"].append(match_text)
+                            if context and context not in current_range["contexts"]:
+                                current_range["contexts"].append(context)
+                        else:
+                            # Save current range and start new one
+                            merged_ranges.append(current_range)
+                            current_range = {
+                                "type": result_type,
+                                "file": file_path,
+                                "line": line,
+                                "line_end": line,
+                                "matches": [match_text],
+                                "contexts": [context] if context else [],
+                                "result": result
+                            }
+                
+                # Add last range
+                if current_range:
+                    merged_ranges.append(current_range)
+                
+                # Convert merged ranges back to result format
+                for merged in merged_ranges:
+                    if merged["line"] == merged["line_end"]:
+                        # Single line result
+                        result = merged["result"].copy()
+                        result["line"] = merged["line"]
+                    else:
+                        # Multi-line range result
+                        result = merged["result"].copy()
+                        result["line"] = merged["line"]
+                        result["line_range"] = f"{merged['line']}-{merged['line_end']}"
+                        # Merge best context (longest or most relevant)
+                        if merged["contexts"]:
+                            best_context = max(merged["contexts"], key=len)
+                            result["context"] = best_context
+                        # Merge matches
+                        if len(merged["matches"]) > 1:
+                            result["match"] = f"{len(merged['matches'])} matches: " + ", ".join(merged["matches"][:3])
+                    
+                    deduplicated.append(result)
+            
             else:
-                # Merge with existing result if it's a search/grep result
-                if result_type in ["search", "grep"]:
-                    # Find existing result and merge line ranges
-                    for existing in deduplicated:
-                        if existing.get("file") == file_path and existing.get("type") == result_type:
-                            existing_line = existing.get("line", 0)
-                            if abs(existing_line - line) <= 10:
-                                # Merge: update line range
-                                existing["line_range"] = f"{min(existing_line, line)}-{max(existing_line, line)}"
-                                break
+                # For other types (trace, etc.), use exact deduplication
+                seen_keys = set()
+                for result in group_results:
+                    key = f"{result_type}:{file_path}:{result.get('line', 0)}:{result.get('match', '')[:50]}"
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        deduplicated.append(result)
         
         return deduplicated
     
@@ -3955,28 +4364,42 @@ If you give generic advice again, your response will be rejected."""
     
     def _validate_code_snippets(self, response: str, files_read_tracker: set) -> List[str]:
         """
-        Validate code snippets match actual file content.
+        Validate code snippets match actual file content with improved extraction and fuzzy matching.
         
         Args:
             response: LLM response text
             files_read_tracker: Set of files that were read
             
         Returns:
-            List of validation issues
+            List of validation issues with specific line numbers and expected vs actual
         """
         issues = []
         
-        # Extract code blocks from response
-        code_block_pattern = r'```(?:python|javascript|typescript|js|ts)?\n(.*?)```'
-        code_blocks = re.findall(code_block_pattern, response, re.DOTALL)
+        # Extract code blocks from response (handle more formats)
+        code_block_patterns = [
+            r'```(?:python|javascript|typescript|js|ts|json)?\n(.*?)```',  # Standard code blocks
+            r'```(?:python|javascript|typescript|js|ts|json)?\s*\n(.*?)```',  # With optional language tag
+            r'<code[^>]*>(.*?)</code>',  # HTML code tags
+        ]
+        
+        code_blocks = []
+        for pattern in code_block_patterns:
+            code_blocks.extend(re.findall(pattern, response, re.DOTALL))
         
         # Also extract inline code snippets (backticks)
-        inline_code_pattern = r'`([^`]+)`'
+        inline_code_pattern = r'`([^`\n]+)`'  # Exclude newlines from inline code
         inline_codes = re.findall(inline_code_pattern, response)
         
-        # Extract file:line references
-        file_line_pattern = r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)):(\d+)'
-        file_line_refs = re.findall(file_line_pattern, response)
+        # Extract file:line references (improved pattern)
+        file_line_patterns = [
+            r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx|json)):(\d+)',  # Standard format
+            r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx|json))\((\d+)\)',  # Alternative format
+            r'at\s+([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx|json)):(\d+)',  # "at file.py:123"
+        ]
+        
+        file_line_refs = []
+        for pattern in file_line_patterns:
+            file_line_refs.extend(re.findall(pattern, response))
         
         # For each file:line reference, verify the code matches
         for file_path, line_num_str in file_line_refs:
@@ -3986,43 +4409,95 @@ If you give generic advice again, your response will be rejected."""
                 # Resolve file path
                 resolved_path, confidence = self._resolve_file_path(file_path, files_read_tracker)
                 if confidence < 0.7:
-                    issues.append(f"Code snippet references file '{file_path}' that doesn't exist")
+                    issues.append(f"Code snippet references file '{file_path}' that doesn't exist (confidence: {confidence:.2f})")
                     continue
                 
                 # Try to read the file and check the line
                 try:
-                    file_data = self.code_reader.read_file(resolved_path, max_lines=line_num + 10)
+                    # Read more context around the line for better matching
+                    context_lines = 5
+                    file_data = self.code_reader.read_file(resolved_path, max_lines=line_num + context_lines)
                     if file_data.get("success"):
                         content = file_data.get("content", "")
                         lines = content.split('\n')
                         if line_num <= len(lines):
-                            actual_line = lines[line_num - 1].strip()
+                            actual_line = lines[line_num - 1]
+                            actual_line_stripped = actual_line.strip()
+                            
+                            # Get surrounding context for better matching
+                            start_line = max(0, line_num - context_lines - 1)
+                            end_line = min(len(lines), line_num + context_lines)
+                            context_block = '\n'.join(lines[start_line:end_line])
                             
                             # Find code snippets that reference this line
                             for code_block in code_blocks:
                                 # Check if code block contains placeholder comments instead of actual code
-                                if re.search(r'#\s*Code\s+to\s+', code_block, re.IGNORECASE):
+                                if re.search(r'#\s*(?:Code|TODO|FIXME|PLACEHOLDER)\s+to\s+', code_block, re.IGNORECASE):
                                     issues.append(f"Code snippet at {resolved_path}:{line_num} contains placeholder code ('# Code to...') instead of actual code")
-                                    break
+                                    continue
                                 
-                                # Check if the actual line from file is in the code block
-                                if actual_line and len(actual_line) > 10:  # Only check substantial lines
+                                # Check if the actual line from file is in the code block (fuzzy matching)
+                                if actual_line_stripped and len(actual_line_stripped) > 5:  # Only check substantial lines
                                     # Extract non-comment, non-whitespace content from actual line
-                                    actual_content = re.sub(r'^\s*#.*$', '', actual_line).strip()
-                                    if actual_content and actual_content not in code_block:
-                                        # Check if code block is just placeholder
-                                        if re.search(r'#\s*Code\s+to\s+', code_block, re.IGNORECASE):
-                                            issues.append(f"Code snippet at {resolved_path}:{line_num} shows placeholder code instead of actual line: '{actual_content[:50]}...'")
-                                            break
+                                    actual_content = re.sub(r'^\s*#.*$', '', actual_line_stripped).strip()
+                                    actual_content_no_ws = re.sub(r'\s+', '', actual_content)
+                                    
+                                    # Normalize code block for comparison (remove extra whitespace)
+                                    code_block_normalized = re.sub(r'\s+', ' ', code_block)
+                                    
+                                    # Check exact match first
+                                    if actual_content in code_block or actual_content_no_ws in code_block_normalized:
+                                        continue  # Match found, no issue
+                                    
+                                    # Fuzzy matching: check if key parts match (function names, variable names)
+                                    # Extract identifiers from actual line
+                                    identifiers = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', actual_content)
+                                    if identifiers:
+                                        # Check if at least 50% of identifiers are in code block
+                                        matches = sum(1 for ident in identifiers if ident in code_block)
+                                        if matches < len(identifiers) * 0.5:
+                                            # Mismatch detected
+                                            expected_preview = actual_content[:60] + "..." if len(actual_content) > 60 else actual_content
+                                            issues.append(
+                                                f"Code snippet at {resolved_path}:{line_num} doesn't match actual code. "
+                                                f"Expected: '{expected_preview}' (line {line_num})"
+                                            )
+                                
+                                # Check variable names match
+                                # Extract variable names from code block and actual code
+                                code_vars = set(re.findall(r'\b([a-z_][a-z0-9_]*)\b', code_block, re.IGNORECASE))
+                                actual_vars = set(re.findall(r'\b([a-z_][a-z0-9_]*)\b', actual_line_stripped, re.IGNORECASE))
+                                
+                                # Filter out common keywords
+                                keywords = {'def', 'class', 'if', 'else', 'for', 'while', 'return', 'import', 'from', 'as', 'in', 'is', 'not', 'and', 'or'}
+                                code_vars -= keywords
+                                actual_vars -= keywords
+                                
+                                # If code block has variables that don't exist in actual code, flag it
+                                if code_vars and actual_vars:
+                                    mismatched_vars = code_vars - actual_vars
+                                    if mismatched_vars and len(mismatched_vars) > len(code_vars) * 0.3:  # More than 30% mismatch
+                                        issues.append(
+                                            f"Code snippet at {resolved_path}:{line_num} contains variables that don't match actual code: {', '.join(list(mismatched_vars)[:3])}"
+                                        )
                                 
                                 # Also check inline code snippets
                                 for inline_code in inline_codes:
                                     if file_path in inline_code or str(line_num) in inline_code:
-                                        if re.search(r'#\s*Code\s+to\s+', inline_code, re.IGNORECASE):
+                                        if re.search(r'#\s*(?:Code|TODO|FIXME|PLACEHOLDER)\s+to\s+', inline_code, re.IGNORECASE):
                                             issues.append(f"Code snippet at {resolved_path}:{line_num} contains placeholder code in inline snippet")
-                                            break
+                                            continue
+                                        
+                                        # Check if inline code matches actual line
+                                        if actual_line_stripped and len(actual_line_stripped) > 5:
+                                            actual_content = re.sub(r'^\s*#.*$', '', actual_line_stripped).strip()
+                                            if actual_content not in inline_code and actual_content[:20] not in inline_code:
+                                                issues.append(
+                                                    f"Inline code snippet at {resolved_path}:{line_num} doesn't match actual code: '{actual_content[:50]}...'"
+                                                )
                 except Exception as e:
                     logger.debug(f"Error validating code snippet for {resolved_path}:{line_num}: {e}")
+                    issues.append(f"Error validating code snippet at {resolved_path}:{line_num}: {str(e)}")
             except ValueError:
                 # Invalid line number
                 issues.append(f"Invalid line number '{line_num_str}' in reference to '{file_path}'")
@@ -4031,36 +4506,99 @@ If you give generic advice again, your response will be rejected."""
     
     def _validate_execution_path(self, response: str, files_read_tracker: set) -> List[str]:
         """
-        Validate execution paths (A→B→C) are valid.
+        Validate execution paths (A→B→C) are valid with improved parsing and call chain verification.
         
         Args:
             response: LLM response text
             files_read_tracker: Set of files that were read
             
         Returns:
-            List of validation issues
+            List of validation issues with specific details about broken chains
         """
         issues = []
         
-        # Extract execution paths (A→B→C or A->B->C)
+        # Extract execution paths (handle more arrow formats: →, ->, =>, TO)
         path_patterns = [
-            r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx))(?:\s*→\s*|\s*->\s*)([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx))',
-            r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx))(?:\s*→\s*|\s*->\s*)([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx))(?:\s*→\s*|\s*->\s*)([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx))',
+            # Two-step paths: A → B
+            r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)\s*(?:→|->|=>|TO)\s*([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)',
+            # Multi-step paths: A → B → C (capture all steps)
+            r'([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)\s*(?:→|->|=>|TO)\s*([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)\s*(?:→|->|=>|TO)\s*([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)',
+            # Text format: "from A to B" or "A calls B"
+            r'(?:from|in)\s+([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)\s+(?:to|calls|→|->|=>)\s+([a-zA-Z0-9_/\\-]+\.(?:py|js|jsx|ts|tsx)(?::\d+)?)',
         ]
         
         for pattern in path_patterns:
-            matches = re.findall(pattern, response)
+            matches = re.findall(pattern, response, re.IGNORECASE)
             for match in matches:
                 if isinstance(match, tuple):
-                    paths = match
+                    paths = [p for p in match if p]  # Filter out empty strings
                 else:
                     paths = [match]
                 
+                if len(paths) < 2:
+                    continue
+                
                 # Verify each file in path exists
-                for path in paths:
+                previous_path = None
+                for i, path_with_line in enumerate(paths):
+                    # Extract file path and line number
+                    if ':' in path_with_line:
+                        path, line_str = path_with_line.rsplit(':', 1)
+                        try:
+                            line_num = int(line_str)
+                        except ValueError:
+                            line_num = None
+                    else:
+                        path = path_with_line
+                        line_num = None
+                    
+                    # Resolve file path
                     resolved_path, confidence = self._resolve_file_path(path, files_read_tracker)
                     if confidence < 0.7:
-                        issues.append(f"Execution path references file '{path}' that doesn't exist")
+                        issues.append(f"Execution path step {i+1} references file '{path}' that doesn't exist (confidence: {confidence:.2f})")
+                        previous_path = None
+                        continue
+                    
+                    # Verify step exists (if line number provided)
+                    if line_num is not None:
+                        try:
+                            file_data = self.code_reader.read_file(resolved_path, max_lines=line_num + 5)
+                            if file_data.get("success"):
+                                lines = file_data.get("content", "").split('\n')
+                                if line_num > len(lines):
+                                    issues.append(f"Execution path step {i+1} references line {line_num} in '{resolved_path}' but file only has {len(lines)} lines")
+                        except Exception as e:
+                            logger.debug(f"Error validating execution path step at {resolved_path}:{line_num}: {e}")
+                    
+                    # Check call chain validity: verify B is actually called from A
+                    if previous_path and i > 0:
+                        prev_resolved, prev_confidence = self._resolve_file_path(previous_path, files_read_tracker)
+                        if prev_confidence >= 0.7:
+                            # Try to verify that resolved_path is imported/called from prev_resolved
+                            try:
+                                prev_file_data = self.code_reader.read_file(prev_resolved, max_lines=5000)
+                                if prev_file_data.get("success"):
+                                    prev_content = prev_file_data.get("content", "")
+                                    
+                                    # Check if current file is imported in previous file
+                                    current_file_name = os.path.basename(resolved_path).replace('.py', '').replace('.js', '').replace('.ts', '')
+                                    import_patterns = [
+                                        f"import.*{current_file_name}",
+                                        f"from.*{current_file_name}.*import",
+                                        f"require.*{current_file_name}",
+                                        f"import.*{resolved_path.replace(os.sep, '/')}",
+                                    ]
+                                    
+                                    has_import = any(re.search(pattern, prev_content, re.IGNORECASE) for pattern in import_patterns)
+                                    
+                                    if not has_import:
+                                        # Check if it's a relative import or different pattern
+                                        # This is a warning, not an error, as the call might be indirect
+                                        logger.debug(f"Execution path: '{prev_resolved}' → '{resolved_path}' - no direct import found (might be indirect)")
+                            except Exception as e:
+                                logger.debug(f"Error checking call chain from {prev_resolved} to {resolved_path}: {e}")
+                    
+                    previous_path = path
         
         return issues
     
@@ -4143,7 +4681,8 @@ If you give generic advice again, your response will be rejected."""
                 continue
             
             # Check if function/class exists
-            if not self._function_exists_in_codebase(func_name, files_read_tracker):
+            exists, _ = self._function_exists_in_codebase(func_name, files_read_tracker)
+            if not exists:
                 # Check if it's a class name (try different pattern)
                 class_pattern = f"class {func_name}"
                 class_results = self.code_explorer.grep_pattern(class_pattern)
@@ -4180,36 +4719,98 @@ If you give generic advice again, your response will be rejected."""
         }
         
         # Normalize response: handle multi-line commands with continuation markers
-        # Join lines that end with backslash or are indented (continuation)
+        # Enhanced to handle 3+ line commands with better regex patterns
         normalized_lines = []
         current_command = None
+        continuation_count = 0  # Track how many lines we've continued
         
         lines = response.split('\n')
         for i, line in enumerate(lines):
             stripped = line.strip()
+            original_line = line  # Keep original for indentation check
+            
+            # Check if this is a blank line
             if not stripped:
+                # If we have a command in progress, check if next non-blank line continues it
                 if current_command:
+                    # Look ahead to see if next non-blank line is a continuation
+                    next_non_blank = None
+                    for j in range(i + 1, min(i + 3, len(lines))):  # Look ahead up to 2 lines
+                        next_line = lines[j].strip()
+                        if next_line:
+                            next_non_blank = next_line
+                            break
+                    
+                    # If next line doesn't start a new command, it might be continuation
+                    if next_non_blank:
+                        next_upper = next_non_blank.upper()
+                        is_new_command = any(next_upper.startswith(cmd + ' ') for cmd in 
+                                           ['READ', 'SEARCH', 'GREP', 'TRACE', 'ANALYZE', 'FIND', 'OPEN', 'LOOKUP', 'VIEW', 'SHOW', 'GATHER'])
+                        if not is_new_command and not next_non_blank.startswith(('```', '---', '===')):
+                            # Likely continuation, keep current_command
+                            continue
+                    
+                    # Blank line ends current command
                     normalized_lines.append(current_command)
                     current_command = None
+                    continuation_count = 0
                 continue
             
             # Check if this line continues a previous command
             if current_command:
-                # Check for continuation markers: backslash, indentation, or command-like patterns
-                if line.endswith('\\') or (line.startswith(' ') and not stripped.startswith(('READ', 'SEARCH', 'GREP', 'TRACE', 'ANALYZE', 'FIND', 'OPEN'))):
-                    # Continuation - append to current command
-                    current_command += ' ' + stripped.rstrip('\\')
-                else:
+                # Enhanced continuation detection: backslash, indentation, parentheses, quotes
+                has_backslash = line.rstrip().endswith('\\')
+                has_indentation = original_line.startswith((' ', '\t')) and not stripped.startswith(('READ', 'SEARCH', 'GREP', 'TRACE', 'ANALYZE', 'FIND', 'OPEN', 'LOOKUP', 'VIEW', 'SHOW', 'GATHER'))
+                has_open_paren = current_command.count('(') > current_command.count(')')
+                has_open_quote = (current_command.count('"') % 2 != 0) or (current_command.count("'") % 2 != 0)
+                is_continuation_marker = stripped.startswith(('...', '→', '->', 'TO', 'to'))
+                
+                # Check if line starts a new command (must be at start of line, not indented)
+                line_upper = stripped.upper()
+                is_new_command = not original_line.startswith((' ', '\t')) and any(line_upper.startswith(cmd + ' ') for cmd in 
+                                                                                  ['READ', 'SEARCH', 'GREP', 'TRACE', 'ANALYZE', 'FIND', 'OPEN', 'LOOKUP', 'VIEW', 'SHOW', 'GATHER'])
+                
+                # Determine if this is a continuation
+                if is_new_command:
                     # New command starts - save previous and start new
                     normalized_lines.append(current_command)
                     current_command = stripped
+                    continuation_count = 0
+                elif has_backslash or has_indentation or has_open_paren or has_open_quote or is_continuation_marker:
+                    # Continuation - append to current command
+                    if has_backslash:
+                        current_command += ' ' + stripped.rstrip('\\')
+                    else:
+                        current_command += ' ' + stripped
+                    continuation_count += 1
+                    # Safety limit: don't continue forever (max 10 continuation lines)
+                    if continuation_count > 10:
+                        normalized_lines.append(current_command)
+                        current_command = None
+                        continuation_count = 0
+                else:
+                    # Ambiguous - check if it looks like a new command or continuation
+                    # If it starts with a command keyword but is indented, treat as continuation
+                    if has_indentation:
+                        current_command += ' ' + stripped
+                        continuation_count += 1
+                    else:
+                        # Likely a new command or non-command text
+                        normalized_lines.append(current_command)
+                        current_command = None
+                        continuation_count = 0
+                        # Check if this line starts a new command
+                        if any(line_upper.startswith(cmd) for cmd in ['READ', 'SEARCH', 'GREP', 'TRACE', 'ANALYZE', 'FIND', 'OPEN', 'LOOKUP', 'VIEW', 'SHOW', 'GATHER']):
+                            current_command = stripped
             else:
                 # Check if line starts a command
                 line_upper = stripped.upper()
                 if any(line_upper.startswith(cmd) for cmd in ['READ', 'SEARCH', 'GREP', 'TRACE', 'ANALYZE', 'FIND', 'OPEN', 'LOOKUP', 'VIEW', 'SHOW', 'GATHER']):
                     current_command = stripped
+                    continuation_count = 0
                 else:
-                    # Not a command line, but might be continuation of previous
+                    # Not a command line, but might be continuation of previous (if we had one)
+                    # For now, just add as-is (will be ignored if not a command)
                     normalized_lines.append(stripped)
         
         # Add last command if exists
@@ -5128,56 +5729,17 @@ Remember:
     ) -> Tuple[int, int]:
         """
         Calculate adaptive timeout based on context size and progress.
+        TIMEOUTS DISABLED: Returns very high values to effectively disable timeouts.
         
         Returns:
             Tuple of (overall_timeout, per_turn_timeout) in seconds
         """
-        # Base timeout by context size - increased to allow more turns
-        base_timeouts = {
-            128000: 900,   # 15 min for 128k+ (for large context models)
-            100000: 750,   # 12.5 min for 100k+ (increased from 10 min)
-            64000: 600,    # 10 min for 64k (increased from 5 min)
-            32000: 480,    # 8 min for 32k (increased from 4 min)
-            16000: 360,    # 6 min for 16k (increased from 3 min)
-            10000: 360,    # 6 min for 10k (increased from 3 min)
-        }
+        # TIMEOUTS DISABLED: Set to very high values (effectively infinite)
+        timeout = 999999  # Effectively no timeout
+        per_turn_timeout = 999999  # Effectively no per-turn timeout
         
-        timeout = 480  # Default 8 min (increased from 4 min to allow more turns)
-        logger.info(f"_calculate_agent_timeout called with context_size={context_size}, files_read={files_read}, turns={turns}")
-        if context_size:
-            for size, t in sorted(base_timeouts.items(), reverse=True):
-                if context_size >= size:
-                    timeout = t
-                    logger.info(f"_calculate_agent_timeout: context_size {context_size} >= {size}, using timeout {t}s ({t/60:.1f}min)")
-                    break
-        logger.info(f"_calculate_agent_timeout returning timeout={timeout}s ({timeout/60:.1f}min)")
-        
-        # Extend timeout by 50% if making good progress (increased from 25%)
-        if files_read >= 3 and turns < 10:
-            timeout = int(timeout * 1.5)
-            logger.info(f"Extended timeout by 50% due to good progress (files_read={files_read}, turns={turns})")
-        # Also extend if we're making many turns (more than 10 turns)
-        elif turns >= 10:
-            timeout = int(timeout * 1.3)
-            logger.info(f"Extended timeout by 30% due to many turns (turns={turns})")
-        
-        # Per-turn timeout (aggressive for fast first turn - target <45s)
-        # First turn needs more time for prompt processing and initial command generation
-        # Reduced from 60s to 45s to allow more turns within overall timeout
-        if turns == 0:
-            per_turn_timeout = 35  # Increased from 10s to 35s - first turn needs more time for prompt processing
-        else:
-            per_turn_timeout = 45  # 45 seconds per turn (reduced from 60s to allow 6+ turns in 5min)
-        
-        # Adjust based on files read (more files = more time needed, but cap to prevent exceeding overall timeout)
-        if files_read > 10:
-            per_turn_timeout += 15  # Add 15s for large file sets (reduced from 20s)
-        elif files_read > 5:
-            per_turn_timeout += 8  # Add 8s for medium file sets (reduced from 10s)
-        
-        # Cap per-turn timeout (but allow first turn to be shorter)
-        if turns > 0:
-            per_turn_timeout = min(per_turn_timeout, 90)  # Max 90s per turn (after first turn)
+        logger.info(f"_calculate_agent_timeout called with context_size={context_size}, files_read={files_read}, turns={turns} - TIMEOUTS DISABLED")
+        logger.info(f"_calculate_agent_timeout returning timeout={timeout}s (effectively infinite)")
         
         return timeout, per_turn_timeout
     
@@ -5472,10 +6034,7 @@ Remember:
                 if cancellation_flag.is_set():
                     return {"type": "cancelled", "command": cmd}
                 
-                # Check timeout before read
-                elapsed = time.time() - agent_start_time
-                if elapsed > agent_timeout * 0.8:
-                    return {"type": "timeout", "command": cmd, "error": "Timeout approaching"}
+                # TIMEOUTS DISABLED: Skip timeout check before read
                 
                 return self._execute_single_read_command(cmd, file_cache, file_relationships, discovered_files, files_read_tracker, turn_num, max_cache_size)
             except Exception as e:
@@ -5490,10 +6049,7 @@ Remember:
                 # Check cancellation flag in loop
                 if cancellation_flag.is_set():
                     break
-                # Check timeout in loop
-                elapsed = time.time() - agent_start_time
-                if elapsed > agent_timeout * 0.8:
-                    break
+                # TIMEOUTS DISABLED: Skip timeout check in loop
                 
                 try:
                     cmd_result = future.result()
@@ -5545,7 +6101,7 @@ Remember:
         TIMEOUT_SUGGESTIONS = 5.0
         TIMEOUT_FORMAT_FINDINGS = 10.0
         TIMEOUT_PARSE_COMMANDS = 2.0
-        TIMEOUT_INIT_MAX = 10.0
+        TIMEOUT_INIT_MAX = 15.0  # Increased from 10s to 15s for slower systems
         MAX_RESULTS_DURING_COLLECTION = 500  # Limit results during collection to prevent unbounded growth
         
         # Performance tracking
@@ -5574,7 +6130,8 @@ Remember:
         
         # Check timeout after framework detection (fail fast if initialization takes too long)
         elapsed = time.time() - agent_start_time
-        if elapsed > TIMEOUT_INIT_MAX:  # Fail fast if init takes >10s
+        # TIMEOUTS DISABLED: Skip initialization timeout check
+        if False:  # Disabled timeout check
             logger.warning(f"Initialization took too long after framework detection: {elapsed:.1f}s")
             if progress_callback:
                 try:
@@ -5762,11 +6319,15 @@ Start by READING the codebase files related to the problem."""
             def __init__(self, max_size=50):
                 self.cache = OrderedDict()
                 self.max_size = max_size
+                self.hits = 0
+                self.misses = 0
             
             def get(self, key):
                 if key in self.cache:
                     self.cache.move_to_end(key)
+                    self.hits += 1
                     return self.cache[key]
+                self.misses += 1
                 return None
             
             def put(self, key, value):
@@ -5784,8 +6345,20 @@ Start by READING the codebase files related to the problem."""
             
             def keys(self):
                 return self.cache.keys()
+            
+            def get_stats(self):
+                """Get cache statistics."""
+                total = self.hits + self.misses
+                hit_rate = (self.hits / total * 100) if total > 0 else 0.0
+                return {
+                    "hits": self.hits,
+                    "misses": self.misses,
+                    "hit_rate": hit_rate,
+                    "size": len(self.cache),
+                    "max_size": self.max_size
+                }
         
-        file_cache = LRUCache(max_size=50)  # Use LRU cache instead of dict
+        file_cache = LRUCache(max_size=config.file_cache_size)  # Use LRU cache with config value
         file_relationships = {}  # Track relationships between files
         task_tracker = TaskTracker()  # Track agent tasks with status and timing
         
@@ -5794,6 +6367,8 @@ Start by READING the codebase files related to the problem."""
         cumulative_searches = 0
         cumulative_traces = 0
         cumulative_greps = 0
+        cumulative_error_count = 0  # Track total errors across turns
+        cumulative_permanent_error_count = 0  # Track permanent errors across turns
         MAX_CUMULATIVE_FILE_READS = config.max_files_per_plan * 2  # Allow 2x per-turn limit across all turns
         MAX_CUMULATIVE_SEARCHES = config.max_search_results * 3  # Allow 3x per-turn limit
         MAX_CUMULATIVE_TRACES = config.max_traces * 2  # Allow 2x per-turn limit
@@ -5842,21 +6417,8 @@ Start by READING the codebase files related to the problem."""
             turns=0,
             max_turns=max_turns
         )
-        # CRITICAL SAFEGUARD: Force timeout to reasonable limits based on context size
-        # Updated to allow more turns while preventing excessive timeouts
-        if original_context >= 128000 and agent_timeout > 900:
-            logger.warning(f"Timeout calculation returned {agent_timeout}s for {original_context} context, capping to 900s (15 min)")
-            agent_timeout = 900
-        elif original_context >= 100000 and agent_timeout > 750:
-            logger.warning(f"Timeout calculation returned {agent_timeout}s for {original_context} context, capping to 750s (12.5 min)")
-            agent_timeout = 750
-        elif original_context <= 64000 and agent_timeout > 600:
-            logger.warning(f"Timeout calculation returned {agent_timeout}s for {original_context} context, capping to 600s (10 min)")
-            agent_timeout = 600
-        elif original_context <= 32000 and agent_timeout > 480:
-            logger.warning(f"Timeout calculation returned {agent_timeout}s for {original_context} context, capping to 480s (8 min)")
-            agent_timeout = 480
-        logger.info(f"Agent mode timeout set to {agent_timeout/60:.1f} minutes ({agent_timeout}s) (context_size: {effective_context}, per_turn: {per_turn_timeout}s)")
+        # TIMEOUTS DISABLED: No timeout capping
+        logger.info(f"Agent mode timeout set to {agent_timeout/60:.1f} minutes ({agent_timeout}s) - TIMEOUTS DISABLED (context_size: {effective_context}, per_turn: {per_turn_timeout}s)")
         
         # Emit early progress event for fast first turn
         if progress_callback:
@@ -5904,21 +6466,19 @@ Start by READING the codebase files related to the problem."""
                     # Check for timeout in heartbeat loop (catches hangs even if main loop is blocked)
                     elapsed_time = current_time - agent_start_time
                     # Debug logging for timeout issues
-                    if elapsed_time > agent_timeout * 0.9:  # Log when approaching timeout (90%)
-                        logger.info(f"Heartbeat loop: elapsed={elapsed_time:.1f}s, timeout={agent_timeout}s ({agent_timeout/60:.1f}min), agent_start_time={agent_start_time}")
-                    if elapsed_time > agent_timeout:
-                        logger.warning(f"Agent mode timeout detected in heartbeat loop ({elapsed_time:.1f}s, {elapsed_time/60:.1f} minutes, timeout={agent_timeout}s ({agent_timeout/60:.1f}min), agent_start_time={agent_start_time})")
-                        heartbeat_active.clear()
-                        if progress_callback:
-                            try:
-                                progress_callback(json.dumps({
-                                    "type": "error",
-                                    "message": f"Agent mode timed out after {elapsed_time/60:.1f} minutes. Please try again or use a more specific question."
-                                }), 4, 4)
-                            except Exception as e:
-                                logger.debug(f"Progress callback failed: {e}")
-                                pass
-                        break
+                    # TIMEOUTS DISABLED: Skip timeout check in heartbeat loop
+                    # if elapsed_time > agent_timeout:
+                    #     heartbeat_active.clear()
+                    #     if progress_callback:
+                    #         try:
+                    #             progress_callback(json.dumps({
+                    #                 "type": "error",
+                    #                 "message": f"Agent mode timed out after {elapsed_time/60:.1f} minutes. Please try again or use a more specific question."
+                    #             }), 4, 4)
+                    #         except Exception as e:
+                    #             logger.debug(f"Progress callback failed: {e}")
+                    #             pass
+                    #     break
                     
                     # Emit heartbeat
                     if progress_callback:
@@ -5974,32 +6534,14 @@ Start by READING the codebase files related to the problem."""
             nonlocal agent_timeout, per_turn_timeout, user_message, commands_history, tools_used, discovered_files
             nonlocal cumulative_file_reads, cumulative_searches, cumulative_traces, cumulative_greps
             nonlocal agent_start_time, cancellation_flag  # Must be nonlocal to see the reset value and cancellation flag
+            nonlocal cumulative_error_count, cumulative_permanent_error_count  # Track errors across turns
+            nonlocal config  # Access config from outer scope for retry logic
+            nonlocal conversation_context  # Access conversation context from outer scope
+            nonlocal key_insights  # Access key insights from outer scope
             
-            # CRITICAL: Check timeout FIRST, before any other operations (including logging)
+            # TIMEOUTS DISABLED: Skip timeout check at start of turn
             elapsed_time = time.time() - agent_start_time
-            if elapsed_time > agent_timeout:
-                cancellation_flag.set()  # Signal cancellation to all operations
-                logger.warning(f"Agent mode overall timeout reached at start of turn {turn_num + 1} (elapsed: {elapsed_time:.1f}s/{elapsed_time/60:.1f}min, timeout: {agent_timeout/60:.1f}min, agent_start_time: {agent_start_time})")
-                heartbeat_active.clear()
-                if progress_callback:
-                    try:
-                        all_tasks = task_tracker.get_tasks()
-                        completed = sum(1 for t in all_tasks if t["status"] == "done")
-                        failed = sum(1 for t in all_tasks if t["status"] == "failed")
-                        duration_ms = int((time.time() - agent_start_time) * 1000)
-                        progress_callback(json.dumps({
-                            "type": "done",
-                            "summary": {
-                                "tasks_total": len(all_tasks),
-                                "completed": completed,
-                                "failed": failed,
-                                "duration_ms": duration_ms
-                            }
-                        }), 4, 4)
-                    except Exception as e:
-                        logger.debug(f"Progress callback failed: {e}")
-                        pass
-                return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes ({turn_num} turns) - timeout detected at start of turn. Please try a more specific question or break it into smaller parts."}
+            # Timeout check removed - agent will run indefinitely
             
             # Now safe to log and access variables
             logger.info(f"Starting turn {turn_num + 1} (elapsed: {elapsed_time:.1f}s)")
@@ -6029,12 +6571,7 @@ Start by READING the codebase files related to the problem."""
                 except Exception as e:
                     logger.debug(f"Progress callback failed: {e}")
                     pass  # Fallback to regular callback if JSON fails
-            # Warn when approaching overall timeout (at 80% of timeout)
-            if elapsed_time > agent_timeout * 0.8 and turn_num > 0:
-                remaining_time = agent_timeout - elapsed_time
-                logger.warning(f"Agent mode approaching timeout: {remaining_time:.0f}s remaining, {turn_num} turns completed")
-                if progress_callback:
-                    progress_callback(f"Approaching timeout ({remaining_time:.0f}s remaining)...", 2, 4)
+            # TIMEOUTS DISABLED: Skip timeout warning
             # Build messages for this turn
             if progress_callback:
                 progress_callback(f"Agent turn {turn_num + 1}/{max_turns}...", 2, 4)
@@ -6050,30 +6587,8 @@ Start by READING the codebase files related to the problem."""
                 except Exception as e:
                     logger.debug(f"Progress callback failed: {e}")
                     pass
-            # Check timeout again before making LLM call (in case we spent time building messages)
+            # TIMEOUTS DISABLED: Skip timeout check before LLM call
             elapsed_time = time.time() - agent_start_time
-            if elapsed_time > agent_timeout:
-                logger.warning(f"Agent mode overall timeout reached before LLM call after {turn_num} turns ({elapsed_time:.1f}s)")
-                heartbeat_active.clear()
-                if progress_callback:
-                    try:
-                        all_tasks = task_tracker.get_tasks()
-                        completed = sum(1 for t in all_tasks if t["status"] == "done")
-                        failed = sum(1 for t in all_tasks if t["status"] == "failed")
-                        duration_ms = int((time.time() - agent_start_time) * 1000)
-                        progress_callback(json.dumps({
-                            "type": "done",
-                            "summary": {
-                                "tasks_total": len(all_tasks),
-                                "completed": completed,
-                                "failed": failed,
-                                "duration_ms": duration_ms
-                            }
-                        }), 4, 4)
-                    except Exception as e:
-                        logger.debug(f"Progress callback failed: {e}")
-                        pass
-                return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes ({turn_num} turns) - timeout detected before LLM call. Please try a more specific question or break it into smaller parts."}
             # Build messages for this turn
             elapsed_before_build = time.time() - agent_start_time
             logger.info(f"Building messages for turn {turn_num + 1} (elapsed: {elapsed_before_build:.1f}s, remaining: {agent_timeout - elapsed_before_build:.1f}s)")
@@ -6081,12 +6596,18 @@ Start by READING the codebase files related to the problem."""
             # Optimize context: summarize old turns if conversation is getting long
             # Skip optimization if we're running low on time to save time for LLM call
             default_context = conversation_context[-12:] if len(conversation_context) > 12 else conversation_context
-            if elapsed_before_build > agent_timeout * 0.85:  # If we've used 85% of timeout, skip optimization
-                logger.warning(f"Skipping context optimization to save time: {elapsed_before_build:.1f}s/{agent_timeout}s ({elapsed_before_build/agent_timeout*100:.1f}%)")
+            # For first turn, skip optimization entirely to speed up initialization
+            # For later turns, skip if we've used too much time
+            # TIMEOUTS DISABLED: Always optimize context (no timeout check)
+            if False:  # Disabled timeout check
+                if turn_num == 0:
+                    logger.info(f"Skipping context optimization for first turn to speed up initialization")
+                else:
+                    logger.warning(f"Skipping context optimization to save time: {elapsed_before_build:.1f}s/{agent_timeout}s ({elapsed_before_build/agent_timeout*100:.1f}%)")
                 optimized_context = default_context  # Skip optimization, use default
             else:
-                # Use shorter timeout for first turn to speed up initialization
-                optimize_timeout = 2.0 if turn_num == 0 else TIMEOUT_OPTIMIZE_CONTEXT
+                # Use shorter timeout for optimization
+                optimize_timeout = TIMEOUT_OPTIMIZE_CONTEXT
                 optimized_context = self._execute_with_timeout(
                     self._optimize_conversation_context,
                     optimize_timeout,
@@ -6098,18 +6619,8 @@ Start by READING the codebase files related to the problem."""
             elapsed_after_optimize = time.time() - agent_start_time
             logger.info(f"After context optimization: elapsed={elapsed_after_optimize:.1f}s, remaining={agent_timeout - elapsed_after_optimize:.1f}s")
             # Check timeout after context optimization (fail fast if setup takes too long)
-            if elapsed_after_optimize > agent_timeout * 0.9:  # If we've used 90% of timeout
-                logger.warning(f"Too much time spent on setup: {elapsed_after_optimize:.1f}s/{agent_timeout}s ({elapsed_after_optimize/agent_timeout*100:.1f}%)")
-                heartbeat_active.clear()
-                if progress_callback:
-                    try:
-                        progress_callback(json.dumps({
-                            "type": "error",
-                            "message": "Agent initialization took too long. Please try again."
-                        }), 4, 4)
-                    except Exception:
-                        pass
-                return {"exit": True, "skip": False, "result": "Agent initialization took too long. Please try again."}
+            # Skip this check entirely for first turn (turn_num == 0) - initialization can take time
+            # TIMEOUTS DISABLED: Skip timeout check after context optimization
             messages.extend(optimized_context)
             messages.append({"role": "user", "content": user_message})
             # LLM responds with command or analysis
@@ -6161,52 +6672,22 @@ Start by READING the codebase files related to the problem."""
             if cancellation_flag.is_set():
                 logger.warning("Cancellation flag set, stopping turn")
                 return {"exit": False, "skip": False}
+            # TIMEOUTS DISABLED: Skip per-turn timeout check
             turn_elapsed = time.time() - turn_start_time
-            if turn_elapsed > per_turn_timeout:
-                logger.warning(f"Per-turn timeout reached after {turn_elapsed:.1f}s on turn {turn_num + 1} (before LLM call)")
-                if progress_callback:
-                    progress_callback(f"Turn {turn_num + 1} timed out after {per_turn_timeout}s. Breaking turn.", 2, 4)
-                return {"exit": False, "skip": False}  # Normal end, just timed out
             
-            # Warn when approaching per-turn timeout (80% threshold)
-            if turn_elapsed > per_turn_timeout * 0.8 and turn_elapsed > 10:
-                remaining_turn_time = per_turn_timeout - turn_elapsed
-                logger.warning(f"Approaching per-turn timeout: {remaining_turn_time:.0f}s remaining on turn {turn_num + 1}")
-            
-            # CRITICAL: Recalculate elapsed_time right before LLM call
-            # (time may have passed since start of turn due to setup/health checks)
+            # TIMEOUTS DISABLED: Set very high timeout for LLM calls
             current_elapsed_time = time.time() - agent_start_time
-            # Calculate remaining time for this LLM call (don't exceed overall timeout)
-            # Ensure minimum timeout: adaptive based on turn number and remaining time
-            # First turn needs more time to process system prompt and generate initial commands
-            if turn_num == 0:
-                min_timeout = 25  # Increased from 15s - first turn needs more time for prompt processing
-            elif turn_num >= 10:
-                min_timeout = 25  # Reduced from 35s for later turns to allow completion
-            else:
-                min_timeout = 30  # Reduced from 35s for middle turns
-            # Recalculate right before use to avoid race condition
-            time_remaining_for_call = min(per_turn_timeout, agent_timeout - (time.time() - agent_start_time))
-            # Debug logging for timeout issues
-            logger.info(f"Before LLM call: elapsed={current_elapsed_time:.1f}s, timeout={agent_timeout}s ({agent_timeout/60:.1f}min), time_remaining={time_remaining_for_call:.1f}s, min_timeout={min_timeout}s, agent_start_time={agent_start_time}")
-            # Ensure we have at least the minimum timeout
-            if time_remaining_for_call < min_timeout:
-                if current_elapsed_time + min_timeout > agent_timeout:
-                    # Not enough time even for minimum timeout
-                    logger.warning(f"Not enough time remaining for LLM call (need {min_timeout}s, have {time_remaining_for_call:.1f}s), timing out. elapsed={current_elapsed_time:.1f}s, timeout={agent_timeout}s ({agent_timeout/60:.1f}min), agent_start_time={agent_start_time}")
-                    heartbeat_active.clear()
-                    return {"exit": True, "skip": False, "result": f"Agent mode timed out after {current_elapsed_time/60:.1f} minutes ({turn_num} turns) - insufficient time remaining for LLM call. Please try a more specific question or break it into smaller parts."}
-                else:
-                    # Use minimum timeout even if it slightly exceeds per_turn_timeout
-                    time_remaining_for_call = min_timeout
+            time_remaining_for_call = 999999  # Effectively no timeout
+            logger.info(f"Before LLM call: elapsed={current_elapsed_time:.1f}s - TIMEOUTS DISABLED")
             for retry_attempt in range(max_retries):
                 try:
                     # Timeout for agent mode - use remaining time or per-turn timeout, whichever is smaller
-                    # Use 20s for first turn (reduced from 30s to fail faster), 50s for subsequent turns
+                    # For first turn, use whatever time we have (may be minimal due to slow initialization)
+                    # For subsequent turns, use up to 50s
                     # But ensure we never go below the minimum
-                    timeout = max(min_timeout, min(20 if turn_num == 0 else 50, int(time_remaining_for_call)))
-                    # Safeguard: Never exceed remaining time (prevents timeout from exceeding overall budget)
-                    timeout = min(timeout, int(time_remaining_for_call))
+                    # TIMEOUTS DISABLED: Set very high timeout for all LLM calls
+                    timeout = 999999  # Effectively no timeout
+                    logger.info(f"LLM call timeout set to {timeout}s (effectively infinite)")
                     # Track first token time (for streaming, we'd check stream, but for non-streaming we approximate)
                     call_start = time.time()
                     
@@ -6428,6 +6909,12 @@ Start by READING the codebase files related to the problem."""
             "role": "assistant",
             "content": llm_response
             })
+            # Limit conversation context size (max 100 messages)
+            MAX_CONVERSATION_MESSAGES = 100
+            if len(conversation_context) > MAX_CONVERSATION_MESSAGES:
+                # Keep most recent messages (sliding window)
+                conversation_context = conversation_context[-MAX_CONVERSATION_MESSAGES:]
+                logger.debug(f"Limited conversation_context to {MAX_CONVERSATION_MESSAGES} messages (kept most recent)")
             # Parse commands from LLM response (with timeout protection)
             commands = self._execute_with_timeout(
                 self._parse_agent_commands,
@@ -6851,11 +7338,11 @@ Start by READING the codebase files related to the problem."""
                 logger.warning("Cancellation flag set, stopping turn")
                 return {"exit": False, "skip": False}
             turn_elapsed = time.time() - turn_start_time
-            if turn_elapsed > per_turn_timeout:
-                logger.warning(f"Per-turn timeout reached after {turn_elapsed:.1f}s on turn {turn_num + 1} (before command execution)")
-                if progress_callback:
-                    progress_callback(f"Turn {turn_num + 1} timed out after {per_turn_timeout}s. Breaking turn.", 2, 4)
-                return {"exit": False, "skip": False}  # Normal end, just timed out
+            # TIMEOUTS DISABLED: Skip per-turn timeout check before command execution
+            # if turn_elapsed > per_turn_timeout:
+            #     if progress_callback:
+            #         progress_callback(f"Turn {turn_num + 1} timed out after {per_turn_timeout}s. Breaking turn.", 2, 4)
+            #     return {"exit": False, "skip": False}  # Normal end, just timed out
             
             # Before executing commands, check if we have enough time
             elapsed_before_commands = time.time() - agent_start_time
@@ -6930,19 +7417,16 @@ Start by READING the codebase files related to the problem."""
                 reads_ms = int((time.time() - reads_start) * 1000)
                 self._log_perf_metric("reads", files=read_count, ms=reads_ms)
                 logger.info(f"After file reads: elapsed={time.time() - agent_start_time:.1f}s, files_read={read_count}, duration={reads_ms}ms")
-                # Check timeout after file reads
-                elapsed_time = time.time() - agent_start_time
-                if elapsed_time > agent_timeout * 0.8:  # Changed from 0.9 to 0.8 for earlier detection
-                    logger.warning(f"Timeout approaching after file reads: {elapsed_time:.1f}s/{agent_timeout}s ({elapsed_time/agent_timeout*100:.1f}%)")
-                    if cancellation_flag.is_set() or elapsed_time > agent_timeout:
-                        return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes - file reads took too long. Please try a more specific question."}
-                    # Cancel remaining operations
-                    cancellation_flag.set()
-                    logger.warning("Cancelling remaining operations (searches, GREP) due to timeout")
-                    # Skip remaining command execution
-                    search_commands = []
-                    grep_commands = []
-                    trace_commands = []
+                # TIMEOUTS DISABLED: Skip timeout check after file reads
+                # if elapsed_time > agent_timeout:
+                #     return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes - file reads took too long. Please try a more specific question."}
+                #     # Cancel remaining operations
+                #     cancellation_flag.set()
+                #     logger.warning("Cancelling remaining operations (searches, GREP) due to timeout")
+                #     # Skip remaining command execution
+                #     search_commands = []
+                #     grep_commands = []
+                #     trace_commands = []
                 # Mark READ tasks as completed and emit task_update
                 for cmd in read_commands:
                     cmd_key = cmd_to_key.get(id(cmd))
@@ -7101,7 +7585,7 @@ Start by READING the codebase files related to the problem."""
                             return {"type": "timeout", "command": cmd, "error": "Timeout approaching"}
                         
                         # Reduce max_results for faster searches (10 instead of 20)
-                        search_results = explorer.search_concept(term, max_results=min(10, config.max_search_results))
+                        search_results = explorer.search_concept(term, max_results=min(10, config.max_search_results), cancellation_flag=cancellation_flag)
                         cmd_results = []
                         for result in search_results:
                             # Check cancellation flag in loop
@@ -7187,9 +7671,19 @@ Start by READING the codebase files related to the problem."""
                     searches_ms = int((time.time() - searches_start) * 1000)
                     self._log_perf_metric("searches", count=search_count, ms=searches_ms)
                     logger.info(f"After searches: elapsed={time.time() - agent_start_time:.1f}s, searches={search_count}, duration={searches_ms}ms")
-                    # Check timeout after searches
+                    # Check timeout after searches with 5s buffer for early termination
                     elapsed_time = time.time() - agent_start_time
-                    if elapsed_time > agent_timeout * 0.8:  # Changed from 0.9 to 0.8 for earlier detection
+                    time_remaining = agent_timeout - elapsed_time
+                    if time_remaining <= 5.0:  # 5s buffer - return partial results if timeout approaching
+                        logger.warning(f"Timeout approaching after searches (within 5s buffer): {elapsed_time:.1f}s/{agent_timeout}s, {time_remaining:.1f}s remaining")
+                        if cancellation_flag.is_set() or elapsed_time >= agent_timeout:
+                            return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes - searches took too long. Please try a more specific question."}
+                        # Cancel remaining operations and return partial results
+                        cancellation_flag.set()
+                        logger.warning("Cancelling remaining operations (GREP) due to timeout approaching - returning partial results")
+                        grep_commands = []
+                        trace_commands = []
+                    elif elapsed_time > agent_timeout * 0.8:  # Changed from 0.9 to 0.8 for earlier detection
                         logger.warning(f"Timeout approaching after searches: {elapsed_time:.1f}s/{agent_timeout}s ({elapsed_time/agent_timeout*100:.1f}%)")
                         if cancellation_flag.is_set() or elapsed_time > agent_timeout:
                             return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes - searches took too long. Please try a more specific question."}
@@ -7248,7 +7742,7 @@ Start by READING the codebase files related to the problem."""
                         if elapsed > agent_timeout * 0.8:
                             return {"type": "timeout", "command": cmd, "error": "Timeout approaching"}
                         
-                        matches = explorer.grep_pattern(pattern)
+                        matches = explorer.grep_pattern(pattern, max_results=100, cancellation_flag=cancellation_flag)
                         # Limit matches to prevent excessive processing
                         MAX_MATCHES_PER_FILE = 20
                         MAX_TOTAL_MATCHES = 100
@@ -7403,9 +7897,18 @@ Start by READING the codebase files related to the problem."""
                     greps_ms = int((time.time() - greps_start) * 1000)
                     self._log_perf_metric("greps", count=grep_count, ms=greps_ms)
                     logger.info(f"After GREP: elapsed={time.time() - agent_start_time:.1f}s, greps={grep_count}, duration={greps_ms}ms")
-                    # Check timeout after GREP operations
+                    # Check timeout after GREP operations with 5s buffer for early termination
                     elapsed_time = time.time() - agent_start_time
-                    if elapsed_time > agent_timeout * 0.8:  # Changed from 0.9 to 0.8 for earlier detection
+                    time_remaining = agent_timeout - elapsed_time
+                    if time_remaining <= 5.0:  # 5s buffer - return partial results if timeout approaching
+                        logger.warning(f"Timeout approaching after GREP (within 5s buffer): {elapsed_time:.1f}s/{agent_timeout}s, {time_remaining:.1f}s remaining")
+                        if cancellation_flag.is_set() or elapsed_time >= agent_timeout:
+                            return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes - GREP operations took too long. Please try a more specific question."}
+                        # Cancel remaining operations and return partial results
+                        cancellation_flag.set()
+                        logger.warning("Cancelling remaining operations due to timeout approaching - returning partial results")
+                        trace_commands = []
+                    elif elapsed_time > agent_timeout * 0.8:  # Changed from 0.9 to 0.8 for earlier detection
                         logger.warning(f"Timeout approaching after GREP: {elapsed_time:.1f}s/{agent_timeout}s ({elapsed_time/agent_timeout*100:.1f}%)")
                         if cancellation_flag.is_set() or elapsed_time > agent_timeout:
                             return {"exit": True, "skip": False, "result": f"Agent mode timed out after {elapsed_time/60:.1f} minutes - GREP operations took too long. Please try a more specific question."}
@@ -7460,51 +7963,73 @@ Start by READING the codebase files related to the problem."""
                     # Note: GREP commands are now handled in parallel above, so they won't be in other_commands
                 except Exception as e:
                     # Categorize error and determine retry strategy
-                    error_category, should_retry = self._categorize_error(e, cmd)
+                    error_category, should_retry, error_context = self._categorize_error(e, cmd)
                     
-                    # Retry logic for transient errors
+                    # Retry logic for transient errors using RetryHandler
                     if should_retry and error_category == 'transient':
-                        max_retries = 3
-                        retry_delays = [1.0, 2.0, 4.0]  # Exponential backoff
-                        retry_success = False
+                        # Define command execution function for retry
+                        def execute_command_with_retry():
+                            """Execute command - used by RetryHandler."""
+                            # Check cancellation before retry
+                            if cancellation_flag.is_set():
+                                raise Exception("Command cancelled")
+                            
+                            # Check timeout before retry
+                            elapsed = time.time() - agent_start_time
+                            if elapsed > agent_timeout * 0.8:
+                                raise TimeoutError("Timeout approaching, skipping retry")
+                            
+                            # Re-execute command based on type
+                            if cmd["type"] == "READ":
+                                return self._execute_single_read_command(cmd, file_cache, file_relationships, discovered_files, files_read_tracker, turn_num, MAX_FILE_CACHE_SIZE)
+                            elif cmd["type"] == "SEARCH":
+                                term = cmd.get("term")
+                                search_results = explorer.search_concept(term, max_results=min(10, config.max_search_results), cancellation_flag=cancellation_flag)
+                                return [{"type": "search", "file": r.get("file"), "line": r.get("line"), "match": r.get("match"), "context": r.get("context")} for r in search_results]
+                            elif cmd["type"] == "GREP":
+                                pattern = cmd.get("pattern")
+                                grep_results = explorer.grep_pattern(pattern, max_results=50, cancellation_flag=cancellation_flag)
+                                # Convert grep_results dict to list format
+                                retry_results = []
+                                for file_path, lines in grep_results.items():
+                                    for line_num in lines[:20]:  # Limit to 20 matches per file
+                                        retry_results.append({
+                                            "type": "grep",
+                                            "file": file_path,
+                                            "line": line_num,
+                                            "match": f"Pattern found at line {line_num}",
+                                            "context": ""
+                                        })
+                                return retry_results
+                            elif cmd["type"] == "TRACE":
+                                start = cmd.get("start")
+                                end = cmd.get("end")
+                                trace_results = explorer.trace_data_flow(start, end)
+                                return [{"type": "trace", **r} for r in trace_results]
+                            else:
+                                return []
                         
-                        for retry_attempt in range(max_retries):
-                            try:
-                                logger.info(f"Retrying {cmd['type']} command (attempt {retry_attempt + 1}/{max_retries}) after {retry_delays[retry_attempt]}s")
-                                time.sleep(retry_delays[retry_attempt])
-                                
-                                # Re-execute command
-                                if cmd["type"] == "READ":
-                                    retry_results = self._execute_single_read_command(cmd, file_cache, file_relationships, discovered_files, files_read_tracker, turn_num, MAX_FILE_CACHE_SIZE)
-                                elif cmd["type"] == "SEARCH":
-                                    term = cmd.get("term")
-                                    search_results = explorer.search_concept(term, max_results=min(10, config.max_search_results))
-                                    retry_results = [{"type": "search", "file": r.get("file"), "line": r.get("line"), "match": r.get("match"), "context": r.get("context")} for r in search_results]
-                                elif cmd["type"] == "GREP":
-                                    pattern = cmd.get("pattern")
-                                    grep_results = explorer.grep_pattern(pattern, max_results=50)
-                                    retry_results = [{"type": "grep", "file": r.get("file"), "line": r.get("line"), "match": r.get("match"), "context": r.get("context")} for r in grep_results]
-                                elif cmd["type"] == "TRACE":
-                                    start = cmd.get("start")
-                                    end = cmd.get("end")
-                                    trace_results = explorer.trace_data_flow(start, end)
-                                    retry_results = [{"type": "trace", **r} for r in trace_results]
-                                else:
-                                    retry_results = []
-                                
-                                # If retry succeeded, add results and break
-                                if retry_results:
-                                    cmd_results.extend(retry_results)
-                                    retry_success = True
-                                    logger.info(f"Retry succeeded for {cmd['type']} command on attempt {retry_attempt + 1}")
-                                    break
-                            except Exception as retry_error:
-                                logger.debug(f"Retry attempt {retry_attempt + 1} failed: {retry_error}")
-                                # Continue to next retry or final error handling
-                        
-                        # If all retries failed, fall through to error handling
-                        if retry_success:
-                            continue
+                        # Use RetryHandler with circuit breaker
+                        try:
+                            retry_results = self.retry_handler.retry_with_backoff(
+                                func=execute_command_with_retry,
+                                max_retries=config.max_retries,
+                                initial_delay=config.retry_initial_delay,
+                                max_delay=config.retry_max_delay,
+                                exponential_base=2.0,
+                                retry_on=(Exception,),
+                                circuit_breaker_key=f"command_{cmd['type']}"
+                            )
+                            
+                            # If retry succeeded, add results
+                            if retry_results:
+                                cmd_results.extend(retry_results)
+                                logger.info(f"Retry succeeded for {cmd['type']} command using RetryHandler")
+                                continue
+                        except Exception as retry_error:
+                            # RetryHandler exhausted all retries or circuit breaker opened
+                            logger.warning(f"RetryHandler failed for {cmd['type']} command: {retry_error}")
+                            # Fall through to error handling
                     
                     # Error handling (for permanent errors or failed retries)
                     logger.warning(f"Command execution failed: {cmd}, error: {e}, category: {error_category}")
@@ -7539,6 +8064,7 @@ Start by READING the codebase files related to the problem."""
                         "command": cmd,
                         "error": error_msg,
                         "error_category": error_category,
+                        "error_context": error_context,  # Include detailed error context
                         "suggestions": suggestion
                     }
                     cmd_results.append(error_info)
@@ -7629,6 +8155,7 @@ Start by READING the codebase files related to the problem."""
             # Process all results in one pass to collect statistics and error suggestions
             file_set = set()
             error_count = 0
+            permanent_error_count = 0  # Track permanent errors separately
             match_count = 0
             error_suggestions = []
             has_actual_paths = False
@@ -7650,6 +8177,10 @@ Start by READING the codebase files related to the problem."""
                 if r_type == "error":
                     error_count += 1
                     has_errors = True
+                    # Check if this is a permanent error (from error_category field)
+                    error_category = r.get("error_category", "unknown")
+                    if error_category == "permanent":
+                        permanent_error_count += 1
                     # Build error suggestions
                     if r.get("suggestions"):
                         error_suggestions.append(f"💡 {r.get('suggestions')}")
@@ -7658,6 +8189,10 @@ Start by READING the codebase files related to the problem."""
                         error_suggestions.append(f"💡 Command failed: {cmd.get('type', 'unknown')} - {r.get('error', 'unknown error')}")
                 elif r_type in ["grep", "search"]:
                     match_count += 1
+            
+            # Update cumulative error counts
+            cumulative_error_count += error_count
+            cumulative_permanent_error_count += permanent_error_count
             
             # Build result summary for progress callback
             if progress_callback and results:
@@ -7728,6 +8263,11 @@ Start by READING the codebase files related to the problem."""
             # Extract insights from results
             new_insights = self._extract_insights_from_results(results, files_read_tracker)
             key_insights.extend(new_insights)
+            # Limit key_insights to prevent unbounded growth (keep last 50)
+            MAX_KEY_INSIGHTS = 50
+            if len(key_insights) > MAX_KEY_INSIGHTS:
+                key_insights = key_insights[-MAX_KEY_INSIGHTS:]
+                logger.debug(f"Limited key_insights to {MAX_KEY_INSIGHTS} (kept most recent)")
             # CONFIDENCE CALCULATION DURING EXPLORATION (after READ/GREP)
             # Calculate confidence after each exploration step to track progress
             current_confidence = self._calculate_confidence_score(
@@ -7737,7 +8277,9 @@ Start by READING the codebase files related to the problem."""
             validation_issues=[],
             verification_results=getattr(self, '_last_verification_results', None),
             code_match_accuracy=None,  # Not available during exploration
-            runtime_checks=None  # Not available during exploration
+            runtime_checks=None,  # Not available during exploration
+            error_count=cumulative_error_count,  # Pass cumulative error count
+            permanent_error_count=cumulative_permanent_error_count  # Pass cumulative permanent error count
             )
             # Log confidence progress
             logger.info(f"Exploration confidence after turn {turn_num + 1}: {current_confidence:.0%} (files: {len(files_read_tracker)}, commands: {len(commands_history)})")
@@ -8139,6 +8681,11 @@ Start by READING the codebase files related to the problem."""
             # Wait for heartbeat thread to finish (with timeout)
             if 'heartbeat_thread' in locals():
                 heartbeat_thread.join(timeout=1.0)
+            # Log cache statistics if available
+            if 'file_cache' in locals() and hasattr(file_cache, 'get_stats'):
+                cache_stats = file_cache.get_stats()
+                logger.info(f"File cache statistics: {cache_stats}")
+                self._log_perf_metric("cache_stats", **cache_stats)
             # Emit done event if not already emitted
             if progress_callback:
                 try:
@@ -8316,6 +8863,26 @@ Start by READING the codebase files related to the problem."""
         if validation_issues:
             penalty = min(len(validation_issues) / 5.0, 1.0) * 0.3
             score -= penalty
+        
+        # Penalty for errors (max -0.4)
+        # Permanent errors have more impact than transient errors
+        if error_count is not None and error_count > 0:
+            # Calculate error rate (errors per command)
+            total_commands = len(commands_history) if commands_history else 1
+            error_rate = min(error_count / max(total_commands, 1), 1.0)
+            
+            # Base penalty from error rate
+            error_penalty = error_rate * 0.2
+            
+            # Additional penalty for permanent errors (more severe)
+            if permanent_error_count is not None and permanent_error_count > 0:
+                permanent_error_rate = min(permanent_error_count / max(error_count, 1), 1.0)
+                # Permanent errors get 2x penalty
+                permanent_penalty = permanent_error_rate * 0.2
+                error_penalty += permanent_penalty
+            
+            score -= min(error_penalty, 0.4)  # Cap total error penalty at 0.4
+            logger.debug(f"Error penalty applied: {error_penalty:.3f} (errors: {error_count}, permanent: {permanent_error_count})")
         
         # Bonus for diverse exploration (max +0.1)
         if len(files_read) >= 3 and len(commands_history) >= 5:

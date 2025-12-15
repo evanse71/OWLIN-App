@@ -1,0 +1,496 @@
+.analysis-assistant-gen {
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
+  flex-shrink: 0;
+  height: 100%;
+  border-radius: 22px;
+  padding: 14px 16px 18px;
+  background: radial-gradient(circle at top left, #111827 0%, #020617 55%, #020617 100%);
+  border: 1px solid rgba(15, 23, 42, 0.9);
+  box-shadow: 0 22px 45px rgba(15, 23, 42, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  color: #e5e7eb;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+              padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              max-width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              min-width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  position: absolute;
+  right: 24px;
+  top: 0;
+  left: auto;
+  margin: 0;
+}
+
+/* Expanded view - wider screens */
+@media (min-width: 1600px) {
+  .analysis-assistant-gen {
+    width: 420px;
+    min-width: 420px;
+    max-width: 420px;
+    padding: 18px 22px 22px;
+  }
+}
+
+@media (min-width: 1800px) {
+  .analysis-assistant-gen {
+    width: 480px;
+    min-width: 480px;
+    max-width: 480px;
+    padding: 20px 24px 24px;
+  }
+}
+
+.analysis-assistant-gen::-webkit-scrollbar {
+  width: 6px;
+}
+
+.analysis-assistant-gen::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.analysis-assistant-gen::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+
+.analysis-assistant-gen::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* Header */
+.analysis-assistant-gen__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.analysis-assistant-gen__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* Status Pill */
+.analysis-assistant-gen__status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.analysis-assistant-gen__status-icon {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.5;
+}
+
+.analysis-assistant-gen__status-icon--spinning {
+  animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.analysis-assistant-gen__status-pill--success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+}
+
+.analysis-assistant-gen__status-pill--warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.analysis-assistant-gen__status-pill--scanning {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+
+/* System Summary */
+.analysis-assistant-gen__summary {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.5;
+  flex-shrink: 0;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+}
+
+/* Condensed view - hide summary on narrow screens */
+@media (max-width: 1199px) {
+  .analysis-assistant-gen__summary {
+    display: none;
+  }
+}
+
+/* Scanning State */
+.analysis-assistant-gen__scanning {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.analysis-assistant-gen__scanning-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+  padding: 8px 0;
+}
+
+.analysis-assistant-gen__scanning-icon {
+  width: 14px;
+  height: 14px;
+  color: #6b7280;
+  animation: spin 2s linear infinite;
+}
+
+/* Issues Container */
+.analysis-assistant-gen__issues {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Issue Group */
+.analysis-assistant-gen__issue-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analysis-assistant-gen__group-header-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: rgba(2, 6, 23, 0.95);
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  margin-bottom: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.analysis-assistant-gen__group-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.analysis-assistant-gen__group-chevron {
+  width: 12px;
+  height: 12px;
+  color: #6b7280;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.analysis-assistant-gen__group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Issue Card */
+.analysis-assistant-gen__issue-card {
+  background: rgba(13, 21, 36, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* Condensed card view - narrow screens */
+@media (max-width: 1199px) {
+  .analysis-assistant-gen__issue-card {
+    padding: 10px 12px;
+  }
+  
+  .analysis-assistant-gen__issue-context {
+    display: none;
+  }
+  
+  .analysis-assistant-gen__issue-ai-note {
+    display: none;
+  }
+  
+  
+  .analysis-assistant-gen__issue-cta {
+    display: none;
+  }
+  
+  .analysis-assistant-gen__group-header {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  
+  .analysis-assistant-gen__issue-title {
+    font-size: 13px;
+  }
+  
+  .analysis-assistant-gen__severity-pill {
+    display: none;
+  }
+  
+  .analysis-assistant-gen__issue-title-row {
+    margin-bottom: 0;
+  }
+  
+  .analysis-assistant-gen__issue-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.analysis-assistant-gen__issue-card:hover {
+  background: rgba(13, 21, 36, 0.8);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.analysis-assistant-gen__issue-card:active {
+  transform: translateY(0);
+}
+
+/* Title Row */
+.analysis-assistant-gen__issue-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.analysis-assistant-gen__issue-title-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.analysis-assistant-gen__issue-icon {
+  width: 14px;
+  height: 14px;
+  color: #9ca3af;
+  flex-shrink: 0;
+  stroke-width: 2;
+}
+
+.analysis-assistant-gen__issue-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/* Severity Pill */
+.analysis-assistant-gen__severity-pill {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.analysis-assistant-gen__severity-pill--success {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.analysis-assistant-gen__severity-pill--info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+.analysis-assistant-gen__severity-pill--warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.analysis-assistant-gen__severity-pill--error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+/* Context Line */
+.analysis-assistant-gen__issue-context {
+  font-size: 11px;
+  color: #d1d5db;
+  line-height: 1.4;
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* AI Note */
+.analysis-assistant-gen__issue-ai-note {
+  font-size: 10px;
+  color: #93c5fd;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+/* CTA */
+.analysis-assistant-gen__issue-cta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.analysis-assistant-gen__cta-text {
+  font-size: 10px;
+  color: #93c5fd;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.analysis-assistant-gen__show-more {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 10px;
+  color: #9ca3af;
+  cursor: pointer;
+  text-align: center;
+  width: 100%;
+  margin-top: 4px;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.analysis-assistant-gen__show-more:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d1d5db;
+}
+
+.analysis-assistant-gen__cta-icon {
+  width: 10px;
+  height: 10px;
+  color: #93c5fd;
+  transition: transform 0.2s ease;
+}
+
+.analysis-assistant-gen__issue-card:hover .analysis-assistant-gen__cta-icon {
+  transform: translateX(2px);
+}
+
+/* Empty State */
+.analysis-assistant-gen__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 16px;
+  text-align: center;
+  flex: 1;
+}
+
+.analysis-assistant-gen__empty-icon {
+  width: 36px;
+  height: 36px;
+  color: rgba(16, 185, 129, 0.6);
+  stroke-width: 2;
+}
+
+.analysis-assistant-gen__empty-text {
+  font-size: 13px;
+  color: #9ca3af;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+}
+
+/* Footer */
+.analysis-assistant-gen__footer {
+  font-size: 11px;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.5;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: auto;
+  flex-shrink: 0;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* Condensed view - narrow screens */
+@media (max-width: 1199px) {
+  .analysis-assistant-gen {
+    width: 280px;
+    min-width: 280px;
+    max-width: 280px;
+  }
+  
+  .analysis-assistant-gen__title {
+    font-size: 15px;
+  }
+  
+  .analysis-assistant-gen__footer {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .analysis-assistant-gen {
+    width: 240px;
+    min-width: 240px;
+    max-width: 240px;
+    padding: 14px 16px 18px;
+  }
+}

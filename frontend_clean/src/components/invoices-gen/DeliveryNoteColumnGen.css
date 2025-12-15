@@ -1,0 +1,133 @@
+.delivery-column-gen {
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  padding: 18px 20px;
+  box-sizing: border-box;
+}
+
+.delivery-column-gen__header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.delivery-column-gen__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.delivery-column-gen__count {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.delivery-column-gen__list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+  min-height: 0;
+}
+
+.delivery-column-gen__list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.delivery-column-gen__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.delivery-column-gen__list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+
+.delivery-column-gen__list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+.delivery-column-gen__empty {
+  border-radius: var(--owlin-radius, 12px);
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  padding: 14px;
+  background: #f9fafb;
+}
+
+.delivery-column-gen__empty-text {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+/* Delivery note card */
+.delivery-card-gen {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.delivery-card-gen__top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.delivery-card-gen__supplier {
+  font-weight: 600;
+}
+
+.delivery-card-gen__meta-row {
+  margin-top: 2px;
+}
+
+.delivery-card-gen__id {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.delivery-card-gen__status-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.delivery-card-gen:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.delivery-card-gen--selected {
+  border-color: var(--owlin-accent, #3a76f0);
+  box-shadow: 0 0 0 1px rgba(58, 118, 240, 0.4);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .delivery-column-gen {
+    width: 220px;
+    min-width: 200px;
+    max-width: 220px;
+  }
+}
+

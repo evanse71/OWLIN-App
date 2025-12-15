@@ -1,5 +1,5 @@
 import { API_BASE_URL } from './config'
-import { normalizeInvoiceRecord, normalizeInvoicesPayload } from './api'
+import { normalizeInvoice, normalizeInvoiceRecord } from './api'
 
 export interface PageInfo {
   index: number
@@ -20,6 +20,7 @@ export interface LineItem {
   unit_price?: number
   total?: number
   line_total?: number
+  bbox?: number[]  // [x, y, w, h] in original image pixels
   [key: string]: unknown
 }
 
@@ -189,6 +190,7 @@ export function normalizeUploadResponse(raw: any, fileName?: string, timestamp?:
         unit: item.unit || item.uom || '',
         price,
         total,
+        bbox: item.bbox || undefined,  // Preserve bbox if present
         // Keep original item for reference
         ...item,
       }
@@ -218,20 +220,75 @@ export function normalizeUploadResponse(raw: any, fileName?: string, timestamp?:
  * @param intervalMs - Polling interval in milliseconds (default: 1500ms)
  * @returns Promise resolving to normalized metadata or null if timeout
  */
+/**
+ * Check document status directly (for timeout detection)
+ */
+async function checkDocumentStatus(docId: string): Promise<{ status: string; has_invoice: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(docId)}/status`)
+    if (!response.ok) {
+      throw new Error(`Document status check failed: ${response.status}`)
+    }
+    return response.json()
+  } catch (error) {
+    console.warn(`[UPLOAD] Failed to check document status for doc_id=${docId}:`, error)
+    return { status: 'processing', has_invoice: false }
+  }
+}
+
 async function pollUploadStatus(
   docId: string,
-  maxAttempts: number = 40,
+  maxAttempts: number = 80,  // Increased from 40 to 80 (120 seconds total) to match OCR processing time
   intervalMs: number = 1500
 ): Promise<InvoiceMetadata | null> {
+  console.log(`[UPLOAD] Starting polling for doc_id: ${docId} (max ${maxAttempts} attempts, ${intervalMs}ms interval)`)
+  
+  const MAX_PROCESSING_TIME_MS = 180000 // 3 minutes (180 seconds)
+  const startTime = Date.now()
+  let lastStatus = 'processing'
+  
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/upload/status?doc_id=${encodeURIComponent(docId)}`)
+      const statusUrl = `${API_BASE_URL}/api/upload/status?doc_id=${encodeURIComponent(docId)}`
+      console.log(`[UPLOAD] Poll attempt ${attempt + 1}/${maxAttempts}: ${statusUrl}`)
+      
+      const response = await fetch(statusUrl)
       if (!response.ok) {
+        console.warn(`[UPLOAD] Poll attempt ${attempt + 1} failed: HTTP ${response.status}`)
         await new Promise((resolve) => setTimeout(resolve, intervalMs))
         continue
       }
 
       const statusData = await response.json()
+      lastStatus = statusData?.status || 'processing'
+      
+      // Check if we've been processing for too long (2+ minutes) and still processing
+      const elapsedTime = Date.now() - startTime
+      if (elapsedTime >= MAX_PROCESSING_TIME_MS && lastStatus === 'processing') {
+        console.warn(`[UPLOAD] Document has been processing for ${elapsedTime}ms (${elapsedTime / 1000}s) - checking document status directly`)
+        const docStatus = await checkDocumentStatus(docId)
+        
+        if (docStatus.status === 'error') {
+          console.warn(`[UPLOAD] Document status check revealed error status - stopping polling for doc_id: ${docId}`)
+          return {
+            id: docId,
+            supplier: undefined,
+            invoiceNo: undefined,
+            date: undefined,
+            value: undefined,
+            confidence: undefined,
+            pages: undefined,
+            lineItems: [],
+            raw: { status: 'error', error: docStatus.error },
+            error: docStatus.error || 'OCR processing failed',
+          }
+        }
+        
+        // If invoice exists but we're still processing, continue polling but log
+        if (docStatus.has_invoice) {
+          console.log(`[UPLOAD] Document status check shows invoice exists - continuing to poll for line items`)
+        }
+      }
 
       // Check if processing is complete (has parsed data AND status is ready, OR has items)
       // Use optional chaining and check for truthy values (not just existence)
@@ -243,12 +300,49 @@ async function pollUploadStatus(
                       statusData?.status === 'completed' ||
                       statusData?.status === 'submitted' ||
                       statusData?.status === 'duplicate'
+      // For duplicates or errors, if we have items/data, consider it ready (invoice already exists)
+      const isDuplicateOrErrorWithData = (statusData?.status === 'duplicate' || statusData?.status === 'error') && (hasItems || hasData)
+      
+      // Stop polling on error status (even without items/data) - invoice might still exist in DB
+      // We'll check the invoice list separately via card detection
+      const isError = statusData?.status === 'error'
 
-      // Only stop polling if we have items OR status is ready/completed/scanned
+      // Only stop polling if we have items OR status is ready/completed/scanned/duplicate
       // This ensures we wait for line items to be inserted before stopping
       // Priority: if we have items, stop immediately (even if status isn't ready yet)
-      // Also accept ready/scanned/completed status even if some optional fields are null
-      if (hasItems || isReady) {
+      // Also accept ready/scanned/completed/duplicate status even if some optional fields are null
+      // Stop on error too - invoice might exist in DB even if status endpoint returns error
+      console.log(`[UPLOAD] Poll attempt ${attempt + 1} response:`, { 
+        status: statusData?.status, 
+        hasItems, 
+        isReady, 
+        hasData,
+        isDuplicateOrErrorWithData,
+        isError,
+        itemsCount: statusData?.items?.length || 0 
+      })
+      
+      if (hasItems || isReady || isDuplicateOrErrorWithData || isError) {
+        console.log(`[UPLOAD] Polling complete after ${attempt + 1} attempts (hasItems=${hasItems}, isReady=${isReady}, isDuplicateOrErrorWithData=${isDuplicateOrErrorWithData}, isError=${isError})`)
+        
+        // If error status, return minimal metadata with doc_id so card detection can still work
+        if (isError && !hasItems && !hasData) {
+          const errorMsg = statusData?.error || 'OCR processing failed'
+          console.warn(`[UPLOAD] Status is 'error' without items/data - returning minimal metadata for doc_id: ${docId}, error: ${errorMsg}`)
+          return {
+            id: docId,
+            supplier: undefined,
+            invoiceNo: undefined,
+            date: undefined,
+            value: undefined,
+            confidence: undefined,
+            pages: undefined,
+            lineItems: [],
+            raw: { ...statusData, error: errorMsg }, // Include error message in raw
+            error: errorMsg, // Also include at top level for easy access
+          }
+        }
+        
         // Merge status response into a format normalizeUploadResponse can handle
         // The status endpoint returns: { doc_id, status, parsed: {...}, items: [...], invoice: {...} }
         // We need to flatten it for normalization
@@ -272,7 +366,29 @@ async function pollUploadStatus(
         }
 
         // Apply normalization to status payload before returning
-        // This will convert snake_case to camelCase and apply field aliases
+        // Use normalizeInvoice() if invoice object exists, otherwise use normalizeUploadResponse()
+        if (statusData?.invoice && typeof statusData.invoice === 'object') {
+          const normalizedInvoice = normalizeInvoice(statusData.invoice)
+          // Convert to InvoiceMetadata format for backward compatibility
+          return {
+            id: String(normalizedInvoice.id || normalizedInvoice.docId || docId),
+            supplier: normalizedInvoice.supplier,
+            invoiceNo: String(normalizedInvoice.id || ''),
+            date: normalizedInvoice.invoiceDate,
+            value: normalizedInvoice.totalValue,
+            confidence: normalizedInvoice.confidence || undefined,
+            pages: undefined,
+            lineItems: normalizedInvoice.lineItems.map(item => ({
+              description: item.description,
+              qty: item.qty,
+              unit: item.uom || '',
+              price: item.unitPrice,
+              total: item.total,
+            })),
+            raw: statusData,
+          }
+        }
+        // Fallback to normalizeUploadResponse for non-invoice responses
         const normalized = normalizeUploadResponse(mergedResponse, undefined, Date.now())
         return normalized
       }
@@ -318,14 +434,19 @@ export function uploadFile(
 
     // Handle completion
     xhr.addEventListener('load', async () => {
+      console.log(`[UPLOAD] XHR load event: status=${xhr.status}, response length=${xhr.responseText?.length || 0}`)
+      
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const rawResponse = JSON.parse(xhr.responseText)
+          console.log(`[UPLOAD] Upload response:`, { status: rawResponse.status, doc_id: rawResponse.doc_id, has_parsed: !!rawResponse.parsed })
+          
           const docId = rawResponse.doc_id || rawResponse.id || rawResponse.existing_doc_id
 
           // If status is "processing" or "duplicate", poll for results
           // Duplicates need polling too because they might have existing invoice/line items
           if ((rawResponse.status === 'processing' || rawResponse.status === 'duplicate') && docId) {
+            console.log(`[UPLOAD] Status is "${rawResponse.status}", will poll for doc_id: ${docId}`)
             // Return initial response immediately, then poll in background
             const initialMetadata = normalizeUploadResponse(rawResponse, file.name, Date.now())
             resolve({
@@ -334,17 +455,27 @@ export function uploadFile(
             })
 
             // Poll for complete data in background (works for both new uploads and duplicates)
+            console.log(`[UPLOAD] Starting polling for doc_id: ${docId}`)
             const completeMetadata = await pollUploadStatus(docId)
             if (completeMetadata) {
+              console.log(`[UPLOAD] Polling completed, calling onComplete callback`)
               // Update via callback if provided
               if (options.onComplete) {
                 options.onComplete(completeMetadata)
+              }
+            } else {
+              console.warn(`[UPLOAD] Polling timed out or returned null for doc_id: ${docId}`)
+              // Still call onComplete with initial metadata if polling fails
+              if (options.onComplete) {
+                console.log(`[UPLOAD] Calling onComplete with initial metadata due to polling timeout`)
+                options.onComplete(initialMetadata)
               }
             }
             return
           }
 
           // Normalize the response to handle various backend field name variations
+          console.log(`[UPLOAD] Upload completed immediately (no polling needed)`)
           const metadata = normalizeUploadResponse(rawResponse, file.name, Date.now())
           resolve({
             success: true,
@@ -366,6 +497,7 @@ export function uploadFile(
 
     // Handle errors
     xhr.addEventListener('error', () => {
+      console.error(`[UPLOAD] XHR error event fired`)
       resolve({
         success: false,
         error: 'Network error: Failed to connect to server',
@@ -380,7 +512,9 @@ export function uploadFile(
     })
 
     // Start upload
-    xhr.open('POST', `${API_BASE_URL}/api/upload`)
+    const uploadUrl = `${API_BASE_URL}/api/upload`
+    console.log(`[UPLOAD] Starting XHR upload to: ${uploadUrl}`)
+    xhr.open('POST', uploadUrl)
     xhr.send(formData)
   })
 }

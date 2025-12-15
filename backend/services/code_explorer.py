@@ -36,7 +36,7 @@ class CodeExplorer:
         self._search_cache: Dict[str, Tuple[float, List[Dict]]] = {}  # {key: (timestamp, results)}
         self.ast_parser = ASTParser()  # AST parser for better code understanding
         
-    def search_concept(self, concept: str, max_results: int = 10, use_cache: bool = True) -> List[Dict]:
+    def search_concept(self, concept: str, max_results: int = 10, use_cache: bool = True, cancellation_flag=None) -> List[Dict]:
         """
         Semantic search for concepts in codebase with AST-enhanced understanding.
         
@@ -44,6 +44,7 @@ class CodeExplorer:
             concept: Concept to search for (e.g., "line items", "upload display")
             max_results: Maximum number of results to return
             use_cache: Whether to use cached results if available
+            cancellation_flag: Optional threading.Event to signal cancellation
             
         Returns:
             List of dicts with file, line, match, and context
@@ -65,12 +66,30 @@ class CodeExplorer:
         concept_words = concept_lower.split()
         
         # First, try AST-based search for function/class names (higher precision)
-        ast_results = self._search_with_ast(concept, concept_words, max_results // 2)
-        results.extend(ast_results)
+        # Early termination: stop when max_results reached
+        if cancellation_flag is None or not cancellation_flag.is_set():
+            ast_results = self._search_with_ast(concept, concept_words, max_results // 2, cancellation_flag)
+            results.extend(ast_results)
+            
+            # Early termination: if we already have enough results, skip text search
+            if len(results) >= max_results:
+                results.sort(key=lambda x: x.get("score", 0), reverse=True)
+                final_results = results[:max_results]
+                # Cache results
+                if use_cache:
+                    cache_key = f"{concept.lower()}:{max_results}"
+                    self._search_cache[cache_key] = (time.time(), final_results)
+                    if len(self._search_cache) > self.config.max_cache_size:
+                        self._clean_cache()
+                return final_results
         
         # Then do text-based search for remaining results (broader coverage)
-        text_results = self._search_text(concept, concept_words, max_results - len(results))
-        results.extend(text_results)
+        # Early termination: only search for remaining slots
+        if cancellation_flag is None or not cancellation_flag.is_set():
+            remaining_slots = max_results - len(results)
+            if remaining_slots > 0:
+                text_results = self._search_text(concept, concept_words, remaining_slots, cancellation_flag)
+                results.extend(text_results)
         
         # Sort by score and return top results
         results.sort(key=lambda x: x.get("score", 0), reverse=True)
@@ -87,7 +106,7 @@ class CodeExplorer:
         
         return final_results
     
-    def _search_with_ast(self, concept: str, concept_words: List[str], max_results: int) -> List[Dict]:
+    def _search_with_ast(self, concept: str, concept_words: List[str], max_results: int, cancellation_flag=None) -> List[Dict]:
         """Search using AST parsing for better structure understanding."""
         results = []
         concept_lower = concept.lower()
@@ -95,6 +114,9 @@ class CodeExplorer:
         # Search in common code file extensions
         # Limit search breadth: start with backend/** and frontend_clean/src/** only
         for ext in ['.py', '.ts', '.tsx', '.js', '.jsx']:
+            # Early termination: check cancellation and result limit
+            if cancellation_flag and cancellation_flag.is_set():
+                break
             if len(results) >= max_results:
                 break
             
@@ -112,10 +134,16 @@ class CodeExplorer:
             initial_results_count = len(results)
             
             for search_dir in search_dirs:
+                # Early termination checks
+                if cancellation_flag and cancellation_flag.is_set():
+                    break
                 if len(results) >= max_results:
                     break
                     
                 for file_path in search_dir.rglob(f"*{ext}"):
+                    # Early termination checks in inner loop
+                    if cancellation_flag and cancellation_flag.is_set():
+                        break
                     if len(results) >= max_results:
                         break
                     
@@ -148,6 +176,9 @@ class CodeExplorer:
                         
                         # Search in function names
                         for func in structure.get("functions", []):
+                            # Early termination checks
+                            if cancellation_flag and cancellation_flag.is_set():
+                                break
                             if len(results) >= max_results:
                                 break
                             
@@ -172,6 +203,9 @@ class CodeExplorer:
                         
                         # Search in class names
                         for cls in structure.get("classes", []):
+                            # Early termination checks
+                            if cancellation_flag and cancellation_flag.is_set():
+                                break
                             if len(results) >= max_results:
                                 break
                             
@@ -196,9 +230,15 @@ class CodeExplorer:
                         
                         # Search in method names within classes
                         for cls in structure.get("classes", []):
+                            # Early termination checks
+                            if cancellation_flag and cancellation_flag.is_set():
+                                break
                             if len(results) >= max_results:
                                 break
                             for method in cls.get("methods", []):
+                                # Early termination checks
+                                if cancellation_flag and cancellation_flag.is_set():
+                                    break
                                 if len(results) >= max_results:
                                     break
                                 method_name_lower = method["name"].lower()
@@ -218,7 +258,7 @@ class CodeExplorer:
         
         return results[:max_results]
     
-    def _search_text(self, concept: str, concept_words: List[str], max_results: int) -> List[Dict]:
+    def _search_text(self, concept: str, concept_words: List[str], max_results: int, cancellation_flag=None) -> List[Dict]:
         """Text-based search fallback."""
         results = []
         concept_lower = concept.lower()
@@ -226,6 +266,9 @@ class CodeExplorer:
         # Search in common code file extensions
         # Limit search breadth: start with backend/** and frontend_clean/src/** only
         for ext in ['.py', '.ts', '.tsx', '.js', '.jsx']:
+            # Early termination checks
+            if cancellation_flag and cancellation_flag.is_set():
+                break
             if len(results) >= max_results:
                 break
             
@@ -262,6 +305,12 @@ class CodeExplorer:
                             lines = f.readlines()
                             
                         for i, line in enumerate(lines, 1):
+                            # Early termination check in line loop
+                            if cancellation_flag and cancellation_flag.is_set():
+                                break
+                            if len(results) >= max_results:
+                                break
+                            
                             line_lower = line.lower()
                             
                             # Exact phrase match
@@ -305,18 +354,21 @@ class CodeExplorer:
             del self._search_cache[key]
         logger.debug(f"Cleaned {len(expired_keys)} expired cache entries")
     
-    def grep_pattern(self, pattern: str, file_pattern: str = None) -> Dict[str, List[int]]:
+    def grep_pattern(self, pattern: str, file_pattern: str = None, max_results: int = 50, cancellation_flag=None) -> Dict[str, List[int]]:
         """
-        Search for regex pattern in codebase.
+        Search for regex pattern in codebase with early termination.
         
         Args:
             pattern: Regex pattern to search for
             file_pattern: Optional file pattern filter (e.g., "*.py", "*.tsx")
+            max_results: Maximum number of matches to return (default 50)
+            cancellation_flag: Optional threading.Event to signal cancellation
             
         Returns:
             Dict mapping file paths to list of line numbers where pattern matches
         """
         matches = {}
+        total_matches = 0
         
         # Determine file extensions to search
         if file_pattern:
@@ -334,7 +386,19 @@ class CodeExplorer:
             search_dirs.append(self.code_reader.frontend_dir)
         
         for search_dir in search_dirs:
+            # Early termination check
+            if cancellation_flag and cancellation_flag.is_set():
+                break
+            if total_matches >= max_results:
+                break
+                
             for ext in extensions:
+                # Early termination check
+                if cancellation_flag and cancellation_flag.is_set():
+                    break
+                if total_matches >= max_results:
+                    break
+                    
                 # Normalize extension
                 if not ext.startswith('.'):
                     ext = '.' + ext
@@ -342,6 +406,12 @@ class CodeExplorer:
                     ext = ext.replace('*', '')
                 
                 for file_path in search_dir.rglob(f'*{ext}'):
+                    # Early termination check in file loop
+                    if cancellation_flag and cancellation_flag.is_set():
+                        break
+                    if total_matches >= max_results:
+                        break
+                        
                     if self.code_reader._should_skip_file(file_path):
                         continue
                     
@@ -351,8 +421,19 @@ class CodeExplorer:
                         
                         file_matches = []
                         for i, line in enumerate(lines, 1):
+                            # Early termination check in line loop
+                            if cancellation_flag and cancellation_flag.is_set():
+                                break
+                            if total_matches >= max_results:
+                                break
+                                
                             if re.search(pattern, line, re.IGNORECASE):
                                 file_matches.append(i)
+                                total_matches += 1
+                                
+                                # Early termination: stop when max_results reached
+                                if total_matches >= max_results:
+                                    break
                         
                         if file_matches:
                             rel_path = file_path.relative_to(self.root_path)

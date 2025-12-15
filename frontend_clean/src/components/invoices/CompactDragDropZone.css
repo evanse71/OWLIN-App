@@ -1,0 +1,235 @@
+/* Compact Drag Drop Zone - Liquid Glass Effect */
+
+.compact-drag-drop-zone {
+  position: relative;
+  width: 100%;
+  min-height: 60px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+}
+
+/* Liquid glass background gradient overlay */
+.compact-drag-drop-zone::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.05) 0%,
+    rgba(139, 92, 246, 0.05) 50%,
+    rgba(59, 130, 246, 0.05) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Animated border glow effect */
+.compact-drag-drop-zone::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.3),
+    rgba(139, 92, 246, 0.3),
+    rgba(59, 130, 246, 0.3)
+  );
+  border-radius: 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+  filter: blur(8px);
+  animation: borderGlow 3s ease-in-out infinite;
+}
+
+@keyframes borderGlow {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.02);
+  }
+}
+
+.compact-drag-drop-zone:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+.compact-drag-drop-zone:hover::before {
+  opacity: 1;
+}
+
+.compact-drag-drop-zone:hover::after {
+  opacity: 0.4;
+}
+
+.compact-drag-drop-zone:focus {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.compact-drag-drop-zone.dragging {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+  border-style: solid;
+  transform: scale(1.02);
+  box-shadow: 
+    0 0 0 4px rgba(59, 130, 246, 0.2),
+    0 8px 24px rgba(59, 130, 246, 0.3),
+    0 0 40px rgba(59, 130, 246, 0.2);
+}
+
+.compact-drag-drop-zone.dragging::before {
+  opacity: 1;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.15) 0%,
+    rgba(139, 92, 246, 0.15) 50%,
+    rgba(59, 130, 246, 0.15) 100%
+  );
+  animation: liquidFlow 2s ease-in-out infinite;
+}
+
+.compact-drag-drop-zone.dragging::after {
+  opacity: 0.6;
+  animation: borderGlow 1s ease-in-out infinite;
+}
+
+@keyframes liquidFlow {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.compact-zone-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.compact-zone-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 8px;
+  color: var(--accent-blue);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.compact-drag-drop-zone:hover .compact-zone-icon {
+  background: rgba(59, 130, 246, 0.15);
+  transform: scale(1.1) rotate(5deg);
+}
+
+.compact-drag-drop-zone.dragging .compact-zone-icon {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--accent-blue);
+  animation: iconPulse 1s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.compact-zone-text {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-zone-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.compact-zone-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.compact-drag-drop-zone.dragging .compact-zone-title {
+  color: var(--accent-blue);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .compact-drag-drop-zone {
+    min-height: 56px;
+    height: 56px;
+    padding: 10px 16px;
+  }
+
+  .compact-zone-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .compact-zone-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .compact-zone-title {
+    font-size: 12px;
+  }
+
+  .compact-zone-hint {
+    font-size: 10px;
+  }
+
+  .compact-zone-text {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}
+

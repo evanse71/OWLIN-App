@@ -1,0 +1,197 @@
+/**
+ * Deliveries Tab Styles
+ */
+
+.deliveries-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.deliveries-tab-loading {
+  padding: 48px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.deliveries-tab-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.deliveries-tab-metric {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.deliveries-tab-metric-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 8px;
+}
+
+.deliveries-tab-metric-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.deliveries-tab-calendar {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.deliveries-tab-calendar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  margin-bottom: 16px;
+}
+
+.deliveries-tab-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.deliveries-tab-calendar-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  opacity: 0.4;
+}
+
+.deliveries-tab-calendar-day.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.deliveries-tab-calendar-day-name {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+
+.deliveries-tab-calendar-day-count {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.deliveries-tab-calendar-day-status {
+  display: flex;
+  align-items: center;
+}
+
+.deliveries-tab-calendar-day-status .status-on-time {
+  color: #4ade80;
+}
+
+.deliveries-tab-calendar-day-status .status-partial {
+  color: #fbbf24;
+}
+
+.deliveries-tab-calendar-day-status .status-late {
+  color: #f87171;
+}
+
+.deliveries-tab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.deliveries-tab-list-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.deliveries-tab-empty {
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.deliveries-tab-deliveries {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deliveries-tab-delivery {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.deliveries-tab-delivery-main {
+  flex: 1;
+}
+
+.deliveries-tab-delivery-number {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.87);
+  margin-bottom: 4px;
+}
+
+.deliveries-tab-delivery-date {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.deliveries-tab-delivery-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.deliveries-tab-delivery-status-chip {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.deliveries-tab-delivery-status-green {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.deliveries-tab-delivery-status-amber {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.deliveries-tab-delivery-status-red {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.deliveries-tab-delivery-delay,
+.deliveries-tab-delivery-missing {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+}
+

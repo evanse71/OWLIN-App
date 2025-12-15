@@ -1,0 +1,26 @@
+def extract_doc_metadata(parsed: Dict, filename: str) -> Dict:
+    """Extract metadata for document storage"""
+    # Classify document type
+    text_content = ""
+    if parsed:
+        # Combine all text fields for classification
+        text_fields = [
+            parsed.get("supplier", ""),
+            parsed.get("invoice_number", ""),
+            parsed.get("delivery_note_number", ""),
+            parsed.get("description", ""),
+            parsed.get("line_items", [])
+        ]
+        text_content = " ".join(str(field) for field in text_fields if field)
+    
+    doc_type = classify_doc(text_content) if text_content else "unknown"
+    
+    return {
+        "supplier": parsed.get("supplier") if parsed else None,
+        "invoice_no": parsed.get("invoice_number") if parsed else None,
+        "delivery_no": parsed.get("delivery_note_number") if parsed else None,
+        "doc_date": parsed.get("date") if parsed else None,
+        "total": parsed.get("total") if parsed else None,
+        "currency": parsed.get("currency") if parsed else None,
+        "doc_type": doc_type
+    }

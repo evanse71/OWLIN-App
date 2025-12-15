@@ -1,0 +1,83 @@
+{
+  "status": "ok",
+  "test_file": "C:\\Users\\tedev\\FixPack_2025-11-02_133105\\data\\uploads\\112be37d-afe1-4fe6-8eed-723ccbd70b58__Storiinvoiceonly1.pdf",
+  "doc_id": "test_898e54e2",
+  "ocr_result": {
+    "status": "ok",
+    "confidence": 0.0,
+    "supplier": "Unknown Supplier",
+    "date": "2025-12-02",
+    "total": 0.0,
+    "line_items_count": 1,
+    "line_items": [
+      {
+        "desc": "",
+        "qty": 0.0,
+        "unit_price": 0.0,
+        "total": 0.0,
+        "uom": "",
+        "confidence": 0.0
+      }
+    ]
+  },
+  "raw_ocr_text_sample": "",
+  "raw_paddleocr_pages": [
+    {
+      "page_num": 1,
+      "confidence": 0.0,
+      "preprocessed_image_path": "data\\uploads\\112be37d-afe1-4fe6-8eed-723ccbd70b58__storiinvoiceonly1\\pages\\page_001.pre.png",
+      "blocks": [
+        {
+          "type": "table",
+          "bbox": [
+            0,
+            0,
+            7674,
+            11307
+          ],
+          "ocr_text": "",
+          "confidence": 0.0,
+          "table_data": {
+            "type": "table",
+            "bbox": [
+              0,
+              0,
+              7674,
+              11307
+            ],
+            "line_items": [
+              {
+                "description": "",
+                "quantity": "",
+                "unit_price": "",
+                "total_price": "",
+                "vat": "",
+                "confidence": 0.0,
+                "row_index": 0,
+                "cell_data": {
+                  "cell_0": ""
+                }
+              }
+            ],
+            "confidence": 0.0,
+            "method_used": "structure_aware",
+            "processing_time": 12.135486602783203,
+            "fallback_used": false,
+            "cell_count": 1,
+            "row_count": 1
+          }
+        }
+      ]
+    }
+  ],
+  "feature_flags": {
+    "preproc": true,
+    "layout": true,
+    "tables": true
+  },
+  "page_count": 1,
+  "raster_dpi_used": 300,
+  "multi_invoice_detected": false,
+  "extraction_method": "v2_pipeline",
+  "errors": null
+}

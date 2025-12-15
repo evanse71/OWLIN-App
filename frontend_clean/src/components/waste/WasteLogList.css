@@ -1,0 +1,48 @@
+/**
+ * Waste Log List Styles
+ * Following Owlin UI Design Contract
+ */
+
+.waste-log-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: transparent;
+}
+
+.waste-log-list-header {
+  margin-bottom: 16px;
+}
+
+.waste-log-list-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2B3A55;
+  margin: 0;
+}
+
+.waste-log-list-cards {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 8px;
+  min-height: 0;
+}
+
+.waste-log-list-cards::-webkit-scrollbar {
+  width: 6px;
+}
+
+.waste-log-list-cards::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+
+.waste-log-list-cards::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.waste-log-list-cards::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+

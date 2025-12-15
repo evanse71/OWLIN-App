@@ -13,6 +13,7 @@ echo [2/4] Setting environment variables...
 set "OWLIN_ENV=dev"
 set "FEATURE_OCR_PIPELINE_V2=true"
 set "PYTHONPATH=%ROOT%"
+set "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python"
 
 echo [3/4] Ensuring directories exist...
 if not exist "%ROOT%data" mkdir "%ROOT%data"

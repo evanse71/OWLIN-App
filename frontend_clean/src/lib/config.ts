@@ -1,12 +1,24 @@
 /**
  * API configuration
- * In dev mode (Vite dev server), use relative URLs to leverage proxy
- * In production, use VITE_API_BASE_URL or default to same origin (backend serves frontend)
- * 
- * Note: For single-port setup (backend serves frontend on port 5177), relative URLs work correctly
- * as the frontend and API are served from the same origin.
+ * In dev mode, use relative URLs (let Vite proxy handle it) or detect current host
+ * In production, use VITE_API_BASE_URL from environment, defaulting to http://127.0.0.1:8000
  */
-export const API_BASE_URL = import.meta.env.DEV
-  ? '' // Use relative URLs in dev mode (works with single-port setup where backend serves frontend)
-  : (import.meta.env.VITE_API_BASE_URL || '') // Empty = same origin (backend on 5177 serves both)
+function getApiBaseUrl(): string {
+  // If explicitly set in env, use it
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
+  }
+  
+  // In dev mode (Vite), use relative URLs to leverage the proxy
+  // This works when accessing from remote machines (192.168.x.x)
+  if (import.meta.env.DEV) {
+    // Use empty string for relative URLs - Vite proxy will handle /api/* requests
+    return ''
+  }
+  
+  // Production fallback
+  return "http://127.0.0.1:8000"
+}
+
+export const API_BASE_URL = getApiBaseUrl()
 

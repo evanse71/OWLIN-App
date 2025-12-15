@@ -1,0 +1,22 @@
+name: pairs-contract
+on: [push, pull_request]
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install fastapi uvicorn python-multipart
+      - run: |
+          python test_backend_simple.py &  # start single-port app
+          APP_PID=$!
+          sleep 3
+          printf "%s" "%PDF-1.4\n%INVOICE INV-1001 SUP Acme 2025-09-28 TOTAL 542.10\n%%EOF" > inv.pdf
+          printf "%s" "%PDF-1.4\n%DELIVERY DN-1001 SUP Acme 2025-09-29 TOTAL 542.10\n%%EOF" > dn.pdf
+          curl -s -F "file=@inv.pdf" http://127.0.0.1:8000/api/upload >/dev/null
+          curl -s -F "file=@dn.pdf"  http://127.0.0.1:8000/api/upload >/dev/null
+          sleep 1
+          out=$(curl -s http://127.0.0.1:8000/api/pairs/suggestions)
+          echo "$out" | jq -e 'length>=1 and .[0].confidence >= 0.90' >/dev/null
+          kill $APP_PID

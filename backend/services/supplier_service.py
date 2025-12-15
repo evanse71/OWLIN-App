@@ -17,11 +17,11 @@ class Insight:
 # Import schemas using absolute path
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from schemas.supplier import (
+from backend.schemas.supplier import (
     SupplierProfile, SupplierMetrics, SupplierTrends, 
     TrendPoint, RiskRating, SupplierScorecard
 )
-from services.insights_engine import generate_insights
+from backend.services.insights_engine import generate_insights
 
 def get_db_connection():
     """Get database connection."""

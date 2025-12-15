@@ -1,0 +1,5 @@
+def save_preprocessed_artifact(bw_or_gray: np.ndarray, artifact_dir: str, basename: str) -> str:
+    os.makedirs(artifact_dir, exist_ok=True)
+    out_path = os.path.join(artifact_dir, f"{basename}.png")
+    cv2.imwrite(out_path, bw_or_gray)
+    return out_path

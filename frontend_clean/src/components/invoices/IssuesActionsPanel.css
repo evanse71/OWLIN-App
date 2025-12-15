@@ -1,0 +1,75 @@
+.issues-card-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.metadata-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.metadata-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+  transition: padding 0.2s ease;
+}
+
+.metadata-item:last-child {
+  border-bottom: none;
+}
+
+.metadata-item:hover {
+  padding-left: 4px;
+}
+
+.metadata-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.metadata-value {
+  color: var(--text-primary);
+  text-align: right;
+  font-weight: 400;
+  word-break: break-word;
+  max-width: 60%;
+}
+
+.severity-minor {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.severity-review {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.severity-critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Action buttons in issues card */
+.issues-card .glass-button {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.issues-card .glass-button:first-of-type {
+  margin-top: 0;
+}
+
+/* Delivery note card improvements */
+.issues-card-content > div:not(:last-child) {
+  margin-bottom: 12px;
+}

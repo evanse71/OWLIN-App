@@ -4,7 +4,13 @@ import pytesseract
 from pytesseract import Output
 import re
 from typing import List, Dict, Any
-from pdf2image import convert_from_path
+# Optional pdf2image import for PDF processing
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    convert_from_path = None  # type: ignore
 from PIL import Image
 
 
@@ -100,6 +106,8 @@ def parse_document(path: str, lang: str = "eng") -> Dict[str, Any]:
     """Parse a PDF or image document and return OCR results."""
     suffix = path.lower().split(".")[-1]
     if suffix == "pdf":
+        if not PDF2IMAGE_AVAILABLE or convert_from_path is None:
+            raise ImportError("pdf2image is not installed. PDF processing requires pdf2image. Install with: pip install pdf2image")
         images = convert_from_path(path)
         results = [parse_invoice_image(np.array(img.convert("RGB"))) for img in images]
         if not results:
