@@ -3309,6 +3309,12 @@ def _run_watchdog_periodically():
 @app.on_event("startup")
 async def startup_event():
     """Startup event handler to log version information"""
+    # Verify Path scoping fix is loaded
+    try:
+        from backend.ocr.owlin_scan_pipeline import _VERSION_FIX_PATH_SCOPING
+        logger.info(f"[STARTUP] Path scoping fix loaded: {_VERSION_FIX_PATH_SCOPING}")
+    except ImportError:
+        logger.warning("[STARTUP] Path scoping fix version marker not found - code may not be loaded")
     logger.info(f"[BUILD] backend.main startup at {datetime.now().isoformat()}")
     
     # Start watchdog background task
