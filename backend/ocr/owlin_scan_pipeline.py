@@ -1322,6 +1322,14 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
     """
     # Import Path at function level with alias to avoid scoping issues
     from pathlib import Path as _Path
+    # #region agent log
+    try:
+        import json
+        log_path_debug = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        with open(log_path_debug, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "owlin_scan_pipeline.py:1323", "message": "process_document entry", "data": {"pdf_path": str(pdf_path), "_Path_imported": True}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     t0 = time.time()
     pdf_path = _Path(pdf_path).resolve()
     if not pdf_path.exists():
@@ -1483,6 +1491,15 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
             pages.append(page_res)
     except Exception as e:
         LOGGER.error("Processing error during page extraction: %s", e, exc_info=True)
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path as _PathFallback
+            log_path_debug = _PathFallback(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            with open(log_path_debug, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "owlin_scan_pipeline.py:1482", "message": "process_document exception", "data": {"error_type": type(e).__name__, "error_msg": str(e), "has_Path_in_error": "Path" in str(e)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         # If we have no pages and it's a critical error, return error status
         if not pages:
             return {
