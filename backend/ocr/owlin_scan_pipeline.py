@@ -1320,13 +1320,15 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
         preprocess_profile: Preprocessing profile ("enhanced" or "minimal", default: "enhanced")
         force_ocr_engine: Force specific OCR engine ("paddleocr" or "tesseract", default: None = auto)
     """
+    # Import Path at function level with alias to avoid scoping issues
+    from pathlib import Path as _Path
     t0 = time.time()
-    pdf_path = Path(pdf_path).resolve()
+    pdf_path = _Path(pdf_path).resolve()
     if not pdf_path.exists():
         return {"status": "error", "error": f"File not found: {pdf_path}"}
 
     slug = _slug_for(pdf_path)
-    base = Path("data") / "uploads" / slug
+    base = _Path("data") / "uploads" / slug
     _ensure_dirs(base)
 
     # Save original
@@ -1380,8 +1382,8 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
             page_count = 1
             # #region agent log
             import json
-            # Path is already imported at module level, use it directly
-            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            # Use _Path (imported at function level) to avoid scoping issues
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "owlin_scan_pipeline.py:1378", "message": "image file detected", "data": {"file_ext": file_ext, "orig_target": str(orig_target), "orig_exists": orig_target.exists()}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1520,7 +1522,7 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
         
         # Apply new Donut fallback processing
         donut_data = _process_donut_fallback(
-            Path(page.preprocessed_image_path), 
+            _Path(page.preprocessed_image_path), 
             page.confidence, 
             overall_conf,
             getattr(page, 'line_items', None)
