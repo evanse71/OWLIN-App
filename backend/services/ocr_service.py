@@ -266,10 +266,13 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
             full_traceback = traceback.format_exc()
             # #region agent log
             import json
-            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:158", "message": "OCR_REGEX_IMPORT_MISSING", "data": {"doc_id": doc_id, "error": error_msg, "error_type": "NameError", "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                from pathlib import Path as _Path
+                log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:158", "message": "OCR_REGEX_IMPORT_MISSING", "data": {"doc_id": doc_id, "error": error_msg, "error_type": "NameError", "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
             except: pass
             # #endregion
             update_document_status(doc_id, "error", "OCR_REGEX_IMPORT_MISSING", error=error_msg)
@@ -292,10 +295,13 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.exception(f"OCR processing failed for doc_id={doc_id}")
         # #region agent log
         import json
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:180", "message": "OCR processing exception caught", "data": {"doc_id": doc_id, "error": error_msg, "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            from pathlib import Path as _Path
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:180", "message": "OCR processing exception caught", "data": {"doc_id": doc_id, "error": error_msg, "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
         except: pass
         # #endregion
         update_document_status(doc_id, "error", "ocr_error", error=error_msg)
