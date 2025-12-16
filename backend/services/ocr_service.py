@@ -8,11 +8,58 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 import json
+import threading
+import signal
 
 from backend.app.db import update_document_status, update_document_classification, insert_line_items, upsert_invoice, append_audit, clear_last_error, DB_PATH
 from backend.config import FEATURE_OCR_PIPELINE_V2, env_bool
 
 logger = logging.getLogger("owlin.services.ocr")
+
+# OCR processing timeout: 5 minutes (300 seconds)
+OCR_PROCESSING_TIMEOUT_SECONDS = 300
+
+class OCRTimeoutError(Exception):
+    """Raised when OCR processing exceeds timeout"""
+    pass
+
+def _run_with_timeout(func, timeout_seconds, *args, **kwargs):
+    """
+    Run a function with a timeout using threading.
+    
+    Args:
+        func: Function to run
+        timeout_seconds: Maximum time to wait
+        *args, **kwargs: Arguments to pass to function
+        
+    Returns:
+        Function result
+        
+    Raises:
+        OCRTimeoutError: If function doesn't complete within timeout
+    """
+    result = [None]
+    exception = [None]
+    
+    def target():
+        try:
+            result[0] = func(*args, **kwargs)
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+    
+    if thread.is_alive():
+        # Thread is still running - timeout occurred
+        raise OCRTimeoutError(f"OCR processing exceeded timeout of {timeout_seconds} seconds")
+    
+    if exception[0]:
+        raise exception[0]
+    
+    return result[0]
 
 # Version logging to prove fixed code is loaded
 import time
@@ -188,7 +235,20 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
         if not use_v2_pipeline:
             raise Exception("OCR v2 pipeline is required. Mock pipeline has been removed. Set FEATURE_OCR_PIPELINE_V2=true to enable real OCR processing.")
         
-        result = _process_with_v2_pipeline(doc_id, file_path)
+        # Run OCR processing with timeout protection
+        try:
+            result = _run_with_timeout(
+                _process_with_v2_pipeline,
+                OCR_PROCESSING_TIMEOUT_SECONDS,
+                doc_id,
+                file_path
+            )
+        except OCRTimeoutError as timeout_error:
+            error_msg = f"OCR processing timed out after {OCR_PROCESSING_TIMEOUT_SECONDS} seconds"
+            logger.error(f"[OCR_TIMEOUT] {error_msg} for doc_id={doc_id}")
+            update_document_status(doc_id, "error", "ocr_timeout", error=error_msg)
+            _log_lifecycle("OCR_ERROR", doc_id, error=error_msg, error_code="ocr_timeout")
+            raise Exception(error_msg) from timeout_error
         # #region agent log
         try:
             with open(log_path, "a", encoding="utf-8") as f:
@@ -264,6 +324,16 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
         Dict with best_result, ocr_attempts, final_text_length
     """
     from backend.ocr.owlin_scan_pipeline import process_document as process_doc_ocr
+    # Path is already imported at module level (line 7), no need to re-import
+    import json
+    
+    # #region agent log
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:252", "message": "retry function entry", "data": {"doc_id": doc_id, "file_path": str(file_path), "initial_pages_count": len(initial_result.get('pages', []))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     
     ocr_attempts = []
     best_result = initial_result
@@ -306,8 +376,22 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     
     # Retry 1: Higher DPI (300 → 400)
     logger.info(f"[OCR_RETRY] Attempt 1: Retrying with DPI=400, engine={initial_engine}, preprocess=enhanced")
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:308", "message": "retry attempt 1 start", "data": {"doc_id": doc_id, "engine": initial_engine, "dpi": 400}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     try:
         retry1_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile="enhanced", force_ocr_engine=initial_engine)
+        # #region agent log
+        try:
+            retry1_status = retry1_result.get("status")
+            retry1_pages_count = len(retry1_result.get('pages', []))
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:310", "message": "retry attempt 1 result", "data": {"doc_id": doc_id, "status": retry1_status, "pages_count": retry1_pages_count, "is_error": retry1_status == "error"}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         if retry1_result.get("status") != "error":
             retry1_pages = retry1_result.get('pages', [])
             retry1_text = ""
@@ -427,29 +511,33 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     - Classifies document type (invoice vs delivery_note)
     - Creates invoice/delivery note cards for UI
     - Triggers pairing suggestions (via backend.matching.pairing module)
+    
+    All exceptions are caught and document status is set to 'error' before re-raising.
     """
     import os
-    from pathlib import Path
-    
-    # Verify file exists
-    if not os.path.exists(file_path):
-        error_msg = f"File not found: {file_path}"
-        logger.error(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
-        raise Exception(error_msg)
-    
-    _log_lifecycle("OCR_PICK", doc_id, pipeline="v2", file=file_path)
-    update_document_status(doc_id, "processing", "ocr_start")
-    _log_lifecycle("OCR_START", doc_id)
+    # Path is already imported at module level (line 7), no need to re-import
     
     try:
-        from backend.ocr.owlin_scan_pipeline import process_document as process_doc_ocr
-    except ImportError as e:
-        error_msg = f"Failed to import OCR pipeline: {e}"
-        logger.error(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
-        raise Exception(error_msg)
-    
-    # Run OCR pipeline
-    try:
+        # Verify file exists
+        if not os.path.exists(file_path):
+            error_msg = f"File not found: {file_path}"
+            logger.error(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+            update_document_status(doc_id, "error", "file_not_found", error=error_msg)
+            raise Exception(error_msg)
+        
+        _log_lifecycle("OCR_PICK", doc_id, pipeline="v2", file=file_path)
+        update_document_status(doc_id, "processing", "ocr_start")
+        _log_lifecycle("OCR_START", doc_id)
+        
+        try:
+            from backend.ocr.owlin_scan_pipeline import process_document as process_doc_ocr
+        except ImportError as e:
+            error_msg = f"Failed to import OCR pipeline: {e}"
+            logger.error(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+            update_document_status(doc_id, "error", "ocr_import_failed", error=error_msg)
+            raise Exception(error_msg)
+        
+        # Run OCR pipeline
         filename = Path(file_path).name if file_path else "unknown"
         logger.info(f"[OCR_V2] Calling process_document for doc_id={doc_id}, file={file_path}, filename={filename}")
         # #region agent log
@@ -475,17 +563,31 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.exception(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
         # #region agent log
         import json
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:198", "message": "process_doc_ocr exception", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-        except: pass
+            # Ensure Path is available (import at module level should make it available, but add fallback)
+            from pathlib import Path as PathClass
+            log_path = PathClass(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:198", "message": "process_doc_ocr exception", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+        except: pass  # If Path import fails, just skip logging
         # #endregion
+        # Ensure status is set to error before re-raising
+        try:
+            update_document_status(doc_id, "error", "ocr_pipeline_execution_failed", error=error_msg)
+        except Exception as update_error:
+            logger.error(f"[OCR_V2] Failed to update document status after error: {update_error}")
         raise Exception(error_msg)
     
     if ocr_result.get("status") == "error":
         error_detail = ocr_result.get("error", "OCR processing failed")
         logger.error(f"[OCR_V2] OCR pipeline returned error: {error_detail} for doc_id={doc_id}")
+        # Ensure status is set to error before re-raising
+        try:
+            update_document_status(doc_id, "error", "ocr_pipeline_error", error=error_detail)
+        except Exception as update_error:
+            logger.error(f"[OCR_V2] Failed to update document status after OCR error: {update_error}")
         raise Exception(f"OCR pipeline error: {error_detail}")
     
     confidence = ocr_result.get('confidence', 0.0)
@@ -496,9 +598,32 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     total_text_length = 0
     page_stats = []
     
+    # #region agent log
+    import json
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:494", "message": "text extraction start", "data": {"doc_id": doc_id, "pages_count": len(pages), "pages_type": type(pages).__name__}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
+    
     for page_idx, page in enumerate(pages):
+        # #region agent log
+        try:
+            page_keys = list(page.keys()) if isinstance(page, dict) else "not_dict"
+            page_type = type(page).__name__
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:500", "message": "page iteration", "data": {"doc_id": doc_id, "page_idx": page_idx, "page_type": page_type, "page_keys": page_keys[:10] if isinstance(page_keys, list) else page_keys}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         page_text = page.get('text', page.get('ocr_text', ''))
         page_text_length = len(page_text) if page_text else 0
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:502", "message": "page text extracted", "data": {"doc_id": doc_id, "page_idx": page_idx, "page_text_length": page_text_length, "has_text_key": "text" in page if isinstance(page, dict) else False, "has_ocr_text_key": "ocr_text" in page if isinstance(page, dict) else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         total_text_length += page_text_length
         page_confidence = page.get('confidence', 0.0)
         page_stats.append({
@@ -521,6 +646,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                    page_stats=page_stats)
     
     # Check for OCR failure (very low text) - trigger retry with fallbacks
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:524", "message": "checking text length threshold", "data": {"doc_id": doc_id, "total_text_length": total_text_length, "threshold": 100, "will_retry": total_text_length < 100}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    # #endregion
     if total_text_length < 100:
         logger.warning(f"[OCR_V2] Initial OCR produced insufficient text: {total_text_length} chars, attempting retries with fallbacks")
         
@@ -529,7 +660,19 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         render_metadata = ocr_result.get('render_metadata', [])
         
         # Attempt retries with different configurations
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:532", "message": "calling retry function", "data": {"doc_id": doc_id, "file_path": str(file_path), "has_pdf_structure": pdf_structure is not None, "render_metadata_count": len(render_metadata)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         retry_result = _retry_ocr_with_fallbacks(doc_id, file_path, ocr_result, pdf_structure, render_metadata)
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:533", "message": "retry function returned", "data": {"doc_id": doc_id, "final_text_length": retry_result.get("final_text_length"), "attempts_count": len(retry_result.get("ocr_attempts", [])), "retry_succeeded": retry_result.get("final_text_length", 0) >= 100}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         
         if retry_result['final_text_length'] >= 100:
             # Retry succeeded - use the best result
@@ -1810,33 +1953,134 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.error(f"[VALIDATE] Validation failed: {e}", exc_info=True)
         validation_result = None
     
-    supplier = parsed_data.get("supplier", "Unknown Supplier")
-    customer = parsed_data.get("customer")
+        supplier = parsed_data.get("supplier", "Unknown Supplier")
+        customer = parsed_data.get("customer")
+        
+        return {
+            "status": "ok",
+            "doc_id": doc_id,
+            "confidence": confidence_percent,  # Use percent for backward compatibility
+            "confidence_breakdown": confidence_breakdown.to_dict(),
+            "confidence_band": confidence_breakdown.band.value,
+            "ocr_unusable": ocr_unusable,  # Flag indicating if OCR confidence is too low
+            "supplier": supplier,
+            "supplier_name": supplier,  # Alias for frontend compatibility
+            "invoice_number": parsed_data.get("invoice_number"),
+            "invoice_number_source": parsed_data.get("invoice_number_source", "generated"),
+            "customer": customer,
+            "customer_name": customer,  # Alias for frontend compatibility
+            "bill_to_name": customer,  # Alternative name
+            "date": parsed_data.get("date"),
+            "total": parsed_data.get("total"),
+            "subtotal": parsed_data.get("subtotal"),
+            "vat": parsed_data.get("vat"),
+            "vat_rate": parsed_data.get("vat_rate"),
+            "line_items": line_items,
+            "doc_type": doc_type,
+            "validation": validation_result,
+            "flags": parsed_data.get("flags", [])  # Include flags (e.g., "ocr_too_low_for_auto_extraction")
+        }
+    except Exception as e:
+        # Catch any unhandled exceptions and ensure status is set to error
+        error_msg = f"Unhandled exception in OCR pipeline: {str(e)}"
+        import traceback
+        full_traceback = traceback.format_exc()
+        logger.exception(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+        try:
+            update_document_status(doc_id, "error", "ocr_unhandled_exception", error=error_msg)
+        except Exception as update_error:
+            logger.error(f"[OCR_V2] Failed to update document status after unhandled exception: {update_error}")
+        raise Exception(error_msg) from e
+
+
+def detect_stuck_documents(max_processing_minutes: int = 10) -> List[Dict[str, Any]]:
+    """
+    Detect documents that have been stuck in 'processing' status for too long.
     
-    return {
-        "status": "ok",
-        "doc_id": doc_id,
-        "confidence": confidence_percent,  # Use percent for backward compatibility
-        "confidence_breakdown": confidence_breakdown.to_dict(),
-        "confidence_band": confidence_breakdown.band.value,
-        "ocr_unusable": ocr_unusable,  # Flag indicating if OCR confidence is too low
-        "supplier": supplier,
-        "supplier_name": supplier,  # Alias for frontend compatibility
-        "invoice_number": parsed_data.get("invoice_number"),
-        "invoice_number_source": parsed_data.get("invoice_number_source", "generated"),
-        "customer": customer,
-        "customer_name": customer,  # Alias for frontend compatibility
-        "bill_to_name": customer,  # Alternative name
-        "date": parsed_data.get("date"),
-        "total": parsed_data.get("total"),
-        "subtotal": parsed_data.get("subtotal"),
-        "vat": parsed_data.get("vat"),
-        "vat_rate": parsed_data.get("vat_rate"),
-        "line_items": line_items,
-        "doc_type": doc_type,
-        "validation": validation_result,
-        "flags": parsed_data.get("flags", [])  # Include flags (e.g., "ocr_too_low_for_auto_extraction")
-    }
+    Args:
+        max_processing_minutes: Maximum minutes a document should be in 'processing' status (default: 10)
+        
+    Returns:
+        List of stuck document records with doc_id, filename, and minutes_stuck
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+    
+    stuck_documents = []
+    cutoff_time = datetime.now() - timedelta(minutes=max_processing_minutes)
+    cutoff_iso = cutoff_time.isoformat()
+    
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Query documents stuck in processing
+        cursor.execute("""
+            SELECT id, filename, uploaded_at, status, ocr_stage
+            FROM documents
+            WHERE status = 'processing'
+            AND uploaded_at < ?
+        """, (cutoff_iso,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        for row in rows:
+            doc_id, filename, uploaded_at, status, ocr_stage = row
+            try:
+                upload_time = datetime.fromisoformat(uploaded_at.replace('Z', '+00:00').replace('+00:00', ''))
+                minutes_stuck = (datetime.now() - upload_time).total_seconds() / 60
+                
+                stuck_documents.append({
+                    "doc_id": doc_id,
+                    "filename": filename,
+                    "uploaded_at": uploaded_at,
+                    "status": status,
+                    "ocr_stage": ocr_stage,
+                    "minutes_stuck": round(minutes_stuck, 1)
+                })
+            except Exception as e:
+                logger.warning(f"[WATCHDOG] Failed to parse uploaded_at for doc_id={doc_id}: {e}")
+        
+        if stuck_documents:
+            logger.warning(f"[WATCHDOG] Found {len(stuck_documents)} documents stuck in processing for >{max_processing_minutes} minutes")
+            for doc in stuck_documents:
+                logger.warning(f"[WATCHDOG] Stuck document: doc_id={doc['doc_id']}, filename={doc['filename']}, minutes_stuck={doc['minutes_stuck']}")
+        
+    except Exception as e:
+        logger.error(f"[WATCHDOG] Error detecting stuck documents: {e}", exc_info=True)
+    
+    return stuck_documents
+
+
+def fix_stuck_documents(max_processing_minutes: int = 10) -> int:
+    """
+    Detect and fix documents stuck in 'processing' status by setting them to 'error'.
+    
+    Args:
+        max_processing_minutes: Maximum minutes a document should be in 'processing' status (default: 10)
+        
+    Returns:
+        Number of documents fixed
+    """
+    stuck_docs = detect_stuck_documents(max_processing_minutes)
+    fixed_count = 0
+    
+    for doc in stuck_docs:
+        doc_id = doc["doc_id"]
+        error_msg = f"Document stuck in processing for {doc['minutes_stuck']:.1f} minutes (max: {max_processing_minutes}). Marked as error by watchdog."
+        
+        try:
+            update_document_status(doc_id, "error", "watchdog_timeout", error=error_msg)
+            logger.info(f"[WATCHDOG] Fixed stuck document: doc_id={doc_id}, was stuck for {doc['minutes_stuck']:.1f} minutes")
+            fixed_count += 1
+        except Exception as e:
+            logger.error(f"[WATCHDOG] Failed to fix stuck document doc_id={doc_id}: {e}")
+    
+    if fixed_count > 0:
+        logger.warning(f"[WATCHDOG] Fixed {fixed_count} stuck document(s)")
+    
+    return fixed_count
 
 
 def _extract_supplier_and_customer(full_text: str, page_dict: Optional[Dict[str, Any]] = None) -> Tuple[str, Optional[str]]:

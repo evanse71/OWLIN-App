@@ -1378,6 +1378,15 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
         elif is_image:
             doc = None
             page_count = 1
+            # #region agent log
+            import json
+            from pathlib import Path
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "owlin_scan_pipeline.py:1378", "message": "image file detected", "data": {"file_ext": file_ext, "orig_target": str(orig_target), "orig_exists": orig_target.exists()}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
         else:
             return {"status": "error", "error": f"Unsupported file format: {file_ext}. Supported: PDF, PNG, JPG, JPEG"}
         
@@ -1393,17 +1402,49 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
                     LOGGER.info(f"[PAGE_PROC] Page {i+1}/{page_count}: {page_img_path.name}, size={page_img_path.stat().st_size/1e6:.2f}MB")
             else:
                 # Image file: copy directly - it will be processed as a single-page document
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "owlin_scan_pipeline.py:1396", "message": "copying image file", "data": {"orig_target": str(orig_target), "page_img_path": str(page_img_path), "orig_exists": orig_target.exists()}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+                # #endregion
                 if orig_target.exists():
                     shutil.copyfile(orig_target, page_img_path)
                     LOGGER.info(f"[PAGE_PROC] Image file copied: {orig_target.name} -> {page_img_path.name}")
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "owlin_scan_pipeline.py:1398", "message": "image file copied", "data": {"page_img_path": str(page_img_path), "copied_exists": page_img_path.exists(), "file_size": page_img_path.stat().st_size if page_img_path.exists() else 0}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                    except: pass
+                    # #endregion
                 else:
                     LOGGER.error(f"[PAGE_PROC] Source image not found: {orig_target}")
                     continue
 
             # For image files, pass is_original_image=True to enable dual-path comparison
             # For PDF pages, pass False (they're rendered pages, not original images)
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "owlin_scan_pipeline.py:1405", "message": "before preprocessing", "data": {"page_img_path": str(page_img_path), "is_original_image": is_image, "preprocess_profile": preprocess_profile}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
             prep_img, preprocessing_path = preprocess_image(page_img_path, is_original_image=is_image)
+            # #region agent log
+            try:
+                prep_img_str = str(prep_img) if prep_img else None
+                prep_img_exists = prep_img.exists() if prep_img and hasattr(prep_img, 'exists') else None
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "owlin_scan_pipeline.py:1405", "message": "after preprocessing", "data": {"prep_img": prep_img_str, "prep_img_exists": prep_img_exists, "preprocessing_path": preprocessing_path}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
             blocks_raw = detect_layout(prep_img)
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "owlin_scan_pipeline.py:1406", "message": "layout detected", "data": {"blocks_count": len(blocks_raw) if blocks_raw else 0}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
             
             # Use enhanced OCR processing if available
             # CRITICAL: If LLM extraction is enabled, DO NOT fall back to geometric method
@@ -1426,6 +1467,16 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
                 # Add HTR data to page result
                 page_res.htr_data = htr_data
                 LOGGER.info("HTR data added to page %d: %d blocks processed", i + 1, len(htr_data.get("htr_blocks", [])))
+            
+            # #region agent log
+            try:
+                page_text = getattr(page_res, 'text', None) or getattr(page_res, 'ocr_text', None) or ""
+                page_text_length = len(page_text) if page_text else 0
+                page_blocks_count = len(getattr(page_res, 'blocks', [])) if hasattr(page_res, 'blocks') else 0
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "owlin_scan_pipeline.py:1430", "message": "page result created", "data": {"page_idx": i, "page_text_length": page_text_length, "page_blocks_count": page_blocks_count, "has_text_attr": hasattr(page_res, 'text'), "has_ocr_text_attr": hasattr(page_res, 'ocr_text')}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
             
             pages.append(page_res)
     except Exception as e:
@@ -1835,30 +1886,43 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
     if price_coverage < 0.3:
         flags.append("price_coverage_low")
     
+    # Build pages dict, aggregating text from blocks for page-level text field
+    pages_dict = []
+    for p in pages:
+        # Aggregate text from all blocks for page-level text field
+        page_text_parts = []
+        for b in p.blocks:
+            if b.ocr_text and b.ocr_text.strip():
+                page_text_parts.append(b.ocr_text)
+        page_text = "\n".join(page_text_parts)
+        
+        page_dict = {
+            "page_num": p.page_num,
+            "confidence": p.confidence,
+            "preprocessed_image_path": p.preprocessed_image_path,
+            "text": page_text,  # Add page-level text field
+            "ocr_text": page_text,  # Alias for compatibility
+            "blocks": [
+                {
+                    "type": b.type,
+                    "bbox": list(b.bbox),
+                    "ocr_text": b.ocr_text,
+                    "confidence": b.confidence,
+                    "table_data": b.table_data,
+                } for b in p.blocks
+            ],
+            # Phase 3: Add fallback_text if available
+            **({"fallback_text": p.fallback_text} if hasattr(p, 'fallback_text') else {}),
+            # HTR: Add HTR data if available
+            **({"htr_data": p.htr_data} if hasattr(p, 'htr_data') else {}),
+            # Donut: Add Donut fallback data if available
+            **({"donut_data": p.donut_data} if hasattr(p, 'donut_data') else {}),
+        }
+        pages_dict.append(page_dict)
+    
     out = {
         "status": "ok" if pages else "partial",
-        "pages": [
-            {
-                "page_num": p.page_num,
-                "confidence": p.confidence,
-                "preprocessed_image_path": p.preprocessed_image_path,
-                "blocks": [
-                    {
-                        "type": b.type,
-                        "bbox": list(b.bbox),
-                        "ocr_text": b.ocr_text,
-                        "confidence": b.confidence,
-                        "table_data": b.table_data,
-                    } for b in p.blocks
-                ],
-                # Phase 3: Add fallback_text if available
-                **({"fallback_text": p.fallback_text} if hasattr(p, 'fallback_text') else {}),
-                # HTR: Add HTR data if available
-                **({"htr_data": p.htr_data} if hasattr(p, 'htr_data') else {}),
-                # Donut: Add Donut fallback data if available
-                **({"donut_data": p.donut_data} if hasattr(p, 'donut_data') else {}),
-            } for p in pages
-        ],
+        "pages": pages_dict,
         "overall_confidence": overall_conf,
         "artifact_dir": str(base),
         "elapsed_sec": round(time.time() - t0, 3),

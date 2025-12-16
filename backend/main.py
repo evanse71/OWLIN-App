@@ -505,6 +505,38 @@ def health_ocr():
         status_code=status_code
     )
 
+@app.post("/api/watchdog/fix-stuck")
+def watchdog_fix_stuck(max_minutes: int = Query(10, description="Maximum minutes before considering a document stuck")):
+    """Watchdog endpoint to detect and fix documents stuck in processing status"""
+    from backend.services.ocr_service import fix_stuck_documents
+    
+    try:
+        fixed_count = fix_stuck_documents(max_processing_minutes=max_minutes)
+        return {
+            "status": "ok",
+            "fixed_count": fixed_count,
+            "message": f"Fixed {fixed_count} stuck document(s)"
+        }
+    except Exception as e:
+        logger.exception(f"[WATCHDOG] Error fixing stuck documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/watchdog/status")
+def watchdog_status():
+    """Get status of stuck documents without fixing them"""
+    from backend.services.ocr_service import detect_stuck_documents
+    
+    try:
+        stuck_docs = detect_stuck_documents(max_processing_minutes=10)
+        return {
+            "status": "ok",
+            "stuck_count": len(stuck_docs),
+            "stuck_documents": stuck_docs
+        }
+    except Exception as e:
+        logger.exception(f"[WATCHDOG] Error detecting stuck documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/venues")
 def list_venues():
     return {"venues": [{"id": "royal-oak-1", "name": "Royal Oak Hotel"}]}
@@ -3257,10 +3289,33 @@ def get_version_info() -> Dict[str, Any]:
     return version_info
 
 
+def _run_watchdog_periodically():
+    """Background task to periodically check for and fix stuck documents"""
+    import time
+    from backend.services.ocr_service import fix_stuck_documents
+    
+    while True:
+        try:
+            # Run watchdog every 5 minutes
+            time.sleep(300)  # 5 minutes
+            fixed_count = fix_stuck_documents(max_processing_minutes=10)
+            if fixed_count > 0:
+                logger.info(f"[WATCHDOG] Periodic check fixed {fixed_count} stuck document(s)")
+        except Exception as e:
+            logger.error(f"[WATCHDOG] Error in periodic watchdog task: {e}", exc_info=True)
+            # Continue running even if there's an error
+            time.sleep(60)  # Wait 1 minute before retrying on error
+
 @app.on_event("startup")
 async def startup_event():
     """Startup event handler to log version information"""
     logger.info(f"[BUILD] backend.main startup at {datetime.now().isoformat()}")
+    
+    # Start watchdog background task
+    import threading
+    watchdog_thread = threading.Thread(target=_run_watchdog_periodically, daemon=True)
+    watchdog_thread.start()
+    logger.info("[STARTUP] Watchdog background task started")
     
     # Check OCR readiness and log warnings
     try:

@@ -39,45 +39,17 @@ class OCRReadinessResult:
 
 def check_pymupdf() -> DependencyStatus:
     """Check if PyMuPDF (fitz) is available"""
-    # #region agent log
-    import json
-    import sys
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_readiness.py:42", "message": "check_pymupdf entry", "data": {"python_exe": sys.executable, "python_path": sys.path[:3]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-    except: pass
-    # #endregion
     try:
         import fitz
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_readiness.py:45", "message": "fitz import successful", "data": {"fitz_module": str(fitz)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-        except: pass
-        # #endregion
         # Try to create a simple document to verify it works
         doc = fitz.open()
         doc.close()
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_readiness.py:50", "message": "fitz test successful", "data": {}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-        except: pass
-        # #endregion
         return DependencyStatus(
             name="PyMuPDF",
             available=True,
             required=True
         )
-    except ImportError as e:
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_readiness.py:56", "message": "ImportError caught", "data": {"error": str(e), "error_type": type(e).__name__}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-        except: pass
-        # #endregion
+    except ImportError:
         return DependencyStatus(
             name="PyMuPDF",
             available=False,
@@ -85,12 +57,6 @@ def check_pymupdf() -> DependencyStatus:
             error="PyMuPDF (fitz) not installed. Install with: pip install PyMuPDF"
         )
     except Exception as e:
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_readiness.py:66", "message": "Exception caught (not ImportError)", "data": {"error": str(e), "error_type": type(e).__name__, "traceback": str(__import__("traceback").format_exc())[:500]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-        except: pass
-        # #endregion
         return DependencyStatus(
             name="PyMuPDF",
             available=False,
