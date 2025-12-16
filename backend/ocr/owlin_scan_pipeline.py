@@ -1380,7 +1380,7 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
             page_count = 1
             # #region agent log
             import json
-            from pathlib import Path
+            # Path is already imported at module level, use it directly
             log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
