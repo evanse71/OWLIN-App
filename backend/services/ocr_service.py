@@ -43,8 +43,33 @@ def _run_with_timeout(func, timeout_seconds, *args, **kwargs):
     
     def target():
         try:
+            # #region agent log
+            import json
+            from pathlib import Path as _Path
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:44", "message": "_run_with_timeout target thread started", "data": {"func_name": func.__name__, "args_count": len(args)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
             result[0] = func(*args, **kwargs)
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:50", "message": "_run_with_timeout target thread completed", "data": {"func_name": func.__name__, "has_result": result[0] is not None}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
         except Exception as e:
+            # #region agent log
+            import json
+            import traceback
+            from pathlib import Path as _Path
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:53", "message": "_run_with_timeout target thread exception", "data": {"func_name": func.__name__, "error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()[:2000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
             exception[0] = e
     
     thread = threading.Thread(target=target)
@@ -334,11 +359,12 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
         Dict with best_result, ocr_attempts, final_text_length
     """
     from backend.ocr.owlin_scan_pipeline import process_document as process_doc_ocr
-    # Path is already imported at module level (line 7), no need to re-import
+    # Import Path at function level with alias to avoid scoping issues
+    from pathlib import Path as _Path
     import json
     
     # #region agent log
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:252", "message": "retry function entry", "data": {"doc_id": doc_id, "file_path": str(file_path), "initial_pages_count": len(initial_result.get('pages', []))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -528,6 +554,17 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     # Import Path at function level with alias to avoid scoping issues
     from pathlib import Path as _Path
     
+    # #region agent log
+    import json
+    try:
+        log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:529", "message": "_process_with_v2_pipeline entry", "data": {"doc_id": doc_id, "file_path": str(file_path), "_Path_imported": True}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except Exception as log_err:
+        # Even if logging fails, continue - this is just debug instrumentation
+        pass
+    # #endregion
+    
     try:
         # Verify file exists
         if not os.path.exists(file_path):
@@ -579,9 +616,21 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:198", "message": "process_doc_ocr exception", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:570", "message": "_process_with_v2_pipeline exception caught", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "error_msg_contains_Path": "Path" in str(e), "traceback": full_traceback[:2000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except Exception as log_err2:
+                # Even if inner logging fails, try to log that fact
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:570", "message": "Failed to log exception details", "data": {"log_error": str(log_err2)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                except: pass
+        except Exception as log_err:
+            # If log path creation fails, try to use module-level Path as fallback
+            try:
+                from pathlib import Path
+                log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:570", "message": "_process_with_v2_pipeline exception - used fallback Path", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
             except: pass
-        except: pass  # If log path creation fails, just skip logging
         # #endregion
         # Ensure status is set to error before re-raising
         try:
