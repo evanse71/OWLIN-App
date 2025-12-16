@@ -186,8 +186,11 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
     Returns:
         Dict with status, confidence, extracted data, and line_items
     """
+    # Import Path at function level with alias to avoid scoping issues
+    from pathlib import Path as _Path
+    
     # Extract filename from file_path
-    filename = Path(file_path).name if file_path else "unknown"
+    filename = _Path(file_path).name if file_path else "unknown"
     
     # Determine OCR engine (default is paddleocr, may switch during retries)
     # The actual engine used will be logged in _process_with_v2_pipeline
@@ -208,7 +211,7 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:95", "message": "process_document_ocr entry", "data": {"doc_id": doc_id, "file_path": str(file_path)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -268,7 +271,7 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
             # #region agent log
             import json
             try:
-                from pathlib import Path as _Path
+                # _Path is already imported at function level, use it directly
                 log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
                 try:
                     with open(log_path, "a", encoding="utf-8") as f:
@@ -297,7 +300,7 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         import json
         try:
-            from pathlib import Path as _Path
+            # _Path is already imported at function level, use it directly
             log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
