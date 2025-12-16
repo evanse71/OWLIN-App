@@ -1327,7 +1327,7 @@ def process_document(pdf_path: Union[str, Path], render_dpi: int = 300,
         import json
         log_path_debug = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         with open(log_path_debug, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "owlin_scan_pipeline.py:1323", "message": "process_document entry", "data": {"pdf_path": str(pdf_path), "_Path_imported": True}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "owlin_scan_pipeline.py:1323", "message": "process_document entry", "data": {"pdf_path": str(pdf_path), "_Path_imported": True, "version": _VERSION_FIX_PATH_SCOPING}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
     except: pass
     # #endregion
     t0 = time.time()
