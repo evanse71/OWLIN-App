@@ -3211,8 +3211,8 @@ async def retry_ocr(doc_id: str, background_tasks: BackgroundTasks = BackgroundT
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
         
-        # Reset document status to pending
-        update_document_status(doc_id, "pending", "retry")
+        # Reset document status to pending and clear error
+        update_document_status(doc_id, "pending", "retry", error=None)
         append_audit(datetime.now().isoformat(), "local", "ocr_retry", f'{{"doc_id": "{doc_id}", "filename": "{filename}"}}')
         
         # Trigger OCR processing again using BackgroundTasks

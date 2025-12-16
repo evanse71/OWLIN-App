@@ -565,7 +565,9 @@ def update_document_status(doc_id, status, stage, confidence=None, error=None):
         
         # #region agent log
         try:
-            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            # Import Path at function level with alias to avoid scoping issues
+            from pathlib import Path as _Path
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"db.py:503","message":"update_document_status success","data":{"doc_id":doc_id,"status":status,"stage":stage,"confidence":confidence},"timestamp":int(time.time()*1000)}) + "\n")
         except: pass
