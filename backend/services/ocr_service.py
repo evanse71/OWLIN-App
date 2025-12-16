@@ -65,7 +65,8 @@ def _run_with_timeout(func, timeout_seconds, *args, **kwargs):
 import time
 _VERSION_TIMESTAMP = time.time()
 _VERSION_ISO = datetime.fromtimestamp(_VERSION_TIMESTAMP).isoformat()
-logger.info(f"[VERSION] ocr_service.py loaded at {_VERSION_ISO}")
+_VERSION_FIX = "141bff3a-Path-scoping-fixed"  # Git commit that fixed Path scoping issue
+logger.info(f"[VERSION] ocr_service.py loaded at {_VERSION_ISO}, fix={_VERSION_FIX}")
 
 # Constants for defensive parsing
 MAX_LINE_ITEMS = 500
