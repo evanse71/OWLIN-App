@@ -624,10 +624,10 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                         f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:570", "message": "Failed to log exception details", "data": {"log_error": str(log_err2)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
                 except: pass
         except Exception as log_err:
-            # If log path creation fails, try to use module-level Path as fallback
+            # If log path creation fails, try to use module-level Path as fallback (import with alias to avoid scoping)
             try:
-                from pathlib import Path
-                log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+                from pathlib import Path as _PathFallback
+                log_path = _PathFallback(__file__).parent.parent.parent / ".cursor" / "debug.log"
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:570", "message": "_process_with_v2_pipeline exception - used fallback Path", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
             except: pass
@@ -2343,6 +2343,8 @@ def _extract_supplier_and_customer(full_text: str, page_dict: Optional[Dict[str,
 
 def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
     """Extract invoice header data from OCR page result"""
+    # Import Path at function level with alias to avoid scoping issues
+    from pathlib import Path as _Path
     # Fail-fast guard for re module
     try:
         _ensure_re_available("_extract_invoice_data_from_page")
@@ -2403,7 +2405,7 @@ def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"[EXTRACT] Extracted {len(full_text)} characters of text from {len(blocks)} blocks")
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "I", "location": "ocr_service.py:1434", "message": "full_text built from blocks", "data": {"blocks_count": len(blocks), "full_text_length": len(full_text), "full_text_preview": full_text[:200] if full_text else "", "full_text_parts_count": len(full_text_parts)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -2482,7 +2484,7 @@ def _extract_invoice_data_from_page(page: Dict[str, Any]) -> Dict[str, Any]:
     
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:1515", "message": "supplier extracted from _extract_supplier_and_customer", "data": {"supplier": supplier, "customer": customer, "full_text_length": len(full_text) if full_text else 0, "full_text_preview": full_text[:200] if full_text else ""}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -2848,6 +2850,8 @@ def _parse_price(price_str: str) -> float:
 
 def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """Extract line items from OCR page result"""
+    # Import Path at function level with alias to avoid scoping issues
+    from pathlib import Path as _Path
     # Handle both dict and PageResult object formats
     if hasattr(page, 'blocks'):
         # PageResult object - convert to list
@@ -2906,7 +2910,7 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
     
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "K", "location": "ocr_service.py:1938", "message": "line item extraction - full_text built", "data": {"blocks_count": len(blocks), "full_text_length": len(full_text), "full_text_preview": full_text[:300] if full_text else ""}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
