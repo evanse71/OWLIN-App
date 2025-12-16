@@ -564,9 +564,9 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         import json
         try:
-            # Ensure Path is available (import at module level should make it available, but add fallback)
-            from pathlib import Path as PathClass
-            log_path = PathClass(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            # Use pathlib.Path directly - import it locally to avoid scoping issues
+            from pathlib import Path as _Path
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:198", "message": "process_doc_ocr exception", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
