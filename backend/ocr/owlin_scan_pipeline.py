@@ -609,12 +609,13 @@ def ocr_block(img_path: Path, bbox: Tuple[int, int, int, int]) -> Tuple[str, flo
 
 def _load_supplier_templates() -> List[Dict[str, Any]]:
     """Load supplier templates from YAML file."""
+    from pathlib import Path as _Path
     if yaml is None:
         LOGGER.warning("PyYAML not available for supplier templates")
         return []
     
     try:
-        template_path = Path(__file__).parent / "supplier_templates.yaml"
+        template_path = _Path(__file__).parent / "supplier_templates.yaml"
         if not template_path.exists():
             LOGGER.warning("Supplier templates file not found: %s", template_path)
             return []
@@ -942,7 +943,8 @@ def process_page_ocr_enhanced(img_path: Path, blocks_raw: List[Dict[str, Any]], 
                 LOGGER.info("[LLM_EXTRACTION] ⚡ Parsing full-page text for header/footer extraction")
                 # #region agent log
                 import json
-                log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
+                from pathlib import Path as _Path
+                log_path = _Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
                 try:
                     with open(log_path, "a", encoding="utf-8") as f:
                         f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "owlin_scan_pipeline.py:820", "message": "before LLM parse_document", "data": {"page_index": page_index, "ocr_text_length": len(full_page_text), "blocks_count": len(result.blocks)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
