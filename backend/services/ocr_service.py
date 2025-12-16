@@ -522,7 +522,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     All exceptions are caught and document status is set to 'error' before re-raising.
     """
     import os
-    # Path is already imported at module level (line 7), no need to re-import
+    # Import Path at function level with alias to avoid scoping issues
+    from pathlib import Path as _Path
     
     try:
         # Verify file exists
@@ -545,11 +546,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             raise Exception(error_msg)
         
         # Run OCR pipeline
-        filename = Path(file_path).name if file_path else "unknown"
+        filename = _Path(file_path).name if file_path else "unknown"
         logger.info(f"[OCR_V2] Calling process_document for doc_id={doc_id}, file={file_path}, filename={filename}")
         # #region agent log
         import json
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:167", "message": "before process_doc_ocr call", "data": {"doc_id": doc_id, "file_path": str(file_path)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -571,14 +572,13 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         import json
         try:
-            # Use pathlib.Path directly - import it locally to avoid scoping issues
-            from pathlib import Path as _Path
+            # _Path is already imported at function level, use it directly
             log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "ocr_service.py:198", "message": "process_doc_ocr exception", "data": {"doc_id": doc_id, "error": str(e), "error_type": type(e).__name__, "traceback": full_traceback[:1000]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
             except: pass
-        except: pass  # If Path import fails, just skip logging
+        except: pass  # If log path creation fails, just skip logging
         # #endregion
         # Ensure status is set to error before re-raising
         try:
@@ -607,7 +607,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:494", "message": "text extraction start", "data": {"doc_id": doc_id, "pages_count": len(pages), "pages_type": type(pages).__name__}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -843,7 +843,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             
             # #region agent log
             import json
-            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "M", "location": "ocr_service.py:358", "message": "LLM metadata extracted from page", "data": {"doc_id": doc_id, "page_idx": page_idx, "supplier_name": llm_metadata.get("supplier_name"), "grand_total": llm_metadata.get("grand_total"), "subtotal": llm_metadata.get("subtotal"), "vat_amount": llm_metadata.get("vat_amount"), "line_items_count": len(line_items), "invoice_number": llm_metadata.get("invoice_number")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -879,7 +879,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.info(f"[MULTI_INVOICE] Split {len(page_results)} pages into {len(document_groups)} document groups")
         # #region agent log
         import json
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:384", "message": "document_groups created", "data": {"doc_id": doc_id, "page_results_count": len(page_results), "document_groups_count": len(document_groups)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -945,7 +945,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 # Prepare parsed_data from combined_result
                 # #region agent log
                 import json
-                log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+                log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
                 try:
                     with open(log_path, "a", encoding="utf-8") as f:
                         f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "L", "location": "ocr_service.py:459", "message": "combined_result values from LLM", "data": {"doc_id": invoice_doc_id, "supplier_name": combined_result.supplier_name, "grand_total": combined_result.grand_total, "subtotal": combined_result.subtotal, "vat_amount": combined_result.vat_amount, "line_items_count": len(combined_result.line_items), "invoice_number": combined_result.invoice_number}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1124,7 +1124,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.info(f"[MULTI_PAGE] Processing {len(pages)} pages as single document with cross-page aggregation")
         # #region agent log
         import json
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:536", "message": "multi-page processing with cross-page aggregation", "data": {"doc_id": doc_id, "pages_count": len(pages)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1164,7 +1164,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:268", "message": "checking for LLM metadata", "data": {"doc_id": doc_id, "page_type": str(type(page)), "is_dict": isinstance(page, dict)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1229,7 +1229,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             supplier_from_llm = llm_metadata.get("supplier_name") or "Unknown Supplier"
             # #region agent log
             import json
-            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "ocr_service.py:590", "message": "using LLM metadata for supplier", "data": {"doc_id": doc_id, "supplier_from_llm": supplier_from_llm}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1278,7 +1278,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             # Priority 3: Fallback to page extraction (regex-based)
             # #region agent log
             import json
-            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "ocr_service.py:640", "message": "before _extract_invoice_data_from_page call (fallback path)", "data": {"doc_id": doc_id, "has_llm_metadata": llm_metadata is not None, "has_normalized_json": normalized_json is not None if 'normalized_json' in locals() else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1379,7 +1379,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     logger.info(f"[LINE_ITEMS] Starting cross-page line item extraction for doc_id={doc_id} ({len(pages)} pages)")
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:284", "message": "before cross-page line item extraction", "data": {"doc_id": doc_id, "pages_count": len(pages), "page_has_blocks": "blocks" in page if isinstance(page, dict) else hasattr(page, "blocks")}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1498,7 +1498,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     ocr_unusable = confidence_breakdown.ocr_quality < MIN_USABLE_OCR_CONFIDENCE
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "ocr_service.py:310", "message": "confidence gate check", "data": {"doc_id": doc_id, "confidence": confidence, "threshold": MIN_USABLE_OCR_CONFIDENCE, "ocr_unusable": ocr_unusable, "line_items_before": len(line_items)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1573,7 +1573,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # #region agent log - Check if we're in fallback path
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "ocr_service.py:885", "message": "reached invoice storage section", "data": {"doc_id": doc_id, "supplier": supplier, "date": date, "total": total, "invoice_status": invoice_status}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
@@ -1678,7 +1678,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # #region agent log
     import json
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "ocr_service.py:510", "message": "before upsert_invoice", "data": {"doc_id": doc_id, "supplier": supplier, "date": date, "total": total, "invoice_number": invoice_number, "invoice_number_source": invoice_number_source, "confidence": confidence, "line_items_count": len(line_items), "parsed_data_keys": list(parsed_data.keys())}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
