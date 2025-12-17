@@ -609,7 +609,15 @@ def update_document_classification(doc_id, doc_type, doc_type_confidence, doc_ty
     conn.close()
 
 def insert_line_items(doc_id, invoice_id, line_items):
-    """Insert line items for an invoice"""
+    """Insert line items for an invoice
+    
+    Defensive: some extractors occasionally emit None entries (or non-dict objects)
+    in the line_items array. Skip anything we can't safely read.
+    """
+    # Early return if line_items is empty or None
+    if not line_items:
+        return
+    
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     

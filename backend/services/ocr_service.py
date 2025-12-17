@@ -168,8 +168,14 @@ def _deduplicate_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped = []
     
     for item in items:
+        # Defensive: ignore null or non-dict items from upstream extractors
+        # This prevents 'NoneType' object has no attribute 'get' errors
+        if item is None or not isinstance(item, dict):
+            logger.warning(f"[DEDUPE] Skipping None or non-dict item: type={type(item).__name__ if item else 'None'}")
+            continue
+        
         # Create hash key from normalized fields
-        # Use _safe_get to prevent NoneType errors
+        # Use _safe_get to prevent NoneType errors (defensive, but item is already validated above)
         desc = str(_safe_get(item, 'desc', default='', location="ocr_service.py:172")).strip().lower()
         qty = _safe_get(item, 'qty', default=0, location="ocr_service.py:173")
         unit_price = _safe_get(item, 'unit_price', default=0, location="ocr_service.py:174")
