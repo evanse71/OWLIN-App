@@ -765,7 +765,7 @@ def invoices(
             
             # #region agent log
             with open(r'c:\Users\tedev\FixPack_2025-11-02_133105\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write('{"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:600","message":"Transformed invoice data","data":{"invoice_id":"' + str(invoice_id) + '","supplier":"' + str(supplier_val) + '","supplier_name":"' + str(invoice_data.get("supplier_name")) + '","total_value":' + str(total_value) + ',"total_p":' + str(invoice_data.get("total_p")) + ',"subtotal_p":' + str(subtotal_p) + ',"vat_total_p":' + str(vat_total_p) + ',"row_data":' + repr(list(row)[:8]) + '},"timestamp":' + str(int(time.time() * 1000)) + '}\n')
+                f.write('{"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:600","message":"Transformed invoice data","data":{"invoice_id":"' + str(invoice_id) + '","supplier":"' + str(supplier_val) + '","supplier_name":"' + str(invoice_data.get("supplier_name") if invoice_data else None) + '","total_value":' + str(total_value) + ',"total_p":' + str(invoice_data.get("total_p") if invoice_data else None) + ',"subtotal_p":' + str(subtotal_p) + ',"vat_total_p":' + str(vat_total_p) + ',"row_data":' + repr(list(row)[:8]) + '},"timestamp":' + str(int(time.time() * 1000)) + '}\n')
             # #endregion
             
             # Compare DB values to API response for debugging
@@ -1304,12 +1304,12 @@ def get_delivery_note(delivery_note_id: str):
         transformed_line_items = []
         for item in line_items:
             transformed_line_items.append({
-                "description": item.get("desc") or item.get("description") or "",
-                "qty": item.get("qty") or item.get("quantity") or 0,
-                "quantity": item.get("qty") or item.get("quantity") or 0,
-                "unit": item.get("uom") or item.get("unit") or "",
-                "uom": item.get("uom") or item.get("unit") or "",
-                "unit_price": item.get("unit_price") or item.get("price") or 0,
+                "description": (item.get("desc") if item else None) or (item.get("description") if item else None) or "",
+                "qty": (item.get("qty") if item else None) or (item.get("quantity") if item else None) or 0,
+                "quantity": (item.get("qty") if item else None) or (item.get("quantity") if item else None) or 0,
+                "unit": (item.get("uom") if item else None) or (item.get("unit") if item else None) or "",
+                "uom": (item.get("uom") if item else None) or (item.get("unit") if item else None) or "",
+                "unit_price": (item.get("unit_price") if item else None) or (item.get("price") if item else None) or 0,
                 "price": item.get("unit_price") or item.get("price") or 0,
                 "total": item.get("total") or item.get("line_total") or 0,
                 "line_total": item.get("total") or item.get("line_total") or 0,
