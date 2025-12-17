@@ -303,7 +303,7 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         try:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:119", "message": "process_document_ocr exit", "data": {"doc_id": doc_id, "status": result.get("status"), "confidence": result.get("confidence"), "line_items_count": len(result.get("line_items", []))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:119", "message": "process_document_ocr exit", "data": {"doc_id": doc_id, "status": result.get("status") if result else None, "confidence": result.get("confidence") if result else None, "line_items_count": len(result.get("line_items", [])) if result else 0}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
         return result
@@ -398,10 +398,10 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     best_text_length = 0
     
     # Extract initial attempt metadata
-    pages = initial_result.get('pages', [])
+    pages = initial_result.get('pages', []) if initial_result else []
     initial_text = ""
     for page in pages:
-        page_text = page.get('text', page.get('ocr_text', ''))
+        page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
         if page_text:
             initial_text += page_text + "\n"
     initial_text_length = len(initial_text.strip())
@@ -411,7 +411,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     
     # Get initial engine from telemetry if available
     initial_engine = "paddleocr"  # default
-    if initial_result.get('ocr_telemetry'):
+    if initial_result and initial_result.get('ocr_telemetry'):
         telemetry = initial_result.get('ocr_telemetry', {})
         if isinstance(telemetry, dict):
             overall = telemetry.get('overall', {})
@@ -427,7 +427,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
         "preprocess_profile": "enhanced",  # default
         "text_length": initial_text_length,
         "word_count": initial_word_count,
-        "confidence": initial_result.get('overall_confidence', 0.0),
+            "confidence": initial_result.get('overall_confidence', 0.0) if initial_result else 0.0,
         "preview": initial_text[:300] if initial_text else ""
     })
     best_text_length = initial_text_length
@@ -450,11 +450,11 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:310", "message": "retry attempt 1 result", "data": {"doc_id": doc_id, "status": retry1_status, "pages_count": retry1_pages_count, "is_error": retry1_status == "error"}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        if retry1_result.get("status") != "error":
-            retry1_pages = retry1_result.get('pages', [])
+        if retry1_result and retry1_result.get("status") != "error":
+            retry1_pages = retry1_result.get('pages', []) if retry1_result else []
             retry1_text = ""
             for page in retry1_pages:
-                page_text = page.get('text', page.get('ocr_text', ''))
+                page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
                 if page_text:
                     retry1_text += page_text + "\n"
             retry1_text_length = len(retry1_text.strip())
@@ -467,7 +467,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 "preprocess_profile": "enhanced",
                 "text_length": retry1_text_length,
                 "word_count": retry1_word_count,
-                "confidence": retry1_result.get('overall_confidence', 0.0),
+                "confidence": retry1_result.get('overall_confidence', 0.0) if retry1_result else 0.0,
                 "preview": retry1_text[:300] if retry1_text else ""
             })
             
@@ -487,11 +487,11 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     logger.info(f"[OCR_RETRY] Attempt 2: Retrying with DPI=400, engine={initial_engine}, preprocess={preprocess_profile}")
     try:
         retry2_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile=preprocess_profile, force_ocr_engine=initial_engine)
-        if retry2_result.get("status") != "error":
-            retry2_pages = retry2_result.get('pages', [])
+        if retry2_result and retry2_result.get("status") != "error":
+            retry2_pages = retry2_result.get('pages', []) if retry2_result else []
             retry2_text = ""
             for page in retry2_pages:
-                page_text = page.get('text', page.get('ocr_text', ''))
+                page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
                 if page_text:
                     retry2_text += page_text + "\n"
             retry2_text_length = len(retry2_text.strip())
@@ -504,7 +504,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 "preprocess_profile": preprocess_profile,
                 "text_length": retry2_text_length,
                 "word_count": retry2_word_count,
-                "confidence": retry2_result.get('overall_confidence', 0.0),
+                "confidence": retry2_result.get('overall_confidence', 0.0) if retry2_result else 0.0,
                 "preview": retry2_text[:300] if retry2_text else ""
             })
             
@@ -524,11 +524,11 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     logger.info(f"[OCR_RETRY] Attempt 3: Retrying with DPI=400, engine={alternate_engine}, preprocess={preprocess_profile}")
     try:
         retry3_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile=preprocess_profile, force_ocr_engine=alternate_engine)
-        if retry3_result.get("status") != "error":
-            retry3_pages = retry3_result.get('pages', [])
+        if retry3_result and retry3_result.get("status") != "error":
+            retry3_pages = retry3_result.get('pages', []) if retry3_result else []
             retry3_text = ""
             for page in retry3_pages:
-                page_text = page.get('text', page.get('ocr_text', ''))
+                page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
                 if page_text:
                     retry3_text += page_text + "\n"
             retry3_text_length = len(retry3_text.strip())
@@ -541,7 +541,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 "preprocess_profile": preprocess_profile,
                 "text_length": retry3_text_length,
                 "word_count": retry3_word_count,
-                "confidence": retry3_result.get('overall_confidence', 0.0),
+                "confidence": retry3_result.get('overall_confidence', 0.0) if retry3_result else 0.0,
                 "preview": retry3_text[:300] if retry3_text else ""
             })
             
@@ -627,10 +627,10 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         try:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:169", "message": "after process_doc_ocr call", "data": {"doc_id": doc_id, "status": ocr_result.get("status"), "confidence": ocr_result.get("confidence"), "pages_count": len(ocr_result.get("pages", [])), "has_normalized_json": "normalized_json" in ocr_result}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:169", "message": "after process_doc_ocr call", "data": {"doc_id": doc_id, "status": ocr_result.get("status") if ocr_result else None, "confidence": ocr_result.get("confidence") if ocr_result else None, "pages_count": len(ocr_result.get("pages", [])) if ocr_result else 0, "has_normalized_json": "normalized_json" in ocr_result if ocr_result else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        logger.info(f"[OCR_V2] OCR result status: {ocr_result.get('status')}, confidence: {ocr_result.get('confidence', 0)}")
+        logger.info(f"[OCR_V2] OCR result status: {ocr_result.get('status') if ocr_result else None}, confidence: {ocr_result.get('confidence', 0) if ocr_result else 0}")
     except Exception as e:
         error_msg = f"OCR pipeline execution failed: {str(e)}"
         import traceback
@@ -715,7 +715,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:500", "message": "page iteration", "data": {"doc_id": doc_id, "page_idx": page_idx, "page_type": page_type, "page_keys": page_keys[:10] if isinstance(page_keys, list) else page_keys}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        page_text = page.get('text', page.get('ocr_text', '')) if isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', ''))
+        page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '') if isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', ''))
         page_text_length = len(page_text) if page_text else 0
         # #region agent log
         try:
@@ -724,7 +724,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         except: pass
         # #endregion
         total_text_length += page_text_length
-        page_confidence = page.get('confidence', 0.0)
+        page_confidence = page.get('confidence', 0.0) if page and isinstance(page, dict) else (getattr(page, 'confidence', 0.0) if page else 0.0)
         page_stats.append({
             'page': page_idx + 1,
             'text_length': page_text_length,
@@ -821,7 +821,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 ocr_text_length += len("\n".join(page_text_parts))
             ocr_text_parts = []
             for page_idx, page in enumerate(pages):
-                page_text = page.get('text', page.get('ocr_text', ''))
+                page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
                 if page_text:
                     ocr_text_parts.append(page_text)
             full_ocr_text = '\n'.join(ocr_text_parts)
@@ -832,11 +832,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             error_metadata = {
                 "error_code": error_code,
                 "error_message": f"OCR produced insufficient text: {retry_result['final_text_length']} chars (minimum 100 required)",
-                "engine_used": retry_result.get('ocr_attempts', [{}])[-1].get('engine', 'unknown') if retry_result.get('ocr_attempts') else 'unknown',
-                "dpi": retry_result.get('ocr_attempts', [{}])[-1].get('dpi', 300) if retry_result.get('ocr_attempts') else 300,
+                "engine_used": retry_result.get('ocr_attempts', [{}])[-1].get('engine', 'unknown') if retry_result and retry_result.get('ocr_attempts') else 'unknown',
+                "dpi": retry_result.get('ocr_attempts', [{}])[-1].get('dpi', 300) if retry_result and retry_result.get('ocr_attempts') else 300,
                 "page_count": len(pages),
                 "has_text_layer": pdf_structure.get('has_text_layer', False) if pdf_structure else False,
-                "ocr_attempts": retry_result.get('ocr_attempts', []),
+                "ocr_attempts": retry_result.get('ocr_attempts', []) if retry_result else [],
                 "rendered_image_valid": len(render_metadata) > 0 and all(rm.get('width', 0) > 0 and rm.get('height', 0) > 0 for rm in render_metadata) if render_metadata else False,
                 "mean_pixel_intensity": render_metadata[0].get('mean_intensity') if render_metadata and len(render_metadata) > 0 else None
             }
@@ -844,7 +844,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             error_msg_json = json.dumps(error_metadata)
             logger.error(f"[OCR_V2] All OCR attempts failed: {error_metadata['error_message']} for doc_id={doc_id}")
             update_document_status(doc_id, "error", error_code, error=error_msg_json)
-            _log_lifecycle("OCR_ERROR", doc_id, error=error_metadata['error_message'], ocr_text_length=retry_result['final_text_length'], error_code=error_code, ocr_attempts=len(retry_result.get('ocr_attempts', [])))
+            _log_lifecycle("OCR_ERROR", doc_id, error=error_metadata.get('error_message', 'Unknown error') if error_metadata else 'Unknown error', ocr_text_length=retry_result.get('final_text_length', 0) if retry_result else 0, error_code=error_code, ocr_attempts=len(retry_result.get('ocr_attempts', [])) if retry_result else 0)
             raise Exception(error_metadata['error_message'])
     
     # Store OCR telemetry report in database
