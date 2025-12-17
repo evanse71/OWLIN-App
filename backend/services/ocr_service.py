@@ -577,6 +577,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     All exceptions are caught and document status is set to 'error' before re-raising.
     """
     import os
+    import traceback
     # Import Path at function level with alias to avoid scoping issues
     from pathlib import Path as _Path
     
@@ -596,7 +597,9 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     doc_type = "invoice"
     ocr_unusable = False
     
+    # Wrap the entire function in a try-except to catch AttributeError (NoneType.get)
     try:
+        try:
         # Verify file exists
         if not os.path.exists(file_path):
             error_msg = f"File not found: {file_path}"
