@@ -303,7 +303,7 @@ def process_document_ocr(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         try:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:119", "message": "process_document_ocr exit", "data": {"doc_id": doc_id, "status": result.get("status") if result else None, "confidence": result.get("confidence") if result else None, "line_items_count": len(result.get("line_items", [])) if result else 0}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:119", "message": "process_document_ocr exit", "data": {"doc_id": doc_id, "status": _safe_get(result, "status", default=None, location="ocr_service.py:306"), "confidence": _safe_get(result, "confidence", default=None, location="ocr_service.py:306"), "line_items_count": len(_safe_get(result, "line_items", default=[], location="ocr_service.py:306"))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
         return result
@@ -411,8 +411,8 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     
     # Get initial engine from telemetry if available
     initial_engine = "paddleocr"  # default
-    if initial_result and initial_result.get('ocr_telemetry'):
-        telemetry = initial_result.get('ocr_telemetry', {})
+    telemetry = _safe_get(initial_result, 'ocr_telemetry', default=None, location="ocr_service.py:414")
+    if telemetry:
         if isinstance(telemetry, dict):
             overall = telemetry.get('overall', {})
             engine_mix = overall.get('engine_mix', 'paddleocr') if isinstance(overall, dict) else 'paddleocr'
@@ -427,7 +427,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
         "preprocess_profile": "enhanced",  # default
         "text_length": initial_text_length,
         "word_count": initial_word_count,
-            "confidence": initial_result.get('overall_confidence', 0.0) if initial_result else 0.0,
+            "confidence": _safe_get(initial_result, 'overall_confidence', default=0.0, location="ocr_service.py:430"),
         "preview": initial_text[:300] if initial_text else ""
     })
     best_text_length = initial_text_length
@@ -450,8 +450,9 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:310", "message": "retry attempt 1 result", "data": {"doc_id": doc_id, "status": retry1_status, "pages_count": retry1_pages_count, "is_error": retry1_status == "error"}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        if retry1_result and retry1_result.get("status") != "error":
-            retry1_pages = retry1_result.get('pages', []) if retry1_result else []
+        retry1_status = _safe_get(retry1_result, "status", default="error", location="ocr_service.py:453")
+        if retry1_result and retry1_status != "error":
+            retry1_pages = _safe_get(retry1_result, 'pages', default=[], location="ocr_service.py:454")
             retry1_text = ""
             for page in retry1_pages:
                 page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
@@ -467,7 +468,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 "preprocess_profile": "enhanced",
                 "text_length": retry1_text_length,
                 "word_count": retry1_word_count,
-                "confidence": retry1_result.get('overall_confidence', 0.0) if retry1_result else 0.0,
+                "confidence": _safe_get(retry1_result, 'overall_confidence', default=0.0, location="ocr_service.py:470"),
                 "preview": retry1_text[:300] if retry1_text else ""
             })
             
@@ -487,8 +488,9 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     logger.info(f"[OCR_RETRY] Attempt 2: Retrying with DPI=400, engine={initial_engine}, preprocess={preprocess_profile}")
     try:
         retry2_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile=preprocess_profile, force_ocr_engine=initial_engine)
-        if retry2_result and retry2_result.get("status") != "error":
-            retry2_pages = retry2_result.get('pages', []) if retry2_result else []
+        retry2_status = _safe_get(retry2_result, "status", default="error", location="ocr_service.py:490")
+        if retry2_result and retry2_status != "error":
+            retry2_pages = _safe_get(retry2_result, 'pages', default=[], location="ocr_service.py:491")
             retry2_text = ""
             for page in retry2_pages:
                 page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
@@ -504,7 +506,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 "preprocess_profile": preprocess_profile,
                 "text_length": retry2_text_length,
                 "word_count": retry2_word_count,
-                "confidence": retry2_result.get('overall_confidence', 0.0) if retry2_result else 0.0,
+                "confidence": _safe_get(retry2_result, 'overall_confidence', default=0.0, location="ocr_service.py:507"),
                 "preview": retry2_text[:300] if retry2_text else ""
             })
             
@@ -524,8 +526,9 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     logger.info(f"[OCR_RETRY] Attempt 3: Retrying with DPI=400, engine={alternate_engine}, preprocess={preprocess_profile}")
     try:
         retry3_result = process_doc_ocr(file_path, render_dpi=400, preprocess_profile=preprocess_profile, force_ocr_engine=alternate_engine)
-        if retry3_result and retry3_result.get("status") != "error":
-            retry3_pages = retry3_result.get('pages', []) if retry3_result else []
+        retry3_status = _safe_get(retry3_result, "status", default="error", location="ocr_service.py:527")
+        if retry3_result and retry3_status != "error":
+            retry3_pages = _safe_get(retry3_result, 'pages', default=[], location="ocr_service.py:528")
             retry3_text = ""
             for page in retry3_pages:
                 page_text = page.get('text', page.get('ocr_text', '')) if page and isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', '') if page else '')
@@ -541,7 +544,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
                 "preprocess_profile": preprocess_profile,
                 "text_length": retry3_text_length,
                 "word_count": retry3_word_count,
-                "confidence": retry3_result.get('overall_confidence', 0.0) if retry3_result else 0.0,
+                "confidence": _safe_get(retry3_result, 'overall_confidence', default=0.0, location="ocr_service.py:544"),
                 "preview": retry3_text[:300] if retry3_text else ""
             })
             
@@ -624,13 +627,27 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         except: pass
         # #endregion
         ocr_result = process_doc_ocr(file_path)
+        
+        # CRITICAL: Ensure ocr_result is never None - wrap in error dict if needed
+        if ocr_result is None:
+            error_msg = "OCR pipeline returned None - this should never happen"
+            logger.critical(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+            ocr_result = {
+                "status": "error",
+                "error": error_msg,
+                "pages": [],
+                "confidence": 0.0,
+                "overall_confidence": 0.0
+            }
+            update_document_status(doc_id, "error", "ocr_result_none", error=error_msg)
+        
         # #region agent log
         try:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:169", "message": "after process_doc_ocr call", "data": {"doc_id": doc_id, "status": ocr_result.get("status") if ocr_result else None, "confidence": ocr_result.get("confidence") if ocr_result else None, "pages_count": len(ocr_result.get("pages", [])) if ocr_result else 0, "has_normalized_json": "normalized_json" in ocr_result if ocr_result else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "ocr_service.py:169", "message": "after process_doc_ocr call", "data": {"doc_id": doc_id, "status": _safe_get(ocr_result, "status", default=None, location="ocr_service.py:630"), "confidence": _safe_get(ocr_result, "confidence", default=None, location="ocr_service.py:630"), "pages_count": len(_safe_get(ocr_result, "pages", default=[], location="ocr_service.py:630")), "has_normalized_json": "normalized_json" in ocr_result if ocr_result else False}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        logger.info(f"[OCR_V2] OCR result status: {ocr_result.get('status') if ocr_result else None}, confidence: {ocr_result.get('confidence', 0) if ocr_result else 0}")
+        logger.info(f"[OCR_V2] OCR result status: {_safe_get(ocr_result, 'status', default=None, location='ocr_service.py:633')}, confidence: {_safe_get(ocr_result, 'confidence', default=0, location='ocr_service.py:633')}")
     except Exception as e:
         error_msg = f"OCR pipeline execution failed: {str(e)}"
         import traceback
@@ -666,18 +683,16 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             logger.error(f"[OCR_V2] Failed to update document status after error: {update_error}")
         raise Exception(error_msg)
     
-    # Ensure ocr_result is not None before calling .get()
+    # ocr_result is already validated above - should never be None here
+    # But add defensive check just in case
     if ocr_result is None:
-        error_msg = "OCR pipeline returned None result"
-        logger.error(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
-        try:
-            update_document_status(doc_id, "error", "ocr_result_none", error=error_msg)
-        except Exception as update_error:
-            logger.error(f"[OCR_V2] Failed to update document status: {update_error}")
+        error_msg = "OCR pipeline returned None result (should have been caught earlier)"
+        logger.critical(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+        update_document_status(doc_id, "error", "ocr_result_none", error=error_msg)
         raise Exception(error_msg)
     
-    if ocr_result.get("status") == "error":
-        error_detail = ocr_result.get("error", "OCR processing failed")
+    if _safe_get(ocr_result, "status", default="unknown", location="ocr_service.py:679") == "error":
+        error_detail = _safe_get(ocr_result, "error", default="OCR processing failed", location="ocr_service.py:680")
         logger.error(f"[OCR_V2] OCR pipeline returned error: {error_detail} for doc_id={doc_id}")
         # Ensure status is set to error before re-raising
         try:
@@ -686,10 +701,10 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             logger.error(f"[OCR_V2] Failed to update document status after OCR error: {update_error}")
         raise Exception(f"OCR pipeline error: {error_detail}")
     
-    confidence = ocr_result.get('confidence', 0.0)
+    confidence = _safe_get(ocr_result, 'confidence', default=0.0, location="ocr_service.py:689")
     
     # Extract OCR text for logging
-    pages = ocr_result.get('pages', [])
+    pages = _safe_get(ocr_result, 'pages', default=[], location="ocr_service.py:692")
     ocr_text_parts = []
     total_text_length = 0
     page_stats = []
@@ -779,8 +794,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.warning(f"[OCR_V2] Initial OCR produced insufficient text: {total_text_length} chars, attempting retries with fallbacks")
         
         # Get PDF structure and render metadata from initial result
-        pdf_structure = ocr_result.get('pdf_structure') if ocr_result else None
-        render_metadata = ocr_result.get('render_metadata', []) if ocr_result else []
+        pdf_structure = _safe_get(ocr_result, 'pdf_structure', default=None, location="ocr_service.py:779")
+        render_metadata = _safe_get(ocr_result, 'render_metadata', default=[], location="ocr_service.py:780")
         
         # Attempt retries with different configurations
         # #region agent log
@@ -834,12 +849,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             error_code = "OCR_ZERO_TEXT" if total_text_length == 0 else "OCR_INSUFFICIENT_TEXT"
             error_metadata = {
                 "error_code": error_code,
-                "error_message": f"OCR produced insufficient text: {retry_result.get('final_text_length', 0) if retry_result else 0} chars (minimum 100 required)",
-                "engine_used": retry_result.get('ocr_attempts', [{}])[-1].get('engine', 'unknown') if retry_result and retry_result.get('ocr_attempts') else 'unknown',
-                "dpi": retry_result.get('ocr_attempts', [{}])[-1].get('dpi', 300) if retry_result and retry_result.get('ocr_attempts') else 300,
+                "error_message": f"OCR produced insufficient text: {_safe_get(retry_result, 'final_text_length', default=0, location='ocr_service.py:834')} chars (minimum 100 required)",
+                "engine_used": (_safe_get(retry_result, 'ocr_attempts', default=[{}], location="ocr_service.py:835")[-1].get('engine', 'unknown') if _safe_get(retry_result, 'ocr_attempts', default=[], location="ocr_service.py:835") else 'unknown'),
+                "dpi": (_safe_get(retry_result, 'ocr_attempts', default=[{}], location="ocr_service.py:836")[-1].get('dpi', 300) if _safe_get(retry_result, 'ocr_attempts', default=[], location="ocr_service.py:836") else 300),
                 "page_count": len(pages),
-                "has_text_layer": pdf_structure.get('has_text_layer', False) if pdf_structure else False,
-                "ocr_attempts": retry_result.get('ocr_attempts', []) if retry_result else [],
+                "has_text_layer": _safe_get(pdf_structure, 'has_text_layer', default=False, location="ocr_service.py:838"),
+                "ocr_attempts": _safe_get(retry_result, 'ocr_attempts', default=[], location="ocr_service.py:839"),
                 "rendered_image_valid": len(render_metadata) > 0 and all(rm.get('width', 0) > 0 and rm.get('height', 0) > 0 for rm in render_metadata) if render_metadata else False,
                 "mean_pixel_intensity": render_metadata[0].get('mean_intensity') if render_metadata and len(render_metadata) > 0 else None
             }
@@ -848,12 +863,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             error_msg = error_metadata.get('error_message', 'Unknown error') if error_metadata else 'Unknown error'
             logger.error(f"[OCR_V2] All OCR attempts failed: {error_msg} for doc_id={doc_id}")
             update_document_status(doc_id, "error", error_code, error=error_msg_json)
-            _log_lifecycle("OCR_ERROR", doc_id, error=error_msg, ocr_text_length=retry_result.get('final_text_length', 0) if retry_result else 0, error_code=error_code, ocr_attempts=len(retry_result.get('ocr_attempts', [])) if retry_result else 0)
+            _log_lifecycle("OCR_ERROR", doc_id, error=error_msg, ocr_text_length=_safe_get(retry_result, 'final_text_length', default=0, location="ocr_service.py:847"), error_code=error_code, ocr_attempts=len(_safe_get(retry_result, 'ocr_attempts', default=[], location="ocr_service.py:847")))
             raise Exception(error_msg)
     
     # Store OCR telemetry report in database
     try:
-        ocr_telemetry = ocr_result.get('ocr_telemetry') if ocr_result else None
+        ocr_telemetry = _safe_get(ocr_result, 'ocr_telemetry', default=None, location="ocr_service.py:852")
         if ocr_telemetry:
             from backend.ocr.ocr_telemetry import OCRTelemetryReport, PageTelemetry, BlockTelemetry, OverallTelemetry
             # Convert dict to OCRTelemetryReport and serialize to JSON
