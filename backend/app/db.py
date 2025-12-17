@@ -619,9 +619,22 @@ def insert_line_items(doc_id, invoice_id, line_items):
     has_bbox_column = 'bbox' in columns
     
     for idx, item in enumerate(line_items):
+        # Skip None items to avoid 'NoneType' object has no attribute 'get' error
+        if item is None:
+            # #region agent log
+            import json
+            from pathlib import Path as _Path
+            try:
+                log_path = _Path(__file__).parent.parent / ".cursor" / "debug.log"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "db.py:621", "message": "Skipping None item in line_items", "data": {"doc_id": doc_id, "invoice_id": invoice_id, "item_index": idx, "total_items": len(line_items)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            continue
+        
         # Extract bbox if present (handle both list and string formats)
         bbox_value = None
-        if 'bbox' in item and item['bbox']:
+        if isinstance(item, dict) and 'bbox' in item and item['bbox']:
             bbox = item['bbox']
             if isinstance(bbox, list) and len(bbox) >= 4:
                 # Convert list to JSON string: "[x,y,w,h]"
@@ -633,6 +646,17 @@ def insert_line_items(doc_id, invoice_id, line_items):
                     bbox_value = bbox
                 except (json.JSONDecodeError, TypeError):
                     bbox_value = None
+        
+        # Ensure item is a dict before calling .get()
+        if not isinstance(item, dict):
+            # #region agent log
+            try:
+                log_path = _Path(__file__).parent.parent / ".cursor" / "debug.log"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H", "location": "db.py:637", "message": "Skipping non-dict item", "data": {"doc_id": doc_id, "invoice_id": invoice_id, "item_index": idx, "item_type": type(item).__name__, "item_value": str(item)[:100]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            # #endregion
+            continue
         
         if has_bbox_column:
             cursor.execute("""

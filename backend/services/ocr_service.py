@@ -554,16 +554,9 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     # Import Path at function level with alias to avoid scoping issues
     from pathlib import Path as _Path
     
-    # #region agent log
-    import json
-    try:
-        log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:529", "message": "_process_with_v2_pipeline entry", "data": {"doc_id": doc_id, "file_path": str(file_path), "_Path_imported": True}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
-    except Exception as log_err:
-        # Even if logging fails, continue - this is just debug instrumentation
-        pass
-    # #endregion
+    # Initialize ocr_text_length early to avoid scoping issues in error handlers
+    # This ensures it's always defined even if exceptions occur before it's calculated
+    ocr_text_length = 0
     
     try:
         # Verify file exists
@@ -696,6 +689,27 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     full_ocr_text = '\n'.join(ocr_text_parts)
     ocr_text_preview = full_ocr_text[:300] if full_ocr_text else ""
     
+    # Calculate ocr_text_length from all pages for validation (needed later for confidence calculation)
+    # Extract OCR text length from all pages for validation - calculate early to avoid scoping issues
+    ocr_text_length = 0
+    if pages:
+        for page_item in pages:
+            page_text_parts = []
+            if hasattr(page_item, 'blocks'):
+                for block in page_item.blocks if hasattr(page_item, 'blocks') and page_item.blocks else []:
+                    if hasattr(block, 'ocr_text'):
+                        text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
+                    else:
+                        text = block.get("ocr_text", block.get("text", ""))
+                    if text:
+                        page_text_parts.append(text)
+            else:
+                for block in page_item.get("blocks", []):
+                    text = block.get("ocr_text", block.get("text", ""))
+                    if text:
+                        page_text_parts.append(text)
+            ocr_text_length += len("\n".join(page_text_parts))
+    
     # Log OCR completion with text stats
     _log_lifecycle("OCR_DONE", doc_id, 
                    confidence=confidence,
@@ -740,6 +754,24 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             total_text_length = retry_result['final_text_length']
             # Re-extract text from retry result
             pages = ocr_result.get('pages', [])
+            # Recalculate ocr_text_length from updated pages after retry
+            ocr_text_length = 0
+            for page_item in pages:
+                page_text_parts = []
+                if hasattr(page_item, 'blocks'):
+                    for block in page_item.blocks if hasattr(page_item, 'blocks') and page_item.blocks else []:
+                        if hasattr(block, 'ocr_text'):
+                            text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
+                        else:
+                            text = block.get("ocr_text", block.get("text", ""))
+                        if text:
+                            page_text_parts.append(text)
+                else:
+                    for block in page_item.get("blocks", []):
+                        text = block.get("ocr_text", block.get("text", ""))
+                        if text:
+                            page_text_parts.append(text)
+                ocr_text_length += len("\n".join(page_text_parts))
             ocr_text_parts = []
             for page_idx, page in enumerate(pages):
                 page_text = page.get('text', page.get('ocr_text', ''))
@@ -1651,6 +1683,9 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         first_items = line_items[:3]
         items_summary = []
         for idx, item in enumerate(first_items):
+            # Skip None items to avoid 'NoneType' object has no attribute 'get' error
+            if item is None or not isinstance(item, dict):
+                continue
             items_summary.append({
                 'index': idx + 1,
                 'desc': item.get('desc', '')[:50],  # Truncate long descriptions
@@ -1662,8 +1697,10 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             })
         _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", doc_id, items_sample=items_summary)
     
-    # Extract OCR text length from all pages for validation
-    ocr_text_length = 0
+    # NOTE: ocr_text_length is now calculated earlier (around line 700) to avoid scoping issues
+    # This duplicate calculation is kept for backward compatibility but should use the earlier value
+    # Re-calculate ocr_text_length from current pages state (in case pages were updated during retry)
+    ocr_text_length_recalc = 0
     if pages:
         for page_item in pages:
             page_text_parts = []
@@ -1680,7 +1717,10 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     text = block.get("ocr_text", block.get("text", ""))
                     if text:
                         page_text_parts.append(text)
-            ocr_text_length += len("\n".join(page_text_parts))
+            ocr_text_length_recalc += len("\n".join(page_text_parts))
+    # Use recalculated value if it's different (e.g., after retry), otherwise keep original
+    if ocr_text_length_recalc != ocr_text_length:
+        ocr_text_length = ocr_text_length_recalc
     
     def validate_minimum_viable_parse(ocr_text_length: int, supplier: str, total: float, line_items_count: int) -> Tuple[bool, Optional[str]]:
         """
