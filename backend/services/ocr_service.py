@@ -1641,17 +1641,25 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Check if invoice needs review (from LLM validation)
     needs_review_from_llm = False
-    if "pages" in ocr_result and ocr_result["pages"]:
+    if ocr_result and "pages" in ocr_result and ocr_result["pages"]:
         # Check first page's table_data for needs_review flag
         first_page = ocr_result["pages"][0]
-        for block in first_page.get("blocks", []):
-            table_data = block.get("table_data")
-            if table_data and table_data.get("needs_review"):
-                needs_review_from_llm = True
-                validation_errors = table_data.get("metadata", {}).get("validation_errors", [])
-                if validation_errors:
-                    logger.warning(f"[VALIDATION] Invoice {doc_id} marked for review: {validation_errors}")
-                break
+        if first_page:
+            blocks = first_page.get("blocks", []) if isinstance(first_page, dict) else getattr(first_page, "blocks", [])
+            for block in blocks:
+                if block is None:
+                    continue
+                if isinstance(block, dict):
+                    table_data = block.get("table_data")
+                else:
+                    table_data = getattr(block, "table_data", None)
+                if table_data and isinstance(table_data, dict) and table_data.get("needs_review"):
+                    needs_review_from_llm = True
+                    metadata = table_data.get("metadata")
+                    validation_errors = metadata.get("validation_errors", []) if metadata and isinstance(metadata, dict) else []
+                    if validation_errors:
+                        logger.warning(f"[VALIDATION] Invoice {doc_id} marked for review: {validation_errors}")
+                    break
     
     # Set status based on confidence band
     # High → "ready" (or "scanned" if pairing needed)
