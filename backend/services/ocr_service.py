@@ -109,6 +109,28 @@ def _ensure_re_available(function_name: str) -> None:
         logger.critical(error_msg, exc_info=True)
         raise NameError(f"name 're' is not defined in {function_name}") from None
 
+def _safe_get(obj: Any, key: str, default: Any = None, location: str = "unknown") -> Any:
+    """
+    Safely call .get() on an object, with logging if the object is None.
+    This helps identify where NoneType errors occur.
+    """
+    if obj is None:
+        logger.error(f"[SAFE_GET] Attempted to call .get('{key}') on None at {location}")
+        # #region agent log
+        import json
+        from pathlib import Path as _Path
+        try:
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "I", "location": location, "message": "safe_get called on None", "data": {"key": key, "default": str(default)[:100]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        return default
+    if not isinstance(obj, dict):
+        logger.error(f"[SAFE_GET] Attempted to call .get('{key}') on non-dict at {location}, type={type(obj).__name__}")
+        return default
+    return obj.get(key, default)
+
 def _normalize_currency(value: str | float | None) -> float | None:
     """Normalize currency to numeric float, return None if cannot parse"""
     if value is None:
