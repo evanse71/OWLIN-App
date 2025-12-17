@@ -808,7 +808,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #region agent log
         try:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:533", "message": "retry function returned", "data": {"doc_id": doc_id, "final_text_length": retry_result.get("final_text_length"), "attempts_count": len(retry_result.get("ocr_attempts", [])), "retry_succeeded": retry_result.get("final_text_length", 0) >= 100}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:533", "message": "retry function returned", "data": {"doc_id": doc_id, "final_text_length": _safe_get(retry_result, "final_text_length", default=0, location="ocr_service.py:811"), "attempts_count": len(_safe_get(retry_result, "ocr_attempts", default=[], location="ocr_service.py:811")), "retry_succeeded": _safe_get(retry_result, "final_text_length", default=0, location="ocr_service.py:811") >= 100}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
         
