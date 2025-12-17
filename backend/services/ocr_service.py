@@ -1501,13 +1501,16 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 if hasattr(block, 'ocr_text'):
                     text = getattr(block, 'ocr_text', '') or getattr(block, 'text', '')
                 else:
-                    text = block.get("ocr_text", block.get("text", ""))
+                    text = _safe_get(block, "ocr_text", default=_safe_get(block, "text", default="", location="ocr_service.py:1501"), location="ocr_service.py:1501") if block else ""
                 if text:
                     page_text_parts.append(text)
                     classify_full_text_parts.append(text)
         else:
-            for block in page_item.get("blocks", []):
-                text = block.get("ocr_text", block.get("text", ""))
+            blocks = _safe_get(page_item, "blocks", default=[], location="ocr_service.py:1506") if page_item else []
+            for block in blocks:
+                if block is None:
+                    continue
+                text = _safe_get(block, "ocr_text", default=_safe_get(block, "text", default="", location="ocr_service.py:1507"), location="ocr_service.py:1507") if isinstance(block, dict) else (getattr(block, "ocr_text", "") or getattr(block, "text", "") if block else "")
                 if text:
                     page_text_parts.append(text)
                     classify_full_text_parts.append(text)
