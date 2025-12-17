@@ -1061,14 +1061,32 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 # Convert line items to dict format
                 line_items = []
                 for item in combined_result.line_items:
+                    # Skip None items to avoid AttributeError
+                    if item is None:
+                        continue
+                    # Filter out header/footer text that shouldn't be line items
+                    desc = getattr(item, 'description', '') or getattr(item, 'desc', '')
+                    if desc:
+                        desc_lower = desc.lower().strip()
+                        # Skip common header/footer patterns
+                        skip_patterns = [
+                            'total', 'subtotal', 'vat', 'tax', 'amount due', 'balance',
+                            'invoice no', 'invoice number', 'invoice date', 'date:',
+                            'vat registration', 'company registration', 'registration number',
+                            'account no', 'account number', 'sort code', 'iban', 'bic',
+                            'payment terms', 'due date', 'thank you', 'please pay'
+                        ]
+                        if any(pattern in desc_lower for pattern in skip_patterns):
+                            logger.debug(f"[LINE_ITEMS] Skipping header/footer text: {desc}")
+                            continue
                     line_items.append({
-                        "desc": item.description,
-                        "qty": item.qty,
-                        "unit_price": item.unit_price,
-                        "total": item.total,
-                        "uom": item.uom,
-                        "confidence": item.confidence,
-                        "bbox": item.bbox
+                        "desc": desc,
+                        "qty": getattr(item, 'qty', 0),
+                        "unit_price": getattr(item, 'unit_price', 0),
+                        "total": getattr(item, 'total', 0),
+                        "uom": getattr(item, 'uom', ''),
+                        "confidence": getattr(item, 'confidence', 0.9),
+                        "bbox": getattr(item, 'bbox', None)
                     })
                 
                 # Deduplicate and truncate
@@ -2917,10 +2935,27 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
         
         # Convert STORI format to our format
         for item in stori_items:
+            # Skip None items to avoid 'NoneType' object has no attribute 'get' error
+            if item is None or not isinstance(item, dict):
+                continue
             # STORI returns: name, qty, unit_price_pence, line_total_pence
             # We need: desc, qty, unit_price, total, uom, confidence
+            desc = item.get("name", "")
+            # Filter out header/footer text
+            if desc:
+                desc_lower = desc.lower().strip()
+                skip_patterns = [
+                    'total', 'subtotal', 'vat', 'tax', 'amount due', 'balance',
+                    'invoice no', 'invoice number', 'invoice date', 'date:',
+                    'vat registration', 'company registration', 'registration number',
+                    'account no', 'account number', 'sort code', 'iban', 'bic',
+                    'payment terms', 'due date', 'thank you', 'please pay'
+                ]
+                if any(pattern in desc_lower for pattern in skip_patterns):
+                    logger.debug(f"[LINE_ITEMS] Skipping header/footer text in STORI: {desc}")
+                    continue
             stori_item = {
-                "desc": item.get("name", ""),
+                "desc": desc,
                 "qty": item.get("qty", 0),
                 "unit_price": item.get("unit_price_pence", 0) / 100.0,  # Convert pence to pounds
                 "total": item.get("line_total_pence", 0) / 100.0,  # Convert pence to pounds
@@ -2969,8 +3004,25 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
             logger.info(f"[LINE_ITEMS] STORI extractor found {len(stori_result['items'])} items")
             # Convert STORI format to our format
             for item in stori_result["items"]:
+                # Skip None items to avoid 'NoneType' object has no attribute 'get' error
+                if item is None or not isinstance(item, dict):
+                    continue
+                desc = item.get("name", "")
+                # Filter out header/footer text
+                if desc:
+                    desc_lower = desc.lower().strip()
+                    skip_patterns = [
+                        'total', 'subtotal', 'vat', 'tax', 'amount due', 'balance',
+                        'invoice no', 'invoice number', 'invoice date', 'date:',
+                        'vat registration', 'company registration', 'registration number',
+                        'account no', 'account number', 'sort code', 'iban', 'bic',
+                        'payment terms', 'due date', 'thank you', 'please pay'
+                    ]
+                    if any(pattern in desc_lower for pattern in skip_patterns):
+                        logger.debug(f"[LINE_ITEMS] Skipping header/footer text in STORI result: {desc}")
+                        continue
                 stori_item = {
-                    "desc": item.get("name", ""),
+                    "desc": desc,
                     "qty": item.get("qty", 0),
                     "unit_price": item.get("unit_price_pence", 0) / 100.0,
                     "total": item.get("line_total_pence", 0) / 100.0,
@@ -3027,12 +3079,30 @@ def _extract_line_items_from_page(page: Dict[str, Any], parsed_data: Dict[str, A
                 
                 # Convert TableResult format to our format
                 for item_idx, item in enumerate(table_line_items):
+                    # Skip None items to avoid 'NoneType' object has no attribute 'get' error
+                    if item is None:
+                        continue
                     if isinstance(item, dict):
                         # TableResult.to_dict() format
                         description = item.get("description", "").strip()
                         # CRITICAL FIX: If description is empty, try alternative keys
                         if not description:
                             description = item.get("desc", item.get("item", item.get("product", item.get("name", "")))).strip()
+                        
+                        # Filter out header/footer text that shouldn't be line items
+                        if description:
+                            desc_lower = description.lower().strip()
+                            skip_patterns = [
+                                'total', 'subtotal', 'vat', 'tax', 'amount due', 'balance',
+                                'invoice no', 'invoice number', 'invoice date', 'date:',
+                                'vat registration', 'company registration', 'registration number',
+                                'account no', 'account number', 'sort code', 'iban', 'bic',
+                                'payment terms', 'due date', 'thank you', 'please pay',
+                                'total (£)', 'total (£):', 'vat registration number'
+                            ]
+                            if any(pattern in desc_lower for pattern in skip_patterns):
+                                logger.debug(f"[LINE_ITEMS] Skipping header/footer text in table: {description}")
+                                continue
                         
                         # FIX: LLM uses 'qty' but legacy code uses 'quantity'. Support both.
                         raw_qty = item.get('quantity', item.get('qty', ''))
