@@ -389,7 +389,7 @@ def _retry_ocr_with_fallbacks(doc_id: str, file_path: str, initial_result: Dict[
     log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
     try:
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:252", "message": "retry function entry", "data": {"doc_id": doc_id, "file_path": str(file_path), "initial_pages_count": len(initial_result.get('pages', []))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "ocr_service.py:252", "message": "retry function entry", "data": {"doc_id": doc_id, "file_path": str(file_path), "initial_pages_count": len(_safe_get(initial_result, 'pages', default=[], location="ocr_service.py:392"))}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
     except: pass
     # #endregion
     
