@@ -1310,10 +1310,10 @@ def get_delivery_note(delivery_note_id: str):
                 "unit": (item.get("uom") if item else None) or (item.get("unit") if item else None) or "",
                 "uom": (item.get("uom") if item else None) or (item.get("unit") if item else None) or "",
                 "unit_price": (item.get("unit_price") if item else None) or (item.get("price") if item else None) or 0,
-                "price": item.get("unit_price") or item.get("price") or 0,
-                "total": item.get("total") or item.get("line_total") or 0,
-                "line_total": item.get("total") or item.get("line_total") or 0,
-                "line_number": item.get("line_number"),
+                "price": (item.get("unit_price") if item else None) or (item.get("price") if item else None) or 0,
+                "total": (item.get("total") if item else None) or (item.get("line_total") if item else None) or 0,
+                "line_total": (item.get("total") if item else None) or (item.get("line_total") if item else None) or 0,
+                "line_number": item.get("line_number") if item else None,
             })
         
         con.close()
