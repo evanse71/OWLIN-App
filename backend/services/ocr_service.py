@@ -558,6 +558,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     # This ensures it's always defined even if exceptions occur before it's calculated
     ocr_text_length = 0
     
+    # Initialize needs_manual_review early to avoid UnboundLocalError
+    # This variable is used later in the function but may not be set in all code paths
+    needs_manual_review = False
+    llm_error_message = None
+    
     try:
         # Verify file exists
         if not os.path.exists(file_path):
@@ -1861,9 +1866,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.warning(f"[STORE] No line items to store for doc_id={doc_id}")
     
     # Check for LLM extraction failures that require manual review
-    needs_manual_review = False
-    llm_error_message = None
-    
+    # Note: needs_manual_review and llm_error_message are initialized at function start
     # Scan all pages for LLM failure markers
     if pages:
         for page in pages:
