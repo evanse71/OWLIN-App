@@ -576,14 +576,21 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     # Import Path at function level with alias to avoid scoping issues
     from pathlib import Path as _Path
     
-    # Initialize ocr_text_length early to avoid scoping issues in error handlers
-    # This ensures it's always defined even if exceptions occur before it's calculated
+    # CRITICAL: Initialize all variables that might be accessed in exception handlers
+    # BEFORE any try blocks to avoid UnboundLocalError
     ocr_text_length = 0
-    
-    # Initialize needs_manual_review early to avoid UnboundLocalError
-    # This variable is used later in the function but may not be set in all code paths
     needs_manual_review = False
     llm_error_message = None
+    ocr_result = None
+    parsed_data = {}
+    line_items = []
+    confidence_breakdown = None
+    has_empty_data = False
+    pages = []
+    confidence = 0.0
+    confidence_percent = 0.0
+    doc_type = "invoice"
+    ocr_unusable = False
     
     try:
         # Verify file exists
