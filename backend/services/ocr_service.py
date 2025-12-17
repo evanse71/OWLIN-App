@@ -599,7 +599,6 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Wrap the entire function in a try-except to catch AttributeError (NoneType.get)
     try:
-        try:
         # Verify file exists
         if not os.path.exists(file_path):
             error_msg = f"File not found: {file_path}"
@@ -2212,6 +2211,41 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         "validation": validation_result,
         "flags": parsed_data.get("flags", []) if parsed_data else []  # Include flags (e.g., "ocr_too_low_for_auto_extraction")
     }
+    except AttributeError as attr_error:
+        # Catch AttributeError (like 'NoneType' object has no attribute 'get')
+        # This helps identify exactly where the error occurs
+        error_msg = f"AttributeError in OCR pipeline: {str(attr_error)}"
+        import traceback
+        full_traceback = traceback.format_exc()
+        logger.critical(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+        logger.critical(f"[OCR_V2] Full traceback:\n{full_traceback}")
+        
+        # Log to debug file
+        try:
+            log_path = _Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            import json
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "J",
+                    "location": "ocr_service.py:_process_with_v2_pipeline",
+                    "message": "AttributeError caught (NoneType.get)",
+                    "data": {
+                        "doc_id": doc_id,
+                        "error": str(attr_error),
+                        "error_type": "AttributeError",
+                        "traceback": full_traceback[:3000]
+                    },
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+        except: pass
+        
+        # Update document status and re-raise
+        try:
+            update_document_status(doc_id, "error", "attribute_error", error=error_msg)
+        except: pass
+        raise Exception(error_msg) from attr_error
 
 
 def detect_stuck_documents(max_processing_minutes: int = 10) -> List[Dict[str, Any]]:
