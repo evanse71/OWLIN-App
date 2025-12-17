@@ -751,8 +751,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     if text:
                         page_text_parts.append(text)
             else:
-                for block in page_item.get("blocks", []):
-                    text = block.get("ocr_text", block.get("text", ""))
+                blocks = page_item.get("blocks", []) if page_item and isinstance(page_item, dict) else (getattr(page_item, "blocks", []) if page_item else [])
+                for block in blocks:
+                    if block is None:
+                        continue
+                    text = block.get("ocr_text", block.get("text", "")) if isinstance(block, dict) else (getattr(block, "ocr_text", "") or getattr(block, "text", ""))
                     if text:
                         page_text_parts.append(text)
             ocr_text_length += len("\n".join(page_text_parts))
@@ -831,7 +834,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             error_code = "OCR_ZERO_TEXT" if total_text_length == 0 else "OCR_INSUFFICIENT_TEXT"
             error_metadata = {
                 "error_code": error_code,
-                "error_message": f"OCR produced insufficient text: {retry_result['final_text_length']} chars (minimum 100 required)",
+                "error_message": f"OCR produced insufficient text: {retry_result.get('final_text_length', 0) if retry_result else 0} chars (minimum 100 required)",
                 "engine_used": retry_result.get('ocr_attempts', [{}])[-1].get('engine', 'unknown') if retry_result and retry_result.get('ocr_attempts') else 'unknown',
                 "dpi": retry_result.get('ocr_attempts', [{}])[-1].get('dpi', 300) if retry_result and retry_result.get('ocr_attempts') else 300,
                 "page_count": len(pages),
@@ -842,10 +845,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             }
             
             error_msg_json = json.dumps(error_metadata)
-            logger.error(f"[OCR_V2] All OCR attempts failed: {error_metadata['error_message']} for doc_id={doc_id}")
+            error_msg = error_metadata.get('error_message', 'Unknown error') if error_metadata else 'Unknown error'
+            logger.error(f"[OCR_V2] All OCR attempts failed: {error_msg} for doc_id={doc_id}")
             update_document_status(doc_id, "error", error_code, error=error_msg_json)
-            _log_lifecycle("OCR_ERROR", doc_id, error=error_metadata.get('error_message', 'Unknown error') if error_metadata else 'Unknown error', ocr_text_length=retry_result.get('final_text_length', 0) if retry_result else 0, error_code=error_code, ocr_attempts=len(retry_result.get('ocr_attempts', [])) if retry_result else 0)
-            raise Exception(error_metadata['error_message'])
+            _log_lifecycle("OCR_ERROR", doc_id, error=error_msg, ocr_text_length=retry_result.get('final_text_length', 0) if retry_result else 0, error_code=error_code, ocr_attempts=len(retry_result.get('ocr_attempts', [])) if retry_result else 0)
+            raise Exception(error_msg)
     
     # Store OCR telemetry report in database
     try:
@@ -1792,8 +1796,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     if text:
                         page_text_parts.append(text)
             else:
-                for block in page_item.get("blocks", []):
-                    text = block.get("ocr_text", block.get("text", ""))
+                blocks = page_item.get("blocks", []) if page_item and isinstance(page_item, dict) else (getattr(page_item, "blocks", []) if page_item else [])
+                for block in blocks:
+                    if block is None:
+                        continue
+                    text = block.get("ocr_text", block.get("text", "")) if isinstance(block, dict) else (getattr(block, "ocr_text", "") or getattr(block, "text", ""))
                     if text:
                         page_text_parts.append(text)
             ocr_text_length_recalc += len("\n".join(page_text_parts))
