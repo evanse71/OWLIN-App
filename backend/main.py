@@ -864,6 +864,16 @@ def get_invoice(invoice_id: str):
             con.close()
             raise HTTPException(status_code=404, detail="Invoice not found")
         
+        # #region agent log
+        import json
+        from pathlib import Path as _Path
+        try:
+            log_path = _Path(__file__).parent.parent / ".cursor" / "debug.log"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "main.py:862", "message": "get_invoice row fetched", "data": {"invoice_id": invoice_id, "row_length": len(row) if row else 0, "row_7": row[7] if row and len(row) > 7 else None, "row_7_type": type(row[7]).__name__ if row and len(row) > 7 else "N/A"}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
+        
         invoice_id = row[0]
         doc_id = row[1]
         
@@ -888,6 +898,13 @@ def get_invoice(invoice_id: str):
         
         # Return normalized invoice with line items (canonical field names)
         ocr_stage = row[11] if len(row) > 11 else None
+        # #region agent log
+        try:
+            confidence_val = row[7] if len(row) > 7 else None
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "G", "location": "main.py:890", "message": "before creating invoice dict", "data": {"confidence_val": confidence_val, "confidence_val_type": type(confidence_val).__name__ if confidence_val is not None else "None", "row_7_is_none": row[7] is None if len(row) > 7 else True}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        # #endregion
         invoice = {
             "id": row[0],
             "doc_id": doc_id,
@@ -895,11 +912,11 @@ def get_invoice(invoice_id: str):
             "invoice_date": row[3] or "",
             "total_value": float(row[4]) if row[4] else 0.0,
             "currency": "GBP",  # Default currency
-            "confidence": float(row[7]),
+            "confidence": float(row[7]) if row[7] is not None else 0.0,
             "status": row[6],
             "venue": row[8],
-            "issues_count": int(row[9]),
-            "paired": bool(row[10]),
+            "issues_count": int(row[9]) if row[9] is not None else 0,
+            "paired": bool(row[10]) if row[10] is not None else False,
             "pairing_status": None,  # TODO: populate from invoices table if column exists
             "delivery_note_id": None,  # TODO: populate from invoices table if column exists
             "ocr_stage": ocr_stage,
