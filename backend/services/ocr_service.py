@@ -1184,8 +1184,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     _log_lifecycle("REVIEW_NEEDED", invoice_doc_id,
                                   error="Extraction produced empty data",
                                   reason="extraction_empty_data",
-                                  supplier=parsed_data.get('supplier'),
-                                  total=parsed_data.get('total'),
+                                  supplier=parsed_data.get('supplier') if parsed_data else None,
+                                  total=parsed_data.get('total') if parsed_data else None,
                                   items=len(line_items),
                                   confidence=confidence,
                                   doc_type=doc_type)
@@ -1194,8 +1194,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     # Normal success path
                     update_document_status(invoice_doc_id, "ready", "doc_ready", confidence=confidence)
                     _log_lifecycle("DOC_READY", invoice_doc_id,
-                                  supplier=parsed_data.get('supplier'),
-                                  total=parsed_data.get('total'),
+                                  supplier=parsed_data.get('supplier') if parsed_data else None,
+                                  total=parsed_data.get('total') if parsed_data else None,
                                   items=len(line_items),
                                   confidence=confidence,
                                   doc_type=doc_type)
@@ -1631,7 +1631,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         if not isinstance(parsed_data, dict):
             parsed_data = {}
         parsed_data["ocr_unusable"] = True
-        parsed_data["flags"] = parsed_data.get("flags", [])
+        if parsed_data and isinstance(parsed_data, dict):
+            parsed_data["flags"] = parsed_data.get("flags", [])
         parsed_data["flags"].append("ocr_too_low_for_auto_extraction")
     else:
         if not isinstance(parsed_data, dict):
@@ -1667,6 +1668,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         invoice_status = 'needs_review'
     
     # DEBUG: Log what we're storing
+    # Ensure parsed_data is not None before calling .get()
+    if parsed_data is None or not isinstance(parsed_data, dict):
+        logger.error(f"[OCR_V2] parsed_data is None or not a dict for doc_id={doc_id}")
+        parsed_data = {}
+    
     supplier = parsed_data.get("supplier", "Unknown Supplier")
     invoice_number = parsed_data.get("invoice_number")  # Extract invoice number if found
     invoice_number_source = parsed_data.get("invoice_number_source", "generated")  # Extract invoice number source
@@ -1704,8 +1710,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                    invoice_number=invoice_number,
                    invoice_date=date,
                    total=total,
-                   subtotal=parsed_data.get("subtotal"),
-                   vat=parsed_data.get("vat"),
+                   subtotal=parsed_data.get("subtotal") if parsed_data else None,
+                   vat=parsed_data.get("vat") if parsed_data else None,
                    line_items_count=len(line_items),
                    confidence=confidence_percent,
                    confidence_band=confidence_breakdown.band.value,
@@ -1946,7 +1952,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             confidence=0.0,
             error=json.dumps(review_metadata) if 'json' in globals() else error_msg
         )
-        doc_type = parsed_data.get("doc_type", "invoice")
+        doc_type = parsed_data.get("doc_type", "invoice") if parsed_data and isinstance(parsed_data, dict) else "invoice"
         _log_lifecycle("REVIEW_NEEDED", doc_id,
                       error=error_msg,
                       reason=review_reason,
@@ -1987,7 +1993,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             # (line items still need to be stored)
         
         # Continue with ready path for high confidence
-        doc_type = parsed_data.get("doc_type", "invoice")
+        doc_type = parsed_data.get("doc_type", "invoice") if parsed_data and isinstance(parsed_data, dict) else "invoice"
         
         # Trigger auto-backup if needed (after successful processing)
         try:
@@ -1998,7 +2004,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             logger.warning(f"Auto-backup trigger failed for {doc_id}: {backup_error}")
         
         _log_lifecycle("DOC_READY", doc_id, 
-                  supplier=parsed_data.get('supplier'), 
+                  supplier=parsed_data.get('supplier') if parsed_data else None, 
                   total=parsed_data.get('total'), 
                   items=len(line_items), 
                   confidence=confidence_percent,
