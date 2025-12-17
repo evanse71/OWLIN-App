@@ -637,6 +637,16 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             logger.error(f"[OCR_V2] Failed to update document status after error: {update_error}")
         raise Exception(error_msg)
     
+    # Ensure ocr_result is not None before calling .get()
+    if ocr_result is None:
+        error_msg = "OCR pipeline returned None result"
+        logger.error(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
+        try:
+            update_document_status(doc_id, "error", "ocr_result_none", error=error_msg)
+        except Exception as update_error:
+            logger.error(f"[OCR_V2] Failed to update document status: {update_error}")
+        raise Exception(error_msg)
+    
     if ocr_result.get("status") == "error":
         error_detail = ocr_result.get("error", "OCR processing failed")
         logger.error(f"[OCR_V2] OCR pipeline returned error: {error_detail} for doc_id={doc_id}")
@@ -734,8 +744,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.warning(f"[OCR_V2] Initial OCR produced insufficient text: {total_text_length} chars, attempting retries with fallbacks")
         
         # Get PDF structure and render metadata from initial result
-        pdf_structure = ocr_result.get('pdf_structure')
-        render_metadata = ocr_result.get('render_metadata', [])
+        pdf_structure = ocr_result.get('pdf_structure') if ocr_result else None
+        render_metadata = ocr_result.get('render_metadata', []) if ocr_result else []
         
         # Attempt retries with different configurations
         # #region agent log
@@ -807,7 +817,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     
     # Store OCR telemetry report in database
     try:
-        ocr_telemetry = ocr_result.get('ocr_telemetry')
+        ocr_telemetry = ocr_result.get('ocr_telemetry') if ocr_result else None
         if ocr_telemetry:
             from backend.ocr.ocr_telemetry import OCRTelemetryReport, PageTelemetry, BlockTelemetry, OverallTelemetry
             # Convert dict to OCRTelemetryReport and serialize to JSON
@@ -834,12 +844,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # Don't fail the entire OCR process if telemetry storage fails
     
     # Extract invoice data from OCR result
-    pages = ocr_result.get("pages", [])
+    pages = ocr_result.get("pages", []) if ocr_result else []
     
     # DEBUG: Log OCR result structure
     logger.info(f"[OCR_V2] OCR result keys: {list(ocr_result.keys())}")
     logger.info(f"[OCR_V2] Pages count: {len(pages)}")
-    logger.info(f"[OCR_V2] Overall confidence: {ocr_result.get('confidence', 'N/A')}")
+    logger.info(f"[OCR_V2] Overall confidence: {ocr_result.get('confidence', 'N/A') if ocr_result else 'N/A'}")
     
     if not pages:
         # Provide more helpful error - check if PyMuPDF is missing
@@ -890,7 +900,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 table_data = getattr(block, "table_data", None)
             
             if table_data and isinstance(table_data, dict):
-                metadata = table_data.get("metadata")
+                metadata = table_data.get("metadata") if table_data and isinstance(table_data, dict) else None
                 if metadata and isinstance(metadata, dict):
                     llm_metadata = metadata
                     break
@@ -906,7 +916,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     table_data = getattr(block, "table_data", None)
                 
                 if table_data and isinstance(table_data, dict):
-                    items = table_data.get("line_items", [])
+                    items = table_data.get("line_items", []) if table_data and isinstance(table_data, dict) else []
                     if items:
                         from backend.llm.invoice_parser import LLMLineItem
                         for item_data in items:
@@ -1096,7 +1106,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     line_items = line_items[:MAX_LINE_ITEMS]
                 
                 # Get confidence from OCR result
-                confidence = ocr_result.get("overall_confidence", ocr_result.get("confidence", parsed_data.get("confidence", 0.9)))
+                confidence = (ocr_result.get("overall_confidence", ocr_result.get("confidence", parsed_data.get("confidence", 0.9) if parsed_data else 0.9)) if ocr_result else (parsed_data.get("confidence", 0.9) if parsed_data else 0.9))
                 
                 # Check if needs review
                 needs_review = getattr(combined_result, 'needs_review', False)
@@ -1111,12 +1121,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 
                 # Log extraction data before DB write
                 _log_lifecycle("EXTRACTION_DONE", invoice_doc_id,
-                              supplier=parsed_data.get('supplier'),
-                              invoice_number=parsed_data.get('invoice_number'),
-                              invoice_date=parsed_data.get('date'),
-                              total=parsed_data.get('total'),
-                              subtotal=parsed_data.get('subtotal'),
-                              vat=parsed_data.get('vat'),
+                              supplier=parsed_data.get('supplier') if parsed_data else None,
+                              invoice_number=parsed_data.get('invoice_number') if parsed_data else None,
+                              invoice_date=parsed_data.get('date') if parsed_data else None,
+                              total=parsed_data.get('total') if parsed_data else None,
+                              subtotal=parsed_data.get('subtotal') if parsed_data else None,
+                              vat=parsed_data.get('vat') if parsed_data else None,
                               line_items_count=len(line_items),
                               confidence=confidence,
                               doc_type=doc_type)
@@ -1136,8 +1146,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", invoice_doc_id, items_sample=items_summary)
                 
                 # Check for extraction failure
-                invoice_has_empty_data = (parsed_data.get('supplier') == "Unknown Supplier" and 
-                                         parsed_data.get('total') == 0.0 and len(line_items) == 0)
+                invoice_has_empty_data = ((parsed_data.get('supplier') if parsed_data else None) == "Unknown Supplier" and 
+                                         (parsed_data.get('total') if parsed_data else 0.0) == 0.0 and len(line_items) == 0)
                 if invoice_has_empty_data:
                     error_msg = "Extraction produced empty data: supplier=Unknown Supplier, total=0, line_items=0"
                     logger.error(f"[EXTRACTION_FAILURE] {error_msg} for doc_id={invoice_doc_id}")
@@ -1312,7 +1322,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # #endregion
         
         if table_data and isinstance(table_data, dict):
-            metadata = table_data.get("metadata")
+            metadata = table_data.get("metadata") if table_data and isinstance(table_data, dict) else None
             # #region agent log
             try:
                 with open(log_path, "a", encoding="utf-8") as f:
