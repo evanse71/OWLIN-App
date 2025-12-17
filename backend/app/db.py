@@ -667,12 +667,12 @@ def insert_line_items(doc_id, invoice_id, line_items):
                 doc_id,
                 invoice_id,
                 idx + 1,
-                item.get('description', item.get('desc', '')),
-                item.get('qty', item.get('quantity', None)),
-                item.get('unit_price', None),
-                item.get('total', None),
-                item.get('uom', item.get('unit', '')),
-                item.get('confidence', 0.9),
+                safe_item_get('description', safe_item_get('desc', '')),
+                safe_item_get('qty', safe_item_get('quantity', None)),
+                safe_item_get('unit_price', None),
+                safe_item_get('total', None),
+                safe_item_get('uom', safe_item_get('unit', '')),
+                safe_item_get('confidence', 0.9),
                 bbox_value
             ))
         else:
@@ -685,12 +685,12 @@ def insert_line_items(doc_id, invoice_id, line_items):
                 doc_id,
                 invoice_id,
                 idx + 1,
-                item.get('description', item.get('desc', '')),
-                item.get('qty', item.get('quantity', None)),
-                item.get('unit_price', None),
-                item.get('total', None),
-                item.get('uom', item.get('unit', '')),
-                item.get('confidence', 0.9)
+                safe_item_get('description', safe_item_get('desc', '')),
+                safe_item_get('qty', safe_item_get('quantity', None)),
+                safe_item_get('unit_price', None),
+                safe_item_get('total', None),
+                safe_item_get('uom', safe_item_get('unit', '')),
+                safe_item_get('confidence', 0.9)
             ))
     
     conn.commit()

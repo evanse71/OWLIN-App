@@ -169,10 +169,11 @@ def _deduplicate_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     
     for item in items:
         # Create hash key from normalized fields
-        desc = str(item.get('desc', '')).strip().lower()
-        qty = item.get('qty', 0)
-        unit_price = item.get('unit_price', 0)
-        total = item.get('total', 0)
+        # Use _safe_get to prevent NoneType errors
+        desc = str(_safe_get(item, 'desc', default='', location="ocr_service.py:172")).strip().lower()
+        qty = _safe_get(item, 'qty', default=0, location="ocr_service.py:173")
+        unit_price = _safe_get(item, 'unit_price', default=0, location="ocr_service.py:174")
+        total = _safe_get(item, 'total', default=0, location="ocr_service.py:175")
         
         key = (desc, qty, unit_price, total)
         
@@ -1189,10 +1190,10 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                     for idx, item in enumerate(first_items):
                         items_summary.append({
                             'index': idx + 1,
-                            'desc': str(item.get('desc', ''))[:50],
-                            'qty': item.get('qty'),
-                            'unit_price': item.get('unit_price'),
-                            'total': item.get('total')
+                            'desc': str(_safe_get(item, 'desc', default='', location="ocr_service.py:1192"))[:50],
+                            'qty': _safe_get(item, 'qty', default=None, location="ocr_service.py:1193"),
+                            'unit_price': _safe_get(item, 'unit_price', default=None, location="ocr_service.py:1194"),
+                            'total': _safe_get(item, 'total', default=None, location="ocr_service.py:1195")
                         })
                     _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", invoice_doc_id, items_sample=items_summary)
                 
@@ -1786,12 +1787,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 continue
             items_summary.append({
                 'index': idx + 1,
-                'desc': item.get('desc', '')[:50],  # Truncate long descriptions
-                'qty': item.get('qty'),
-                'unit_price': item.get('unit_price'),
-                'total': item.get('total'),
-                'vat_rate': item.get('vat_rate'),
-                'vat_amount': item.get('vat_amount')
+                'desc': _safe_get(item, 'desc', default='', location="ocr_service.py:1789")[:50],  # Truncate long descriptions
+                'qty': _safe_get(item, 'qty', default=None, location="ocr_service.py:1790"),
+                'unit_price': _safe_get(item, 'unit_price', default=None, location="ocr_service.py:1791"),
+                'total': _safe_get(item, 'total', default=None, location="ocr_service.py:1792"),
+                'vat_rate': _safe_get(item, 'vat_rate', default=None, location="ocr_service.py:1793"),
+                'vat_amount': _safe_get(item, 'vat_amount', default=None, location="ocr_service.py:1794")
             })
         _log_lifecycle("EXTRACTION_ITEMS_SAMPLE", doc_id, items_sample=items_summary)
     
