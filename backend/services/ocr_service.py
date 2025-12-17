@@ -675,6 +675,9 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
     # #endregion
     
     for page_idx, page in enumerate(pages):
+        # Skip None pages to avoid 'NoneType' object has no attribute 'get' error
+        if page is None:
+            continue
         # #region agent log
         try:
             page_keys = list(page.keys()) if isinstance(page, dict) else "not_dict"
@@ -683,7 +686,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "ocr_service.py:500", "message": "page iteration", "data": {"doc_id": doc_id, "page_idx": page_idx, "page_type": page_type, "page_keys": page_keys[:10] if isinstance(page_keys, list) else page_keys}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
         except: pass
         # #endregion
-        page_text = page.get('text', page.get('ocr_text', ''))
+        page_text = page.get('text', page.get('ocr_text', '')) if isinstance(page, dict) else (getattr(page, 'text', '') or getattr(page, 'ocr_text', ''))
         page_text_length = len(page_text) if page_text else 0
         # #region agent log
         try:
@@ -2057,9 +2060,11 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             
             text_parts = []
             for block in blocks:
+                if block is None:
+                    continue
                 if hasattr(block, 'ocr_text'):
                     text_parts.append(getattr(block, 'ocr_text', ''))
-                else:
+                elif isinstance(block, dict):
                     text_parts.append(block.get('ocr_text', ''))
             raw_ocr_text = '\n'.join(text_parts)
         
@@ -2097,44 +2102,52 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.error(f"[VALIDATE] Validation failed: {e}", exc_info=True)
         validation_result = None
     
-        supplier = parsed_data.get("supplier", "Unknown Supplier")
-        customer = parsed_data.get("customer")
-        
-        return {
-            "status": "ok",
-            "doc_id": doc_id,
-            "confidence": confidence_percent,  # Use percent for backward compatibility
-            "confidence_breakdown": confidence_breakdown.to_dict(),
-            "confidence_band": confidence_breakdown.band.value,
-            "ocr_unusable": ocr_unusable,  # Flag indicating if OCR confidence is too low
-            "supplier": supplier,
-            "supplier_name": supplier,  # Alias for frontend compatibility
-            "invoice_number": parsed_data.get("invoice_number"),
-            "invoice_number_source": parsed_data.get("invoice_number_source", "generated"),
-            "customer": customer,
-            "customer_name": customer,  # Alias for frontend compatibility
-            "bill_to_name": customer,  # Alternative name
-            "date": parsed_data.get("date"),
-            "total": parsed_data.get("total"),
-            "subtotal": parsed_data.get("subtotal"),
-            "vat": parsed_data.get("vat"),
-            "vat_rate": parsed_data.get("vat_rate"),
-            "line_items": line_items,
-            "doc_type": doc_type,
-            "validation": validation_result,
-            "flags": parsed_data.get("flags", [])  # Include flags (e.g., "ocr_too_low_for_auto_extraction")
-        }
-    except Exception as e:
-        # Catch any unhandled exceptions and ensure status is set to error
-        error_msg = f"Unhandled exception in OCR pipeline: {str(e)}"
-        import traceback
-        full_traceback = traceback.format_exc()
-        logger.exception(f"[OCR_V2] {error_msg} for doc_id={doc_id}")
-        try:
-            update_document_status(doc_id, "error", "ocr_unhandled_exception", error=error_msg)
-        except Exception as update_error:
-            logger.error(f"[OCR_V2] Failed to update document status after unhandled exception: {update_error}")
-        raise Exception(error_msg) from e
+    # Ensure parsed_data is not None before calling .get()
+    if parsed_data is None or not isinstance(parsed_data, dict):
+        logger.error(f"[OCR_V2] parsed_data is None or not a dict in return statement for doc_id={doc_id}")
+        parsed_data = {}
+    
+    # Ensure confidence_breakdown is not None before calling methods
+    if confidence_breakdown is None:
+        logger.error(f"[OCR_V2] confidence_breakdown is None in return statement for doc_id={doc_id}")
+        # Create a minimal confidence breakdown
+        from backend.services.confidence_calculator import ConfidenceBreakdown, ConfidenceBand
+        confidence_breakdown = ConfidenceBreakdown(
+            overall_quality=0.0,
+            extraction_quality=0.0,
+            validation_quality=0.0,
+            band=ConfidenceBand.CRITICAL,
+            primary_issue="confidence_breakdown_missing",
+            remediation_hints=[]
+        )
+    
+    supplier = parsed_data.get("supplier", "Unknown Supplier")
+    customer = parsed_data.get("customer")
+    
+    return {
+        "status": "ok",
+        "doc_id": doc_id,
+        "confidence": confidence_percent,  # Use percent for backward compatibility
+        "confidence_breakdown": confidence_breakdown.to_dict(),
+        "confidence_band": confidence_breakdown.band.value,
+        "ocr_unusable": ocr_unusable,  # Flag indicating if OCR confidence is too low
+        "supplier": supplier,
+        "supplier_name": supplier,  # Alias for frontend compatibility
+        "invoice_number": parsed_data.get("invoice_number") if parsed_data else None,
+        "invoice_number_source": parsed_data.get("invoice_number_source", "generated") if parsed_data else "generated",
+        "customer": customer,
+        "customer_name": customer,  # Alias for frontend compatibility
+        "bill_to_name": customer,  # Alternative name
+        "date": parsed_data.get("date") if parsed_data else None,
+        "total": parsed_data.get("total") if parsed_data else None,
+        "subtotal": parsed_data.get("subtotal") if parsed_data else None,
+        "vat": parsed_data.get("vat") if parsed_data else None,
+        "vat_rate": parsed_data.get("vat_rate") if parsed_data else None,
+        "line_items": line_items,
+        "doc_type": doc_type,
+        "validation": validation_result,
+        "flags": parsed_data.get("flags", []) if parsed_data else []  # Include flags (e.g., "ocr_too_low_for_auto_extraction")
+    }
 
 
 def detect_stuck_documents(max_processing_minutes: int = 10) -> List[Dict[str, Any]]:
