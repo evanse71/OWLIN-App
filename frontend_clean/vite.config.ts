@@ -18,8 +18,8 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5176,
-    strictPort: false, // Allow using next available port if 5176 is busy
+    port: 5177,
+    strictPort: false, // Allow using next available port if 5177 is busy
     open: false,
     cors: true,
     // NOTE: For single-port setup (backend on 5177), don't use dev server

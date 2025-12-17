@@ -67,30 +67,52 @@ async def delete_invoices(request: DeleteInvoicesRequest):
                 cur.execute("SELECT doc_id, status FROM invoices WHERE id = ?", (invoice_id,))
                 invoice_row = cur.fetchone()
                 
-                if not invoice_row:
-                    errors.append(f"Invoice {invoice_id} not found")
-                    continue
-                
-                doc_id = invoice_row[0] if invoice_row else None
-                invoice_status = invoice_row[1] if len(invoice_row) > 1 else None
-                
-                # Only delete invoices that haven't been submitted
-                if invoice_status == 'submitted':
-                    skipped_count += 1
-                    errors.append(f"Invoice {invoice_id} is already submitted and cannot be deleted")
-                    continue
-                
-                # Delete invoice line items first (foreign key constraint)
-                cur.execute("DELETE FROM invoice_line_items WHERE invoice_id = ?", (invoice_id,))
-                
-                # Delete invoice
-                cur.execute("DELETE FROM invoices WHERE id = ?", (invoice_id,))
-                
-                # Delete associated document if exists
-                if doc_id:
-                    cur.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-                
-                deleted_count += 1
+                if invoice_row:
+                    # Invoice exists in invoices table
+                    doc_id = invoice_row[0] if invoice_row else None
+                    invoice_status = invoice_row[1] if len(invoice_row) > 1 else None
+                    
+                    # Only delete invoices that haven't been submitted
+                    if invoice_status == 'submitted':
+                        skipped_count += 1
+                        errors.append(f"Invoice {invoice_id} is already submitted and cannot be deleted")
+                        continue
+                    
+                    # Delete invoice line items first (foreign key constraint)
+                    cur.execute("DELETE FROM invoice_line_items WHERE invoice_id = ?", (invoice_id,))
+                    
+                    # Delete invoice
+                    cur.execute("DELETE FROM invoices WHERE id = ?", (invoice_id,))
+                    
+                    # Delete associated document if exists (using doc_id from invoice or invoice_id as fallback)
+                    if doc_id:
+                        cur.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+                    else:
+                        # If no doc_id in invoice, try using invoice_id as doc_id (some documents use invoice_id as doc_id)
+                        cur.execute("DELETE FROM documents WHERE id = ?", (invoice_id,))
+                    
+                    deleted_count += 1
+                else:
+                    # Invoice not found in invoices table - might be a document-only entry (e.g., error documents)
+                    # Try to delete directly from documents table
+                    cur.execute("SELECT status FROM documents WHERE id = ?", (invoice_id,))
+                    doc_row = cur.fetchone()
+                    
+                    if doc_row:
+                        doc_status = doc_row[0] if doc_row else None
+                        
+                        # Only delete documents that haven't been submitted
+                        if doc_status == 'submitted':
+                            skipped_count += 1
+                            errors.append(f"Document {invoice_id} is already submitted and cannot be deleted")
+                            continue
+                        
+                        # Delete document directly
+                        cur.execute("DELETE FROM documents WHERE id = ?", (invoice_id,))
+                        deleted_count += 1
+                    else:
+                        errors.append(f"Invoice/Document {invoice_id} not found in invoices or documents table")
+                        continue
                 
             except Exception as e:
                 error_msg = f"Error deleting invoice {invoice_id}: {str(e)}"
