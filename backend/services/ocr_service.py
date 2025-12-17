@@ -856,8 +856,8 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
                 "page_count": len(pages),
                 "has_text_layer": _safe_get(pdf_structure, 'has_text_layer', default=False, location="ocr_service.py:838"),
                 "ocr_attempts": _safe_get(retry_result, 'ocr_attempts', default=[], location="ocr_service.py:839"),
-                "rendered_image_valid": len(render_metadata) > 0 and all(rm.get('width', 0) > 0 and rm.get('height', 0) > 0 for rm in render_metadata) if render_metadata else False,
-                "mean_pixel_intensity": render_metadata[0].get('mean_intensity') if render_metadata and len(render_metadata) > 0 else None
+                "rendered_image_valid": len(render_metadata) > 0 and all(_safe_get(rm, 'width', default=0, location="ocr_service.py:859") > 0 and _safe_get(rm, 'height', default=0, location="ocr_service.py:859") > 0 for rm in render_metadata if rm) if render_metadata else False,
+                "mean_pixel_intensity": _safe_get(render_metadata[0], 'mean_intensity', default=None, location="ocr_service.py:860") if render_metadata and len(render_metadata) > 0 and render_metadata[0] else None
             }
             
             error_msg_json = json.dumps(error_metadata)
@@ -941,13 +941,13 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # Extract LLM metadata from page blocks
         llm_metadata = None
         if isinstance(page, dict):
-            blocks = page.get("blocks", [])
+            blocks = _safe_get(page, "blocks", default=[], location="ocr_service.py:944") if page else []
         else:
             blocks = getattr(page, "blocks", [])
         
         for block in blocks:
             if isinstance(block, dict):
-                table_data = block.get("table_data")
+                table_data = _safe_get(block, "table_data", default=None, location="ocr_service.py:950") if block else None
             else:
                 table_data = getattr(block, "table_data", None)
             
@@ -963,7 +963,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
             line_items = []
             for block in blocks:
                 if isinstance(block, dict):
-                    table_data = block.get("table_data")
+                    table_data = _safe_get(block, "table_data", default=None, location="ocr_service.py:950") if block else None
                 else:
                     table_data = getattr(block, "table_data", None)
                 
@@ -1313,7 +1313,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         logger.info(f"[OCR_V2] Page has 'text': {'text' in page}")
         logger.info(f"[OCR_V2] Page has 'ocr_text': {'ocr_text' in page}")
         if 'blocks' in page:
-            blocks_list = page.get('blocks', [])
+            blocks_list = _safe_get(page, 'blocks', default=[], location="ocr_service.py:1316") if page else []
             logger.info(f"[OCR_V2] Page blocks count: {len(blocks_list)}")
             # Log details about each block
             for i, b in enumerate(blocks_list[:5]):  # Log first 5 blocks
@@ -1581,7 +1581,7 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         
         page_text = "\n".join(page_text_parts)
         page_word_count = len(page_text.split()) if page_text else 0
-        page_confidence = getattr(page_item, 'confidence', None) or page_item.get('confidence', 0.0) if isinstance(page_item, dict) else 0.0
+        page_confidence = getattr(page_item, 'confidence', None) if page_item and not isinstance(page_item, dict) else (_safe_get(page_item, 'confidence', default=0.0, location="ocr_service.py:1584") if page_item else 0.0)
         
         page_metrics.append({
             "page_number": page_idx + 1,
@@ -1697,12 +1697,12 @@ def _process_with_v2_pipeline(doc_id: str, file_path: str) -> Dict[str, Any]:
         # Check first page's table_data for needs_review flag
         first_page = ocr_result["pages"][0]
         if first_page:
-            blocks = first_page.get("blocks", []) if isinstance(first_page, dict) else getattr(first_page, "blocks", [])
+            blocks = _safe_get(first_page, "blocks", default=[], location="ocr_service.py:1700") if first_page and isinstance(first_page, dict) else (getattr(first_page, "blocks", []) if first_page else [])
             for block in blocks:
                 if block is None:
                     continue
                 if isinstance(block, dict):
-                    table_data = block.get("table_data")
+                    table_data = _safe_get(block, "table_data", default=None, location="ocr_service.py:950") if block else None
                 else:
                     table_data = getattr(block, "table_data", None)
                 if table_data and isinstance(table_data, dict) and table_data.get("needs_review"):
