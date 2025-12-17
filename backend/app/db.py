@@ -618,6 +618,13 @@ def insert_line_items(doc_id, invoice_id, line_items):
     columns = [row[1] for row in cursor.fetchall()]
     has_bbox_column = 'bbox' in columns
     
+    # Helper function to safely get item values
+    def safe_item_get(item, key, default=None):
+        """Helper to safely get item values - prevents NoneType errors"""
+        if item is None or not isinstance(item, dict):
+            return default
+        return item.get(key, default)
+    
     for idx, item in enumerate(line_items):
         # Skip None items to avoid 'NoneType' object has no attribute 'get' error
         if item is None:
@@ -667,12 +674,12 @@ def insert_line_items(doc_id, invoice_id, line_items):
                 doc_id,
                 invoice_id,
                 idx + 1,
-                safe_item_get('description', safe_item_get('desc', '')),
-                safe_item_get('qty', safe_item_get('quantity', None)),
-                safe_item_get('unit_price', None),
-                safe_item_get('total', None),
-                safe_item_get('uom', safe_item_get('unit', '')),
-                safe_item_get('confidence', 0.9),
+                safe_item_get(item, 'description', safe_item_get(item, 'desc', '')),
+                safe_item_get(item, 'qty', safe_item_get(item, 'quantity', None)),
+                safe_item_get(item, 'unit_price', None),
+                safe_item_get(item, 'total', None),
+                safe_item_get(item, 'uom', safe_item_get(item, 'unit', '')),
+                safe_item_get(item, 'confidence', 0.9),
                 bbox_value
             ))
         else:
@@ -685,12 +692,12 @@ def insert_line_items(doc_id, invoice_id, line_items):
                 doc_id,
                 invoice_id,
                 idx + 1,
-                safe_item_get('description', safe_item_get('desc', '')),
-                safe_item_get('qty', safe_item_get('quantity', None)),
-                safe_item_get('unit_price', None),
-                safe_item_get('total', None),
-                safe_item_get('uom', safe_item_get('unit', '')),
-                safe_item_get('confidence', 0.9)
+                safe_item_get(item, 'description', safe_item_get(item, 'desc', '')),
+                safe_item_get(item, 'qty', safe_item_get(item, 'quantity', None)),
+                safe_item_get(item, 'unit_price', None),
+                safe_item_get(item, 'total', None),
+                safe_item_get(item, 'uom', safe_item_get(item, 'unit', '')),
+                safe_item_get(item, 'confidence', 0.9)
             ))
     
     conn.commit()
